@@ -1,23 +1,21 @@
 import discord
 import logging
 from models import LobbySession
+from config import ADMIN_IDS
 
 logger = logging.getLogger(__name__)
 
+def is_authorized(user_id: int, session: LobbySession) -> bool:
+    return user_id == session.host.id or user_id in ADMIN_IDS
 
-# ─────────────────────────────────────────────
-#  Dropdown de remoção (visível só para criador)
-# ─────────────────────────────────────────────
 class RemoveSelect(discord.ui.Select):
     def __init__(self, session: LobbySession):
         self.session = session
         options = []
 
-        # Adiciona jogadores da lista principal
         for p in session.players:
             options.append(discord.SelectOption(label=f"📋 {p.display_name}", value=f"player_{p.id}"))
 
-        # Adiciona jogadores da espera
         for p in session.waitlist:
             options.append(discord.SelectOption(label=f"🔔 {p.display_name}", value=f"waitlist_{p.id}"))
 
@@ -31,11 +29,10 @@ class RemoveSelect(discord.ui.Select):
         session = self.session
         logger.info(f"[RemoveSelect] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} selecionou quem remover | Host: {session.host.name}#{session.host.id}")
 
-        # Só criador
-        if interaction.user.id != session.host.id:
+        if not is_authorized(interaction.user.id, session):
             logger.warning(f"[RemoveSelect] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} tentou remover SEM PERMISSÃO")
             await interaction.response.send_message(
-                "❌ Apenas quem criou a lista pode remover pessoas.", ephemeral=True
+                "❌ Apenas quem criou a lista ou um administrador pode remover pessoas.", ephemeral=True
             )
             return
 
@@ -83,7 +80,7 @@ class AddUserSelect(discord.ui.UserSelect):
         session = self.session
         logger.info(f"[AddUserSelect] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} selecionou um usuário | Host: {session.host.name}#{session.host.id}")
 
-        if interaction.user.id != session.host.id and not interaction.user.guild_permissions.manage_messages:
+        if not is_authorized(interaction.user.id, session) and not interaction.user.guild_permissions.manage_messages:
             logger.warning(f"[AddUserSelect] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} tentou adicionar SEM PERMISSÃO")
             await interaction.response.send_message(
                 "❌ Apenas o criador ou um administrador pode adicionar pessoas.", ephemeral=True
@@ -200,7 +197,7 @@ class LobbyView(discord.ui.View):
         session = self.session
         logger.info(f"[Adicionar] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} clicou em 'Adicionar pessoa' | Host: {session.host.name}#{session.host.id}")
 
-        if interaction.user.id != session.host.id and not interaction.user.guild_permissions.manage_messages:
+        if not is_authorized(interaction.user.id, session) and not interaction.user.guild_permissions.manage_messages:
             logger.warning(f"[Adicionar] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} tentou adicionar SEM PERMISSÃO")
             await interaction.response.send_message(
                 "❌ Apenas o criador ou um administrador pode adicionar pessoas.", ephemeral=True
@@ -217,11 +214,10 @@ class LobbyView(discord.ui.View):
         session = self.session
         logger.info(f"[Remover Pessoa] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} clicou em 'Remover pessoa' | Host: {session.host.name}#{session.host.id}")
 
-        # Só criador
-        if interaction.user.id != session.host.id:
+        if not is_authorized(interaction.user.id, session):
             logger.warning(f"[Remover Pessoa] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} tentou remover SEM PERMISSÃO")
             await interaction.response.send_message(
-                "❌ Apenas quem criou a lista pode remover pessoas.", ephemeral=True
+                "❌ Apenas quem criou a lista ou um administrador pode remover pessoas.", ephemeral=True
             )
             return
 
@@ -241,11 +237,10 @@ class LobbyView(discord.ui.View):
         session = self.session
         logger.info(f"[Encerrar] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} clicou em 'Encerrar lista' | Host: {session.host.name}#{session.host.id} | Jogadores: {len(session.players)}/10")
 
-        # Só criador
-        if interaction.user.id != session.host.id:
+        if not is_authorized(interaction.user.id, session):
             logger.warning(f"[Encerrar] Lista #{session.id} | {interaction.user.name}#{interaction.user.id} tentou encerrar SEM PERMISSÃO")
             await interaction.response.send_message(
-                "❌ Apenas quem criou a lista pode encerrar.", ephemeral=True
+                "❌ Apenas quem criou a lista ou um administrador pode encerrar.", ephemeral=True
             )
             return
 

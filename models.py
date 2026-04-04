@@ -1,16 +1,15 @@
 import discord
-import uuid
-from config import MAX_PLAYERS
+from config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 
 
 # ─────────────────────────────────────────────
 #  Modelo de sessão
 # ─────────────────────────────────────────────
 class LobbySession:
-    def __init__(self, host: discord.Member):
-        self.id = str(uuid.uuid4())[:8].upper()  # ID único de 8 caracteres
+    def __init__(self, host: discord.Member, session_id: int):
+        self.id = session_id
         self.host = host
-        self.message: discord.Message | None = None   # definido após o envio
+        self.message: discord.Message | None = None
         self.players: list[discord.Member] = []
         self.player_ids: set[int] = set()
         self.waitlist: list[discord.Member] = []
@@ -62,10 +61,10 @@ class LobbySession:
         is_full = filled >= MAX_PLAYERS
 
         color = discord.Color.green() if is_full else discord.Color.blurple()
-        status = "🔒 CHEIO — 10/10" if is_full else f"✅ Aberto — {filled}/{MAX_PLAYERS}"
+        status = f"🔒 CHEIO — {MAX_PLAYERS}/{MAX_PLAYERS}" if is_full else f"✅ Aberto — {filled}/{MAX_PLAYERS}"
 
-        embed = discord.Embed(title="🎮 Lista de Presença — UEFA Fumos League", color=color)
-        embed.set_footer(text=f"Aberto por {self.host.display_name} | ID: {self.id}")
+        embed = discord.Embed(title=f"{LEAGUE_EMOJI} Lista de Presença — {LEAGUE_NAME}", color=color)
+        embed.set_footer(text=f"Aberto por {self.host.display_name} | ID: #{self.id}")
         embed.add_field(name="Status", value=status, inline=False)
 
         if self.players:
