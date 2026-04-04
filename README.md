@@ -1,6 +1,6 @@
 # 🎮 Discord Bot — Lista de Presença
 
-Bot para Discord desenvolvido em Python que gerencia **listas de presença interativas** para inhouses de Dota 2. Apesar do contexto original ser Dota, o bot é genérico e pode ser usado para organizar qualquer evento com vagas limitadas.
+Bot para Discord desenvolvido em Python que gerencia **listas de presença interativas** para inhouses. Apesar do contexto original ser Dota, o bot é genérico e pode ser usado para organizar qualquer evento com vagas limitadas.
 
 ---
 
