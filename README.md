@@ -1,139 +1,147 @@
-# 🎮 Discord Bot — Lista de Presença
+# 🎮 Discord Bot — Signup List
 
-Bot para Discord desenvolvido em Python que gerencia **listas de presença interativas** para inhouses de Dota 2. Apesar do contexto original ser Dota, o bot é genérico e pode ser usado para organizar qualquer evento com vagas limitadas.
+> 🇧🇷 [Versão em Português](./README.pt-BR.md)
 
----
-
-## ✨ Funcionalidades
-
-- **Criação de lobby interativo** com embed atualizado em tempo real
-- **Limite configurável de jogadores** (padrão: 10)
-- **Lista de espera automática** — quando a lista está cheia, novos jogadores entram na fila
-- **Promoção automática** da espera ao principal quando alguém sai
-- **Controle de acesso**: apenas o criador da lista ou admins podem adicionar/remover pessoas e encerrar o lobby
-- **Botões interativos** diretamente na mensagem do Discord (sem necessidade de digitar comandos para entrar/sair)
-- **IDs de sessão diários** — o contador reinicia todo dia
-- **Suporte a deploy no Railway** via `Procfile`
+A Discord bot written in Python that manages **interactive signup lists** for Dota 2 inhouses. Although originally built for Dota, it is generic enough to be used for any event with a limited number of slots.
 
 ---
 
-## 🖼️ Como funciona
+## ✨ Features
 
-Ao executar o comando `!lista`, o bot cria uma mensagem embed com os seguintes botões:
+- **Interactive lobby** with a real-time updated embed
+- **Configurable player limit** (default: 10)
+- **Automatic waitlist** — when the list is full, new players join the queue
+- **Auto-promotion** from the waitlist when someone leaves
+- **Access control**: only the host or admins can add/remove people and close the lobby
+- **Interactive buttons** directly on the Discord message (no need to type commands to join/leave)
+- **Daily session IDs** — the counter resets every day
+- **Railway deploy support** via `Procfile`
 
-| Botão | Descrição |
+---
+
+## 🖼️ How it works
+
+When the `!lista` command is run, the bot creates an embed message with the following buttons:
+
+| Button | Description |
 |---|---|
-| ✋ Entrar | Entra na lista (ou na espera se estiver cheia) |
-| 🚪 Sair | Sai da lista ou da espera |
-| ➕ Adicionar pessoa | (Host/Admin) Adiciona outro usuário via seletor |
-| 👤 Remover pessoa | (Host/Admin) Remove alguém da lista ou da espera |
-| 🔒 Encerrar lista | (Host/Admin) Fecha o lobby |
+| ✋ Entrar | Join the list (or the waitlist if full) |
+| 🚪 Sair | Leave the list or the waitlist |
+| ➕ Adicionar pessoa | (Host/Admin) Add another user via selector |
+| 👤 Remover pessoa | (Host/Admin) Remove someone from the list or waitlist |
+| 🔒 Encerrar lista | (Host/Admin) Close the lobby |
 
 ---
 
-## 🗂️ Estrutura do projeto
+## 🗂️ Project structure
 
 ```
 discord-bot-uefa/
-├── bot.py           # Inicialização do bot e configuração de intents
-├── commands.py      # Registro dos comandos (!lista, !lobby, !inhouse)
-├── models.py        # Modelo LobbySession com toda a lógica de estado
-├── views.py         # Views e botões interativos (discord.ui)
-├── helpers.py       # Funções auxiliares (ex: encerrar sessão)
-├── config.py        # Configurações via variáveis de ambiente
-├── requirements.txt # Dependências Python
-└── Procfile         # Configuração para deploy no Railway
+├── bot.py           # Bot initialization and intents setup
+├── commands.py      # Command registration (!lista, !lobby, !inhouse)
+├── models.py        # LobbySession model with all state logic
+├── views.py         # Interactive views and buttons (discord.ui)
+├── helpers.py       # Helper functions (e.g. close session)
+├── config.py        # Configuration via environment variables
+├── requirements.txt # Python dependencies
+└── Procfile         # Railway deploy configuration
 ```
 
 ---
 
-## ⚙️ Configuração
+## ⚙️ Configuration
 
-### Variáveis de ambiente
+### Environment variables
 
-Crie um arquivo `.env` na raiz do projeto com as seguintes variáveis:
+Create a `.env` file at the project root with the following variables:
 
 ```env
-DISCORD_TOKEN=seu_token_aqui
-LEAGUE_NAME=Nome da sua liga
+DISCORD_TOKEN=your_token_here
+LEAGUE_NAME=Your League Name
 LEAGUE_EMOJI=🎮
 ADMIN_IDS=123456789,987654321
 ```
 
-| Variável | Descrição |
+| Variable | Description |
 |---|---|
-| `DISCORD_TOKEN` | Token do bot no Discord Developer Portal |
-| `LEAGUE_NAME` | Nome exibido no embed da lista |
-| `LEAGUE_EMOJI` | Emoji exibido no título do embed |
-| `ADMIN_IDS` | IDs dos usuários com permissão de admin (separados por vírgula) |
+| `DISCORD_TOKEN` | Your bot token from the Discord Developer Portal |
+| `LEAGUE_NAME` | Name displayed in the list embed |
+| `LEAGUE_EMOJI` | Emoji displayed in the embed title |
+| `ADMIN_IDS` | Comma-separated user IDs with admin permission |
 
-> **Nota:** O número máximo de jogadores (`MAX_PLAYERS`) está definido como `10` diretamente em `config.py`.
+> **Note:** The maximum number of players (`MAX_PLAYERS`) is set to `10` directly in `config.py`.
 
 ---
 
-## 🚀 Como rodar
+## 🚀 Running locally
 
-### Pré-requisitos
+### Prerequisites
 
 - Python 3.10+
-- Uma aplicação criada no [Discord Developer Portal](https://discord.com/developers/applications) com as permissões necessárias
+- An application created on the [Discord Developer Portal](https://discord.com/developers/applications)
 
-### Instalação
+### Installation
 
 ```bash
-# Clone o repositório
+# Clone the repository
 git clone https://github.com/fabiosabah/discord-bot-uefa.git
 cd discord-bot-uefa
 
-# Instale as dependências
+# Install dependencies
 pip install -r requirements.txt
 
-# Configure o .env (veja seção acima)
+# Set up your .env (see section above)
 
-# Rode o bot
+# Run the bot
 python bot.py
 ```
 
-### Permissões necessárias no Discord
+### Required Discord permissions
 
-Ao adicionar o bot ao servidor, garanta que ele tenha:
+When adding the bot to your server, make sure it has:
 - `Send Messages`
-- `Manage Messages` (para deletar o comando original)
+- `Manage Messages` (to delete the original command message)
 - `Read Message History`
-- `Use External Emojis` (opcional)
+- `Use External Emojis` (optional)
 
-Nos **Privileged Gateway Intents** do Developer Portal, habilite:
+In the **Privileged Gateway Intents** section of the Developer Portal, enable:
 - `Message Content Intent`
 - `Server Members Intent`
 
 ---
 
-## 📦 Deploy no Railway
+## 📦 Deploy on Railway
 
-O projeto já inclui um `Procfile` para deploy no [Railway](https://railway.app). Siga os passos:
+The project includes a `Procfile` for deployment on [Railway](https://railway.app). Follow these steps:
 
-1. Crie um novo projeto no Railway e conecte ao repositório GitHub
-2. Na aba **Variables**, adicione as variáveis de ambiente:
+1. Create a new project on Railway and connect your GitHub repository
+2. Under the **Variables** tab, add your environment variables:
 
 ```
-DISCORD_TOKEN=seu_token
-LEAGUE_NAME=Minha Liga
+DISCORD_TOKEN=your_token
+LEAGUE_NAME=Your League
 LEAGUE_EMOJI=🎮
 ADMIN_IDS=123456789
 ```
 
-3. O Railway detectará o `Procfile` automaticamente e iniciará o bot
+3. Railway will automatically detect the `Procfile` and start the bot
 
 ---
 
-## 🛠️ Comandos disponíveis
+## 🛠️ Available commands
 
-| Comando | Aliases | Descrição |
+| Command | Aliases | Description |
 |---|---|---|
-| `!lista` | `!lobby`, `!inhouse` | Cria uma nova lista de presença |
+| `!lista` | `!lobby`, `!inhouse` | Creates a new signup list |
 
 ---
 
-## 📄 Licença
+## 🤝 Contributing
 
-Este projeto não possui uma licença definida. Sinta-se livre para usar e adaptar para o seu servidor.
+Found a bug or have an idea for a new feature? Feel free to [open an issue](https://github.com/fabiosabah/discord-bot-uefa/issues) — contributions are welcome!
+
+---
+
+## 📄 License
+
+This project has no defined license. Feel free to use and adapt it for your own server.
