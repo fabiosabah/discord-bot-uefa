@@ -1,24 +1,28 @@
+# -*- coding: utf-8 -*-
 import discord
 import logging
-from config import MAX_PLAYERS
-from models import LobbySession
+from core.config import MAX_PLAYERS
+from domain.models import LobbySession
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("LobbyService")
 
-
-# ─────────────────────────────────────────────
-#  Helpers
-# ─────────────────────────────────────────────
 async def close_session(
     session: LobbySession,
     interaction: discord.Interaction,
+    active_lobbies: dict
 ):
-    from bot import active_lobbies
-    from views import LobbyView
+    """
+    Fecha a sessão atual e, se houver espera, cria uma nova automaticamente.
+    """
+    from ui.views.lobby_view import LobbyView
+    from services.state import get_next_id
     
     session.closed = True
     message = session.message
-    active_lobbies.pop(message.id, None)
+    
+    # Remove a sessão atual dos lobbies ativos
+    if message:
+        active_lobbies.pop(message.id, None)
 
     filled = len(session.players)
     cancelled = filled < MAX_PLAYERS
@@ -45,8 +49,8 @@ async def close_session(
             next_players = session.waitlist[:MAX_PLAYERS]
             remaining_waitlist = session.waitlist[MAX_PLAYERS:]
 
-            # Cria nova sessão com o mesmo host
-            new_session = LobbySession(host=session.host)
+            # Cria nova sessão com o mesmo host e incrementa o ID
+            new_session = LobbySession(host=session.host, session_id=get_next_id())
             
             # Adiciona os primeiros 10 da espera à nova lista
             for player in next_players:
@@ -57,7 +61,7 @@ async def close_session(
                 new_session.add_to_waitlist(player)
 
             # Envia a nova lista
-            new_view = LobbyView(new_session)
+            new_view = LobbyView(new_session, active_lobbies)
             new_msg = await message.channel.send(
                 f"📋 **Nova lista criada automaticamente com a espera!**",
                 embed=new_session.build_embed(),

@@ -3,9 +3,9 @@ import sqlite3
 import logging
 import os
 from datetime import datetime
-from config import DB_PATH
+from core.config import DB_PATH
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("Database")
 
 # ─────────────────────────────────────────────
 # Inicialização do banco
@@ -125,10 +125,29 @@ def get_ranking() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_top_two() -> list[dict]:
-    """Retorna os 2 jogadores com maior pontuação (capitães)."""
-    ranking = get_ranking()
-    return ranking[:2]
+def get_captains_from_list(player_ids: list[int]) -> list[dict]:
+    """
+    Busca os 2 melhores jogadores (capitães) dentre uma lista específica de IDs.
+    Critério: Pontos (W*3 - L) DESC, depois Vitórias DESC.
+    """
+    if not player_ids:
+        return []
+    
+    placeholders = ', '.join(['?'] * len(player_ids))
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT
+                discord_id,
+                display_name,
+                wins,
+                losses,
+                (wins * 3 - losses) AS points
+            FROM players
+            WHERE discord_id IN ({placeholders})
+            ORDER BY points DESC, wins DESC
+            LIMIT 2
+        """, player_ids).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ─────────────────────────────────────────────

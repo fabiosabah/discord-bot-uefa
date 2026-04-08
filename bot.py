@@ -1,10 +1,24 @@
 # -*- coding: utf-8 -*-
 import discord
+import logging
+import sys
 from discord.ext import commands
-from config import TOKEN
-from commands import setup_commands
-from score_commands import setup_score_commands
-from database import init_db
+from core.config import TOKEN
+from core.database import init_db
+from ui.commands.lobby_commands import setup_lobby_commands
+from ui.commands.score_commands import setup_score_commands
+
+# ─────────────────────────────────────────────
+# Configuração de Logging (Railway stdout)
+# ─────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("BotCore")
 
 # ─────────────────────────────────────────────
 # Configuração do bot
@@ -16,17 +30,19 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Dicionário global de lobbies ativos
 active_lobbies = {}
 
 @bot.event
 async def on_ready():
     init_db()
-    print(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
+    logger.info(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
     print("-" * 40)
     for guild in bot.guilds:
-        print(f"Servidor: {guild.name} | Membros: {len(guild.members)}")
+        logger.info(f"Servidor: {guild.name} | Membros: {len(guild.members)}")
 
-setup_commands(bot, active_lobbies)
+# Setup dos comandos
+setup_lobby_commands(bot, active_lobbies)
 setup_score_commands(bot)
 
 if __name__ == "__main__":

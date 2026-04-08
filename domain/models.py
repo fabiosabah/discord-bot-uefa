@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import discord
-from config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
-from database import get_top_two
+from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
+from core.database import get_captains_from_list
 
 # ─────────────────────────────────────────────
 # Modelo de sessão
@@ -61,35 +61,32 @@ class LobbySession:
     def _get_captains_field(self) -> str | None:
         """
         Retorna a string dos capitães se houver pelo menos 2 jogadores na lista.
-        Cruza os IDs dos jogadores presentes com o ranking do banco.
+        Busca os 2 melhores no banco dentre os IDs presentes.
         """
         if len(self.players) < 2:
             return None
 
         # IDs dos jogadores atualmente na lista
-        present_ids = self.player_ids
+        present_ids = list(self.player_ids)
 
-        # Busca o ranking e filtra apenas quem está na lista
-        top = get_top_two()
+        # Busca os 2 melhores no banco dentre os presentes
+        captains_data = get_captains_from_list(present_ids)
 
-        # Filtra capitães que estão na lista atual
-        captains_in_list = [p for p in top if p["discord_id"] in present_ids]
-
-        # Se não tiver 2 capitães na lista, pega os 2 primeiros da lista por ordem de entrada
-        if len(captains_in_list) < 2:
-            # fallback: primeiros da lista como capitães
+        # Se não houver dados no banco para pelo menos 2, usa os primeiros da lista como fallback
+        if len(captains_data) < 2:
             captain_a = self.players[0]
             captain_b = self.players[1]
             return (
                 f"👑 **Capitães Definidos:**\n"
                 f"🔵 Time A: {captain_a.mention}\n"
-                f"🔴 Time B: {captain_b.mention}"
+                f"🔴 Time B: {captain_b.mention}\n"
+                f"*(Baseado em ordem de entrada - sem dados no banco)*"
             )
 
-        cap_a = captains_in_list[0]
-        cap_b = captains_in_list[1]
+        cap_a = captains_data[0]
+        cap_b = captains_data[1]
 
-        # Encontra o membro Discord correspondente
+        # Encontra o membro Discord correspondente para menção
         member_a = next((p for p in self.players if p.id == cap_a["discord_id"]), None)
         member_b = next((p for p in self.players if p.id == cap_b["discord_id"]), None)
 
@@ -98,8 +95,8 @@ class LobbySession:
 
         return (
             f"👑 **Capitães Definidos:**\n"
-            f"🔵 Time A: {member_a.mention} ({cap_a['points']} pts)\n"
-            f"🔴 Time B: {member_b.mention} ({cap_b['points']} pts)"
+            f"🔵 Time A: {member_a.mention} ({cap_a['points']} pts | {cap_a['wins']}V)\n"
+            f"🔴 Time B: {member_b.mention} ({cap_b['points']} pts | {cap_b['wins']}V)"
         )
 
     def build_embed(self) -> discord.Embed:

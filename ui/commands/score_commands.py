@@ -2,30 +2,20 @@
 import discord
 import logging
 from discord.ext import commands
-from config import ADMIN_IDS
-from database import upsert_player, add_win, add_loss, get_ranking, log_action
+from core.config import ADMIN_IDS
+from core.database import upsert_player, add_win, add_loss, get_ranking, log_action
 
-logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────
-# Helper
-# ─────────────────────────────────────────────
+# Logger específico para auditoria de ações
+audit_logger = logging.getLogger("Audit")
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
-
 def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
 
-
-# ─────────────────────────────────────────────
-# Setup dos comandos
-# ─────────────────────────────────────────────
-
 def setup_score_commands(bot: commands.Bot):
 
-    # ── !registrar @usuario <vitorias> <derrotas> ──────────────────────────
     @bot.command(name="registrar")
     async def cmd_registrar(ctx: commands.Context, member: discord.User, wins: int, losses: int):
         """Sobrescreve os dados de um jogador. Apenas admins."""
@@ -41,6 +31,8 @@ def setup_score_commands(bot: commands.Bot):
         upsert_player(member.id, member.display_name, wins, losses)
         pts = points(wins, losses)
 
+        audit_logger.info(f"[REGISTRO] ADM {ctx.author.name} ({ctx.author.id}) REGISTROU {member.display_name} ({member.id}) com W:{wins} L:{losses}")
+
         log_action(
             ctx.author.id, ctx.author.display_name,
             "!registrar",
@@ -52,9 +44,7 @@ def setup_score_commands(bot: commands.Bot):
             f"✅ **{member.display_name}** atualizado: "
             f"`{wins}V / {losses}D` → **{pts} pts**"
         )
-        logger.info(f"[Registrar] {ctx.author.name} registrou {member.display_name}: W{wins}/L{losses}")
 
-    # ── !venceu @u1 @u2 @u3 @u4 @u5 ──────────────────────────────────────
     @bot.command(name="venceu")
     async def cmd_venceu(ctx: commands.Context, *members: discord.Member):
         """Adiciona 1 vitória (+3 pts) a cada jogador mencionado. Apenas admins."""
@@ -70,7 +60,9 @@ def setup_score_commands(bot: commands.Bot):
         nomes = []
         for m in members:
             add_win(m.id, m.display_name)
-            nomes.append(m.display_name)
+            nomes.append(f"{m.name} ({m.id})")
+
+        audit_logger.info(f"[VITÓRIA] ADM {ctx.author.name} ({ctx.author.id}) ADICIONOU VITÓRIA para: {', '.join(nomes)}")
 
         log_action(
             ctx.author.id, ctx.author.display_name,
@@ -81,9 +73,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         mencoes = " ".join(m.mention for m in members)
         await ctx.send(f"🏆 Vitória registrada para {mencoes}! **(+3 pts cada)**")
-        logger.info(f"[Venceu] {ctx.author.name} registrou vitória para: {', '.join(nomes)}")
 
-    # ── !perdeu @u1 @u2 @u3 @u4 @u5 ──────────────────────────────────────
     @bot.command(name="perdeu")
     async def cmd_perdeu(ctx: commands.Context, *members: discord.Member):
         """Adiciona 1 derrota (-1 pt) a cada jogador mencionado. Apenas admins."""
@@ -99,7 +89,9 @@ def setup_score_commands(bot: commands.Bot):
         nomes = []
         for m in members:
             add_loss(m.id, m.display_name)
-            nomes.append(m.display_name)
+            nomes.append(f"{m.name} ({m.id})")
+
+        audit_logger.info(f"[DERROTA] ADM {ctx.author.name} ({ctx.author.id}) ADICIONOU DERROTA para: {', '.join(nomes)}")
 
         log_action(
             ctx.author.id, ctx.author.display_name,
@@ -110,9 +102,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         mencoes = " ".join(m.mention for m in members)
         await ctx.send(f"💀 Derrota registrada para {mencoes}. **(-1 pt cada)**")
-        logger.info(f"[Perdeu] {ctx.author.name} registrou derrota para: {', '.join(nomes)}")
 
-    # ── !tabela ────────────────────────────────────────────────────────────
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
         """Exibe o ranking completo do campeonato."""
@@ -126,14 +116,10 @@ def setup_score_commands(bot: commands.Bot):
 
         linhas = []
         for i, p in enumerate(ranking):
-            if i == 0:
-                prefix = "👑"
-            elif i == 1:
-                prefix = "🥈"
-            elif i == 2:
-                prefix = "🥉"
-            else:
-                prefix = f"`{i+1:02d}.`"
+            if i == 0: prefix = "👑"
+            elif i == 1: prefix = "🥈"
+            elif i == 2: prefix = "🥉"
+            else: prefix = f"`{i+1:02d}.`"
 
             linhas.append(
                 f"{prefix} **{p['display_name']}** — "
