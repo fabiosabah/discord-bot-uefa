@@ -42,7 +42,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             value=(
                 "`!lista` ou `!lobby`: Abre uma nova lista de presença.\n"
                 "`!tabela`: Mostra o ranking atual da liga.\n"
-                "`!perfil @usuario`: Mostra as estatísticas de um jogador.\n"
+                "`!perfil @usuario`: Mostra as estatísticas de um jogador, viorias e derrotas por enquanto.\n"
                 "`!uefa` ou `!liga`: Abre este guia de ajuda."
             ),
             inline=False
