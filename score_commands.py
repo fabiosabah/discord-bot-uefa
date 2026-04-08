@@ -27,7 +27,7 @@ def setup_score_commands(bot: commands.Bot):
 
     # ── !registrar @usuario <vitorias> <derrotas> ──────────────────────────
     @bot.command(name="registrar")
-    async def cmd_registrar(ctx: commands.Context, member: discord.Member, wins: int, losses: int):
+    async def cmd_registrar(ctx: commands.Context, member: discord.User, wins: int, losses: int):
         """Sobrescreve os dados de um jogador. Apenas admins."""
         if not is_admin(ctx.author.id):
             await ctx.message.delete()

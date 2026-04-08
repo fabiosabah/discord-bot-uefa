@@ -23,6 +23,8 @@ async def on_ready():
     init_db()
     print(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
     print("-" * 40)
+    for guild in bot.guilds:
+        print(f"Servidor: {guild.name} | Membros: {len(guild.members)}")
 
 setup_commands(bot, active_lobbies)
 setup_score_commands(bot)
