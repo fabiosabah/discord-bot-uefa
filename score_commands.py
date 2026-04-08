@@ -142,5 +142,5 @@ def setup_score_commands(bot: commands.Bot):
             )
 
         embed.description = "\n".join(linhas)
-        embed.set_footer(text="Pontuação: vitória +3 pts | derrota -1 pt | desempate por menos derrotas")
+        embed.set_footer(text="Pontuação: vitória +3 pts | derrota -1 pt | desempate por mais vitórias")
         await ctx.send(embed=embed)

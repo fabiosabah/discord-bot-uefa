@@ -108,7 +108,7 @@ def get_ranking() -> list[dict]:
     """
     Retorna todos os jogadores ordenados por:
     1. pontos (wins*3 - losses) DESC
-    2. losses ASC (desempate)
+    2. wins DESC (desempate)
     """
     with get_connection() as conn:
         rows = conn.execute("""
@@ -120,7 +120,7 @@ def get_ranking() -> list[dict]:
                 (wins * 3 - losses) AS points,
                 (wins + losses)      AS games
             FROM players
-            ORDER BY points DESC, losses ASC
+            ORDER BY points DESC, wins DESC
         """).fetchall()
     return [dict(r) for r in rows]
 
