@@ -42,8 +42,10 @@ async def on_ready():
         logger.info(f"Servidor: {guild.name} | Membros: {len(guild.members)}")
 
 # Setup dos comandos
+logger.info("Configurando comandos...")
 setup_lobby_commands(bot, active_lobbies)
 setup_score_commands(bot)
+logger.info("Comandos configurados com sucesso.")
 
 if __name__ == "__main__":
     bot.run(TOKEN)

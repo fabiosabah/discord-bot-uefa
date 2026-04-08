@@ -55,6 +55,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 "`!venceu @u1 @u2...`: Adiciona 1 vitória (+3 pts) para os jogadores.\n"
                 "`!perdeu @u1 @u2...`: Adiciona 1 derrota (-1 pt) para os jogadores.\n"
                 "`!registrar @u <V> <D>`: Define manualmente o score de um jogador.\n"
+                "`!desfazer` ou `!undo`: Desfaz sua última ação de vitória/derrota.\n"
                 "**Botões da Lista:** ADMs podem adicionar/remover pessoas e encerrar qualquer lista."
             ),
             inline=False
