@@ -2,6 +2,7 @@
 import sqlite3
 import logging
 import os
+import json
 from datetime import datetime
 from core.config import DB_PATH
 
@@ -30,6 +31,7 @@ def init_db():
                 updated_at   TEXT    NOT NULL
             )
         """)
+        # Audit log agora armazena IDs afetados para permitir UNDO
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +39,7 @@ def init_db():
                 admin_name   TEXT    NOT NULL,
                 command      TEXT    NOT NULL,
                 details      TEXT    NOT NULL,
+                affected_ids TEXT,    -- JSON list of discord_ids
                 created_at   TEXT    NOT NULL
             )
         """)
@@ -80,6 +83,19 @@ def add_win(discord_id: int, display_name: str):
         conn.commit()
 
 
+def remove_win(discord_id: int):
+    """Remove 1 vitória do jogador (para UNDO)."""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE players SET 
+                wins = MAX(0, wins - 1),
+                updated_at = ?
+            WHERE discord_id = ?
+        """, (now, discord_id))
+        conn.commit()
+
+
 def add_loss(discord_id: int, display_name: str):
     """Adiciona 1 derrota ao jogador (cria com 0/0 se não existir)."""
     now = datetime.now().isoformat()
@@ -92,6 +108,19 @@ def add_loss(discord_id: int, display_name: str):
                 losses       = losses + 1,
                 updated_at   = excluded.updated_at
         """, (discord_id, display_name, now))
+        conn.commit()
+
+
+def remove_loss(discord_id: int):
+    """Remove 1 derrota do jogador (para UNDO)."""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE players SET 
+                losses = MAX(0, losses - 1),
+                updated_at = ?
+            WHERE discord_id = ?
+        """, (now, discord_id))
         conn.commit()
 
 
@@ -151,14 +180,33 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
 
 
 # ─────────────────────────────────────────────
-# Audit log
+# Audit log & Undo
 # ─────────────────────────────────────────────
 
-def log_action(admin_id: int, admin_name: str, command: str, details: str):
+def log_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None):
+    affected_json = json.dumps(affected_ids) if affected_ids else None
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO audit_log (admin_id, admin_name, command, details, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (admin_id, admin_name, command, details, datetime.now().isoformat()))
+            INSERT INTO audit_log (admin_id, admin_name, command, details, affected_ids, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (admin_id, admin_name, command, details, affected_json, datetime.now().isoformat()))
         conn.commit()
     logger.info(f"[AUDIT] {admin_name} usou '{command}': {details}")
+
+
+def get_last_admin_action(admin_id: int):
+    """Busca a última ação reversível de um administrador."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT * FROM audit_log 
+            WHERE admin_id = ? AND command IN ('!venceu', '!perdeu')
+            ORDER BY id DESC LIMIT 1
+        """, (admin_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_audit_log_entry(entry_id: int):
+    """Remove uma entrada do log após o UNDO."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM audit_log WHERE id = ?", (entry_id,))
+        conn.commit()

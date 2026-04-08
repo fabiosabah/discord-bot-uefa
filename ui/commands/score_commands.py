@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 import discord
 import logging
+import json
 from discord.ext import commands
 from core.config import ADMIN_IDS
-from core.database import upsert_player, add_win, add_loss, get_ranking, log_action
+from core.database import (
+    upsert_player, add_win, add_loss, remove_win, remove_loss, 
+    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry
+)
 
 # Logger específico para auditoria de ações
 audit_logger = logging.getLogger("Audit")
@@ -36,7 +40,8 @@ def setup_score_commands(bot: commands.Bot):
         log_action(
             ctx.author.id, ctx.author.display_name,
             "!registrar",
-            f"{member.display_name} ({member.id}) → W:{wins} L:{losses} Pts:{pts}"
+            f"{member.display_name} ({member.id}) → W:{wins} L:{losses} Pts:{pts}",
+            affected_ids=[member.id]
         )
 
         await ctx.message.delete()
@@ -58,16 +63,19 @@ def setup_score_commands(bot: commands.Bot):
             return
 
         nomes = []
+        ids = []
         for m in members:
             add_win(m.id, m.display_name)
             nomes.append(f"{m.name} ({m.id})")
+            ids.append(m.id)
 
         audit_logger.info(f"[VITÓRIA] ADM {ctx.author.name} ({ctx.author.id}) ADICIONOU VITÓRIA para: {', '.join(nomes)}")
 
         log_action(
             ctx.author.id, ctx.author.display_name,
             "!venceu",
-            f"Vitória registrada para: {', '.join(nomes)}"
+            f"Vitória registrada para: {', '.join(nomes)}",
+            affected_ids=ids
         )
 
         await ctx.message.delete()
@@ -87,21 +95,59 @@ def setup_score_commands(bot: commands.Bot):
             return
 
         nomes = []
+        ids = []
         for m in members:
             add_loss(m.id, m.display_name)
             nomes.append(f"{m.name} ({m.id})")
+            ids.append(m.id)
 
         audit_logger.info(f"[DERROTA] ADM {ctx.author.name} ({ctx.author.id}) ADICIONOU DERROTA para: {', '.join(nomes)}")
 
         log_action(
             ctx.author.id, ctx.author.display_name,
             "!perdeu",
-            f"Derrota registrada para: {', '.join(nomes)}"
+            f"Derrota registrada para: {', '.join(nomes)}",
+            affected_ids=ids
         )
 
         await ctx.message.delete()
         mencoes = " ".join(m.mention for m in members)
         await ctx.send(f"💀 Derrota registrada para {mencoes}. **(-1 pt cada)**")
+
+    @bot.command(name="desfazer", aliases=["undo", "z"])
+    async def cmd_desfazer(ctx: commands.Context):
+        """Desfaz a última ação de vitória ou derrota do administrador."""
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
+            return
+
+        last_action = get_last_admin_action(ctx.author.id)
+        if not last_action:
+            await ctx.send("⚠️ Nenhuma ação reversível encontrada para você.", delete_after=5)
+            return
+
+        affected_ids = json.loads(last_action['affected_ids']) if last_action['affected_ids'] else []
+        if not affected_ids:
+            await ctx.send("⚠️ Não há jogadores afetados para reverter nesta ação.", delete_after=5)
+            return
+
+        command = last_action['command']
+        
+        # Reverter a lógica
+        for discord_id in affected_ids:
+            if command == "!venceu":
+                remove_win(discord_id)
+            elif command == "!perdeu":
+                remove_loss(discord_id)
+
+        # Remover do log para não desfazer a mesma coisa duas vezes
+        delete_audit_log_entry(last_action['id'])
+
+        audit_logger.info(f"[UNDO] ADM {ctx.author.name} ({ctx.author.id}) DESFEZ a ação '{command}' que afetou {len(affected_ids)} jogadores.")
+        
+        await ctx.message.delete()
+        await ctx.send(f"↩️ **Ação desfeita!** A última operação de `{command}` foi revertida para {len(affected_ids)} jogador(es).")
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
