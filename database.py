@@ -60,7 +60,7 @@ def upsert_player(discord_id: int, display_name: str, wins: int, losses: int):
                 wins         = excluded.wins,
                 losses       = excluded.losses,
                 updated_at   = excluded.updated_at
-        """, (discord_id, display_name, wins, losses))
+        """, (discord_id, display_name, wins, losses, now))
         conn.commit()
     logger.info(f"[DB] Upsert: {display_name} ({discord_id}) → W:{wins} L:{losses}")
 
