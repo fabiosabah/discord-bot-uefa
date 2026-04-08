@@ -149,6 +149,38 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"↩️ **Ação desfeita!** A última operação de `{command}` foi revertida para {len(affected_ids)} jogador(es).")
 
+    @bot.command(name="perfil", aliases=["p"])
+    async def cmd_perfil(ctx: commands.Context, member: discord.Member = None):
+        """Exibe as estatísticas detalhadas de um jogador."""
+        target = member or ctx.author
+        player = get_player(target.id)
+
+        if not player:
+            await ctx.send(f"📋 **{target.display_name}** ainda não possui registros na liga.")
+            return
+
+        pts = points(player['wins'], player['losses'])
+        total_games = player['wins'] + player['losses']
+        wr = (player['wins'] / total_games * 100) if total_games > 0 else 0
+
+        embed = discord.Embed(
+            title=f"📊 Perfil de Jogador — {target.display_name}",
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        
+        embed.add_field(name="🏆 Pontuação", value=f"**{pts} pts**", inline=True)
+        embed.add_field(name="🎮 Jogos", value=f"{total_games}", inline=True)
+        embed.add_field(name="📈 Win Rate", value=f"{wr:.1f}%", inline=True)
+        
+        embed.add_field(name="✅ Vitórias", value=f"{player['wins']}", inline=True)
+        embed.add_field(name="💀 Derrotas", value=f"{player['losses']}", inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True) # Spacer
+
+        embed.set_footer(text=f"ID: {target.id} | Última atualização: {player['updated_at'][:10]}")
+        
+        await ctx.send(embed=embed)
+
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
         """Exibe o ranking completo do campeonato."""

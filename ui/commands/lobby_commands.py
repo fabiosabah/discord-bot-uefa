@@ -26,7 +26,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
         await ctx.message.delete()
 
-    @bot.command(name="help", aliases=["ajuda"])
+    @bot.command(name="uefa", aliases=["liga", "comandos"])
     async def help_command(ctx: commands.Context):
         """Exibe a lista de comandos administrativos e informações da liga."""
         
@@ -42,7 +42,8 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             value=(
                 "`!lista` ou `!lobby`: Abre uma nova lista de presença.\n"
                 "`!tabela`: Mostra o ranking atual da liga.\n"
-                "`!perfil @usuario`: Mostra as estatísticas de um jogador."
+                "`!perfil @usuario`: Mostra as estatísticas de um jogador.\n"
+                "`!uefa` ou `!liga`: Abre este guia de ajuda."
             ),
             inline=False
         )
