@@ -18,6 +18,11 @@ def is_admin(user_id: int) -> bool:
 def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
 
+def progress_bar(percent):
+    total = 10
+    filled = int(percent / 10)
+    return "🟩" * filled + "⬛" * (total - filled)
+
 def setup_score_commands(bot: commands.Bot):
     logger = logging.getLogger("ScoreSetup")
     logger.info("Carregando comandos de score...")
@@ -151,37 +156,83 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"↩️ **Ação desfeita!** A última operação de `{command}` foi revertida para {len(affected_ids)} jogador(es).")
 
-    @bot.command(name="perfil", aliases=["p"])
-    async def cmd_perfil(ctx: commands.Context, member: discord.Member = None):
-        """Exibe as estatísticas detalhadas de um jogador."""
-        target = member or ctx.author
-        player = get_player(target.id)
+    
+@commands.command(name="perfil")
+async def cmd_perfil(ctx, target: discord.Member = None):
+    target = target or ctx.author
 
-        if not player:
-            await ctx.send(f"📋 **{target.display_name}** ainda não possui registros na liga.")
-            return
+    player = get_player(target.id)
 
-        pts = points(player['wins'], player['losses'])
-        total_games = player['wins'] + player['losses']
-        wr = (player['wins'] / total_games * 100) if total_games > 0 else 0
+    if not player:
+        await ctx.send("❌ Esse jogador ainda não possui dados.")
+        return
 
-        embed = discord.Embed(
-            title=f"📊 Perfil de Jogador — {target.display_name}",
-            color=discord.Color.blue()
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-        
-        embed.add_field(name="🏆 Pontuação", value=f"**{pts} pts**", inline=True)
-        embed.add_field(name="🎮 Jogos", value=f"{total_games}", inline=True)
-        embed.add_field(name="📈 Win Rate", value=f"{wr:.1f}%", inline=True)
-        
-        embed.add_field(name="✅ Vitórias", value=f"{player['wins']}", inline=True)
-        embed.add_field(name="💀 Derrotas", value=f"{player['losses']}", inline=True)
-        embed.add_field(name="\u200b", value="\u200b", inline=True) # Spacer
+    wins = player["wins"]
+    losses = player["losses"]
+    games = wins + losses
+    points = wins * 3 - losses
 
-        embed.set_footer(text=f"ID: {target.id} | Última atualização: {player['updated_at'][:10]}")
-        
-        await ctx.send(embed=embed)
+    winrate = (wins / games * 100) if games > 0 else 0
+
+    # 📊 Ranking
+    ranking = get_ranking()
+    position = next(
+        (i + 1 for i, p in enumerate(ranking) if p["discord_id"] == target.id),
+        None
+    )
+
+    # 🎨 Cor dinâmica
+    if winrate >= 60:
+        color = discord.Color.green()
+    elif winrate >= 40:
+        color = discord.Color.orange()
+    else:
+        color = discord.Color.red()
+
+    # 🧠 Mensagem personalizada
+    if winrate >= 70:
+        msg = "🔥 Jogando demais!"
+    elif winrate >= 50:
+        msg = "⚖️ Equilibrado"
+    else:
+        msg = "📉 Precisa melhorar"
+
+    # 👑 Título especial se for top 1
+    title = f"📊 Perfil de {target.display_name}"
+    if position == 1:
+        title = f"👑 Líder da Liga: {target.display_name}"
+
+    # 🧱 Embed
+    embed = discord.Embed(
+        title=title,
+        description=msg,
+        color=color
+    )
+
+    embed.set_thumbnail(url=target.display_avatar.url)
+
+    # 📊 Stats principais
+    embed.add_field(name="🏆 Vitórias", value=wins, inline=True)
+    embed.add_field(name="💀 Derrotas", value=losses, inline=True)
+    embed.add_field(name="🎯 Pontos", value=points, inline=True)
+
+    embed.add_field(name="🎮 Jogos", value=games, inline=True)
+    embed.add_field(name="📈 Winrate", value=f"{winrate:.1f}%", inline=True)
+
+    if position:
+        embed.add_field(name="🥇 Ranking", value=f"#{position}", inline=True)
+
+    # 📊 Barra visual
+    embed.add_field(
+        name="Winrate Visual",
+        value=progress_bar(winrate),
+        inline=False
+    )
+
+    # 📝 Footer
+    embed.set_footer(text="Sistema de Liga • UEFA Bot")
+
+    await ctx.send(embed=embed)
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
