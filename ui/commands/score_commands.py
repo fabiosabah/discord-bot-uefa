@@ -18,11 +18,6 @@ def is_admin(user_id: int) -> bool:
 def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
 
-def progress_bar(percent):
-    total = 10
-    filled = int(percent / 10)
-    return "🟩" * filled + "⬛" * (total - filled)
-
 def setup_score_commands(bot: commands.Bot):
     logger = logging.getLogger("ScoreSetup")
     logger.info("Carregando comandos de score...")
@@ -189,8 +184,6 @@ def setup_score_commands(bot: commands.Bot):
 
         if pos:
             embed.add_field(name="🥇 Ranking", value=f"#{pos}", inline=True)
-
-        embed.add_field(name="Winrate Visual", value=progress_bar(winrate), inline=False)
 
         embed.set_footer(text="Sistema de Liga • UEFA Bot")
 
