@@ -199,7 +199,7 @@ def delete_audit_log_entry(entry_id: int):
 def get_last_update():
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT created at
+            SELECT created_at
             FROM audit_log
             WHERE command IN ('!venceu', '!perdeu')
             ORDER BY id DESC
