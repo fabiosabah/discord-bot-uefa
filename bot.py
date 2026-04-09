@@ -4,7 +4,7 @@ import logging
 import sys
 from discord.ext import commands
 from core.config import TOKEN
-from core.database import init_db
+from core.database import init_db, migrate_db
 from ui.commands.lobby_commands import setup_lobby_commands
 from ui.commands.score_commands import setup_score_commands
 
@@ -36,6 +36,7 @@ active_lobbies = {}
 @bot.event
 async def on_ready():
     init_db()
+    migrate_db() # armengue provisorio.
     logger.info(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
     print("-" * 40)
     for guild in bot.guilds:

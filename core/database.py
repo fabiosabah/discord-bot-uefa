@@ -46,6 +46,17 @@ def init_db():
         conn.commit()
     logger.info("[DB] Banco de dados inicializado.")
 
+def migrate_db():
+    with get_connection() as conn:
+        columns = conn.execute("PRAGMA table_info(audit_log)").fetchall()
+        column_names = [col["name"] for col in columns]
+
+        if "affected_ids" not in column_names:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN affected_ids TEXT")
+            logger.info("[DB] Coluna 'affected_ids' adicionada via migration.")
+
+        conn.commit()
+
 
 # ─────────────────────────────────────────────
 # Operações de jogadores
