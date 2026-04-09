@@ -56,3 +56,4 @@ def format_brazil_time(iso_string: str | None):
         dt = dt.replace(tzinfo=timezone.utc)
 
     dt_br = dt.astimezone(BRAZIL_TZ)
+    return dt_br.strftime("%d/%m/%Y %H:%M")
