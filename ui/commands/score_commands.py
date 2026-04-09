@@ -3,7 +3,6 @@ import discord
 import logging
 import json
 from discord.ext import commands
-import bot
 from core.config import ADMIN_IDS
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, 
@@ -28,216 +27,180 @@ def setup_score_commands(bot: commands.Bot):
     logger = logging.getLogger("ScoreSetup")
     logger.info("Carregando comandos de score...")
 
+    # ─────────────────────────────────────────────
+    # REGISTRAR
+    # ─────────────────────────────────────────────
     @bot.command(name="registrar")
     async def cmd_registrar(ctx: commands.Context, member: discord.User, wins: int, losses: int):
-        """Sobrescreve os dados de um jogador. Apenas admins."""
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
             return
 
         if wins < 0 or losses < 0:
-            await ctx.send("❌ Vitórias e derrotas não podem ser negativos.", delete_after=5)
+            await ctx.send("❌ Valores inválidos.", delete_after=5)
             return
 
         upsert_player(member.id, member.display_name, wins, losses)
         pts = points(wins, losses)
 
-        audit_logger.info(f"[REGISTRO] ADM {ctx.author.name} ({ctx.author.id}) REGISTROU {member.display_name} ({member.id}) com W:{wins} L:{losses}")
+        audit_logger.info(f"[REGISTRO] {ctx.author.name} → {member.display_name} ({wins}W/{losses}L)")
 
         log_action(
             ctx.author.id, ctx.author.display_name,
             "!registrar",
-            f"{member.display_name} ({member.id}) → W:{wins} L:{losses} Pts:{pts}",
+            f"{member.display_name} → W:{wins} L:{losses} Pts:{pts}",
             affected_ids=[member.id]
         )
 
         await ctx.message.delete()
-        await ctx.send(
-            f"✅ **{member.display_name}** atualizado: "
-            f"`{wins}V / {losses}D` → **{pts} pts**"
-        )
+        await ctx.send(f"✅ **{member.display_name}** atualizado: `{wins}V / {losses}D` → **{pts} pts**")
 
+    # ─────────────────────────────────────────────
+    # VITÓRIA
+    # ─────────────────────────────────────────────
     @bot.command(name="venceu")
     async def cmd_venceu(ctx: commands.Context, *members: discord.Member):
-        """Adiciona 1 vitória (+3 pts) a cada jogador mencionado. Apenas admins."""
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
         if not members:
-            await ctx.send("⚠️ Mencione ao menos um jogador.", delete_after=5)
+            await ctx.send("⚠️ Mencione jogadores.", delete_after=5)
             return
 
-        nomes = []
-        ids = []
+        nomes, ids = [], []
         for m in members:
             add_win(m.id, m.display_name)
-            nomes.append(f"{m.name} ({m.id})")
+            nomes.append(m.display_name)
             ids.append(m.id)
 
-        audit_logger.info(f"[VITÓRIA] ADM {ctx.author.name} ({ctx.author.id}) ADICIONOU VITÓRIA para: {', '.join(nomes)}")
-
-        log_action(
-            ctx.author.id, ctx.author.display_name,
-            "!venceu",
-            f"Vitória registrada para: {', '.join(nomes)}",
-            affected_ids=ids
-        )
+        log_action(ctx.author.id, ctx.author.display_name, "!venceu",
+                   f"Vitória para: {', '.join(nomes)}", ids)
 
         await ctx.message.delete()
-        mencoes = " ".join(m.mention for m in members)
-        await ctx.send(f"🏆 Vitória registrada para {mencoes}! **(+3 pts cada)**")
+        await ctx.send(f"🏆 Vitória registrada para {' '.join(m.mention for m in members)}")
 
+    # ─────────────────────────────────────────────
+    # DERROTA
+    # ─────────────────────────────────────────────
     @bot.command(name="perdeu")
     async def cmd_perdeu(ctx: commands.Context, *members: discord.Member):
-        """Adiciona 1 derrota (-1 pt) a cada jogador mencionado. Apenas admins."""
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
         if not members:
-            await ctx.send("⚠️ Mencione ao menos um jogador.", delete_after=5)
+            await ctx.send("⚠️ Mencione jogadores.", delete_after=5)
             return
 
-        nomes = []
-        ids = []
+        nomes, ids = [], []
         for m in members:
             add_loss(m.id, m.display_name)
-            nomes.append(f"{m.name} ({m.id})")
+            nomes.append(m.display_name)
             ids.append(m.id)
 
-        audit_logger.info(f"[DERROTA] ADM {ctx.author.name} ({ctx.author.id}) ADICIONOU DERROTA para: {', '.join(nomes)}")
-
-        log_action(
-            ctx.author.id, ctx.author.display_name,
-            "!perdeu",
-            f"Derrota registrada para: {', '.join(nomes)}",
-            affected_ids=ids
-        )
+        log_action(ctx.author.id, ctx.author.display_name, "!perdeu",
+                   f"Derrota para: {', '.join(nomes)}", ids)
 
         await ctx.message.delete()
-        mencoes = " ".join(m.mention for m in members)
-        await ctx.send(f"💀 Derrota registrada para {mencoes}. **(-1 pt cada)**")
+        await ctx.send(f"💀 Derrota registrada para {' '.join(m.mention for m in members)}")
 
+    # ─────────────────────────────────────────────
+    # UNDO
+    # ─────────────────────────────────────────────
     @bot.command(name="desfazer", aliases=["undo", "z"])
     async def cmd_desfazer(ctx: commands.Context):
-        """Desfaz a última ação de vitória ou derrota do administrador."""
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        last_action = get_last_admin_action(ctx.author.id)
-        if not last_action:
-            await ctx.send("⚠️ Nenhuma ação reversível encontrada para você.", delete_after=5)
+        action = get_last_admin_action(ctx.author.id)
+        if not action:
+            await ctx.send("⚠️ Nada para desfazer.", delete_after=5)
             return
 
-        affected_ids = json.loads(last_action['affected_ids']) if last_action['affected_ids'] else []
-        if not affected_ids:
-            await ctx.send("⚠️ Não há jogadores afetados para reverter nesta ação.", delete_after=5)
-            return
+        ids = json.loads(action["affected_ids"]) if action["affected_ids"] else []
 
-        command = last_action['command']
-        
-        # Reverter a lógica
-        for discord_id in affected_ids:
-            if command == "!venceu":
-                remove_win(discord_id)
-            elif command == "!perdeu":
-                remove_loss(discord_id)
+        for pid in ids:
+            if action["command"] == "!venceu":
+                remove_win(pid)
+            elif action["command"] == "!perdeu":
+                remove_loss(pid)
 
-        # Remover do log para não desfazer a mesma coisa duas vezes
-        delete_audit_log_entry(last_action['id'])
+        delete_audit_log_entry(action["id"])
 
-        audit_logger.info(f"[UNDO] ADM {ctx.author.name} ({ctx.author.id}) DESFEZ a ação '{command}' que afetou {len(affected_ids)} jogadores.")
-        
         await ctx.message.delete()
-        await ctx.send(f"↩️ **Ação desfeita!** A última operação de `{command}` foi revertida para {len(affected_ids)} jogador(es).")
+        await ctx.send(f"↩️ Ação `{action['command']}` desfeita!")
 
-    
-@bot.command(name="perfil")
-async def cmd_perfil(ctx, target: discord.Member = None):
-    target = target or ctx.author
+    # ─────────────────────────────────────────────
+    # PERFIL
+    # ─────────────────────────────────────────────
+    @bot.command(name="perfil")
+    async def cmd_perfil(ctx, target: discord.Member = None):
+        target = target or ctx.author
+        player = get_player(target.id)
 
-    player = get_player(target.id)
+        if not player:
+            await ctx.send("❌ Esse jogador ainda não possui dados.")
+            return
 
-    if not player:
-        await ctx.send("❌ Esse jogador ainda não possui dados.")
-        return
+        wins = player["wins"]
+        losses = player["losses"]
+        games = wins + losses
+        pts = points(wins, losses)
+        winrate = (wins / games * 100) if games else 0
 
-    wins = player["wins"]
-    losses = player["losses"]
-    games = wins + losses
-    points = wins * 3 - losses
+        ranking = get_ranking()
+        pos = next((i+1 for i,p in enumerate(ranking) if p["discord_id"] == target.id), None)
 
-    winrate = (wins / games * 100) if games > 0 else 0
+        # cor dinâmica
+        if winrate >= 60:
+            color = discord.Color.green()
+        elif winrate >= 40:
+            color = discord.Color.orange()
+        else:
+            color = discord.Color.red()
 
-    # 📊 Ranking
-    ranking = get_ranking()
-    position = next(
-        (i + 1 for i, p in enumerate(ranking) if p["discord_id"] == target.id),
-        None
-    )
+        # mensagem
+        if winrate >= 70:
+            msg = "🔥 Jogando demais!"
+        elif winrate >= 50:
+            msg = "⚖️ Equilibrado"
+        else:
+            msg = "📉 Precisa melhorar"
 
-    # 🎨 Cor dinâmica
-    if winrate >= 60:
-        color = discord.Color.green()
-    elif winrate >= 40:
-        color = discord.Color.orange()
-    else:
-        color = discord.Color.red()
+        title = f"📊 Perfil de {target.display_name}"
+        if pos == 1:
+            title = f"👑 Líder da Liga: {target.display_name}"
 
-    # 🧠 Mensagem personalizada
-    if winrate >= 70:
-        msg = "🔥 Jogando demais!"
-    elif winrate >= 50:
-        msg = "⚖️ Equilibrado"
-    else:
-        msg = "📉 Precisa melhorar"
+        embed = discord.Embed(title=title, description=msg, color=color)
+        embed.set_thumbnail(url=target.display_avatar.url)
 
-    # 👑 Título especial se for top 1
-    title = f"📊 Perfil de {target.display_name}"
-    if position == 1:
-        title = f"👑 Líder da Liga: {target.display_name}"
+        embed.add_field(name="🏆 Vitórias", value=wins, inline=True)
+        embed.add_field(name="💀 Derrotas", value=losses, inline=True)
+        embed.add_field(name="🎯 Pontos", value=pts, inline=True)
 
-    # 🧱 Embed
-    embed = discord.Embed(
-        title=title,
-        description=msg,
-        color=color
-    )
+        embed.add_field(name="🎮 Jogos", value=games, inline=True)
+        embed.add_field(name="📈 Winrate", value=f"{winrate:.1f}%", inline=True)
 
-    embed.set_thumbnail(url=target.display_avatar.url)
+        if pos:
+            embed.add_field(name="🥇 Ranking", value=f"#{pos}", inline=True)
 
-    # 📊 Stats principais
-    embed.add_field(name="🏆 Vitórias", value=wins, inline=True)
-    embed.add_field(name="💀 Derrotas", value=losses, inline=True)
-    embed.add_field(name="🎯 Pontos", value=points, inline=True)
+        embed.add_field(name="Winrate Visual", value=progress_bar(winrate), inline=False)
 
-    embed.add_field(name="🎮 Jogos", value=games, inline=True)
-    embed.add_field(name="📈 Winrate", value=f"{winrate:.1f}%", inline=True)
+        embed.set_footer(text="Sistema de Liga • UEFA Bot")
 
-    if position:
-        embed.add_field(name="🥇 Ranking", value=f"#{position}", inline=True)
+        await ctx.send(embed=embed)
 
-    # 📊 Barra visual
-    embed.add_field(
-        name="Winrate Visual",
-        value=progress_bar(winrate),
-        inline=False
-    )
-
-    # 📝 Footer
-    embed.set_footer(text="Sistema de Liga • UEFA Bot")
-
-    await ctx.send(embed=embed)
-
+    # ─────────────────────────────────────────────
+    # TABELA
+    # ─────────────────────────────────────────────
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
-        """Exibe o ranking completo do campeonato."""
         ranking = get_ranking()
 
         if not ranking:
@@ -248,11 +211,7 @@ async def cmd_perfil(ctx, target: discord.Member = None):
 
         linhas = []
         for i, p in enumerate(ranking):
-            if i == 0: prefix = "👑"
-            elif i == 1: prefix = "🥈"
-            elif i == 2: prefix = "🥉"
-            else: prefix = f"`{i+1:02d}.`"
-
+            prefix = "👑" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
             linhas.append(
                 f"{prefix} **{p['display_name']}** — "
                 f"{p['points']} pts "
@@ -260,5 +219,6 @@ async def cmd_perfil(ctx, target: discord.Member = None):
             )
 
         embed.description = "\n".join(linhas)
-        embed.set_footer(text="Pontuação: vitória +3 pts | derrota -1 pt | desempate por mais vitórias")
+        embed.set_footer(text="Vitória +3 pts | Derrota -1 pt")
+
         await ctx.send(embed=embed)
