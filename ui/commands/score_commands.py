@@ -215,3 +215,47 @@ def setup_score_commands(bot: commands.Bot):
         embed.set_footer(text="Vitória +3 pts | Derrota -1 pt")
 
         await ctx.send(embed=embed)
+
+    @bot.command(name="top")
+    async def cmd_top(ctx: commands.Context, n: int = 10):
+        """Mostra o Top N jogadores (1 a 15)."""
+
+        # 🔒 validação
+        if n < 1 or n > 15:
+            await ctx.send("❌ Escolha um número entre 1 e 15.")
+            return
+
+        ranking = get_ranking()
+
+        if not ranking:
+            await ctx.send("📋 Nenhum jogador registrado ainda.")
+            return
+
+        top_players = ranking[:n]
+
+        embed = discord.Embed(
+            title=f"🏆 Top {n} Jogadores",
+            color=discord.Color.gold()
+        )
+
+        linhas = []
+        for i, p in enumerate(top_players):
+            if i == 0:
+                prefix = "👑"
+            elif i == 1:
+                prefix = "🥈"
+            elif i == 2:
+                prefix = "🥉"
+            else:
+                prefix = f"`{i+1:02d}.`"
+
+            linhas.append(
+                f"{prefix} **{p['display_name']}** — "
+                f"{p['points']} pts "
+                f"(`{p['wins']}V/{p['losses']}D`)"
+            )
+
+        embed.description = "🔥 **Melhores jogadores da liga**\n\n" + "\n".join(linhas)
+        embed.set_footer(text="Vitória +3 pts | Derrota -1 pt")
+
+        await ctx.send(embed=embed)
