@@ -209,7 +209,6 @@ def setup_score_commands(bot: commands.Bot):
             )
 
         embed.description = "\n".join(linhas)
-        tempo = relative_time()
         embed.set_footer(text=build_footer())
 
         await ctx.send(embed=embed)
