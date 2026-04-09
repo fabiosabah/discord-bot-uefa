@@ -31,7 +31,6 @@ def init_db():
                 updated_at   TEXT    NOT NULL
             )
         """)
-        # Audit log agora armazena IDs afetados para permitir UNDO
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,12 +57,7 @@ def migrate_db():
         conn.commit()
 
 
-# ─────────────────────────────────────────────
-# Operações de jogadores
-# ─────────────────────────────────────────────
-
 def upsert_player(discord_id: int, display_name: str, wins: int, losses: int):
-    """Sobrescreve wins e losses de um jogador (cria se não existir)."""
     now = datetime.now().isoformat()
     with get_connection() as conn:
         conn.execute("""
@@ -80,7 +74,6 @@ def upsert_player(discord_id: int, display_name: str, wins: int, losses: int):
 
 
 def add_win(discord_id: int, display_name: str):
-    """Adiciona 1 vitória ao jogador (cria com 0/0 se não existir)."""
     now = datetime.now().isoformat()
     with get_connection() as conn:
         conn.execute("""
@@ -95,7 +88,6 @@ def add_win(discord_id: int, display_name: str):
 
 
 def remove_win(discord_id: int):
-    """Remove 1 vitória do jogador (para UNDO)."""
     now = datetime.now().isoformat()
     with get_connection() as conn:
         conn.execute("""
@@ -108,7 +100,6 @@ def remove_win(discord_id: int):
 
 
 def add_loss(discord_id: int, display_name: str):
-    """Adiciona 1 derrota ao jogador (cria com 0/0 se não existir)."""
     now = datetime.now().isoformat()
     with get_connection() as conn:
         conn.execute("""
@@ -123,7 +114,6 @@ def add_loss(discord_id: int, display_name: str):
 
 
 def remove_loss(discord_id: int):
-    """Remove 1 derrota do jogador (para UNDO)."""
     now = datetime.now().isoformat()
     with get_connection() as conn:
         conn.execute("""
@@ -136,7 +126,6 @@ def remove_loss(discord_id: int):
 
 
 def get_player(discord_id: int):
-    """Retorna dados de um jogador ou None."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM players WHERE discord_id = ?", (discord_id,)
@@ -145,11 +134,6 @@ def get_player(discord_id: int):
 
 
 def get_ranking() -> list[dict]:
-    """
-    Retorna todos os jogadores ordenados por:
-    1. pontos (wins*3 - losses) DESC
-    2. wins DESC (desempate)
-    """
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -166,10 +150,6 @@ def get_ranking() -> list[dict]:
 
 
 def get_captains_from_list(player_ids: list[int]) -> list[dict]:
-    """
-    Busca os 2 melhores jogadores (capitães) dentre uma lista específica de IDs.
-    Critério: Pontos (W*3 - L) DESC, depois Vitórias DESC.
-    """
     if not player_ids:
         return []
     
@@ -190,10 +170,6 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ─────────────────────────────────────────────
-# Audit log & Undo
-# ─────────────────────────────────────────────
-
 def log_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None):
     affected_json = json.dumps(affected_ids) if affected_ids else None
     with get_connection() as conn:
@@ -206,7 +182,6 @@ def log_action(admin_id: int, admin_name: str, command: str, details: str, affec
 
 
 def get_last_admin_action(admin_id: int):
-    """Busca a última ação reversível de um administrador."""
     with get_connection() as conn:
         row = conn.execute("""
             SELECT * FROM audit_log 
@@ -217,7 +192,18 @@ def get_last_admin_action(admin_id: int):
 
 
 def delete_audit_log_entry(entry_id: int):
-    """Remove uma entrada do log após o UNDO."""
     with get_connection() as conn:
         conn.execute("DELETE FROM audit_log WHERE id = ?", (entry_id,))
         conn.commit()
+
+def get_last_update():
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT created at
+            FROM audit_log
+            WHERE command IN ('!venceu', '!perdeu')
+            ORDER BY id DESC
+            LIMIT 1
+        """).fetchone()
+    
+    return row["created_at"] if row else None

@@ -3,10 +3,6 @@ import discord
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 from core.database import get_captains_from_list
 
-# ─────────────────────────────────────────────
-# Modelo de sessão
-# ─────────────────────────────────────────────
-
 class LobbySession:
     def __init__(self, host: discord.Member, session_id: int):
         self.id = session_id
@@ -66,13 +62,10 @@ class LobbySession:
         if len(self.players) < 2:
             return None
 
-        # IDs dos jogadores atualmente na lista
         present_ids = list(self.player_ids)
 
-        # Busca os 2 melhores no banco dentre os presentes
         captains_data = get_captains_from_list(present_ids)
 
-        # Se não houver dados no banco para pelo menos 2, usa os primeiros da lista como fallback
         if len(captains_data) < 2:
             captain_a = self.players[0]
             captain_b = self.players[1]
@@ -86,7 +79,6 @@ class LobbySession:
         cap_a = captains_data[0]
         cap_b = captains_data[1]
 
-        # Encontra o membro Discord correspondente para menção
         member_a = next((p for p in self.players if p.id == cap_a["discord_id"]), None)
         member_b = next((p for p in self.players if p.id == cap_b["discord_id"]), None)
 
@@ -118,14 +110,12 @@ class LobbySession:
 
         embed.add_field(name=f"Jogadores ({filled}/{MAX_PLAYERS})", value=lista, inline=False)
 
-        # Lista de espera
         if self.waitlist:
             waitlist_str = "\n".join(
                 f"`{i+1:02d}.` {p.mention}" for i, p in enumerate(self.waitlist)
             )
             embed.add_field(name=f"🔔 Espera ({len(self.waitlist)})", value=waitlist_str, inline=False)
 
-        # Capitães (aparece sempre que houver 2+ jogadores na lista)
         captains_text = self._get_captains_field()
         if captains_text:
             embed.add_field(name="\u200b", value=captains_text, inline=False)

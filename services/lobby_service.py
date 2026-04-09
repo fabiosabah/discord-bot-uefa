@@ -11,16 +11,12 @@ async def close_session(
     interaction: discord.Interaction,
     active_lobbies: dict
 ):
-    """
-    Fecha a sessão atual e, se houver espera, cria uma nova automaticamente.
-    """
     from ui.views.lobby_view import LobbyView
     from services.state import get_next_id
     
     session.closed = True
     message = session.message
     
-    # Remove a sessão atual dos lobbies ativos
     if message:
         active_lobbies.pop(message.id, None)
 
@@ -36,31 +32,25 @@ async def close_session(
             mention_list = " ".join(p.mention for p in session.players)
             await message.channel.send(f"Jogadores que participaram: {mention_list}")
     else:
-        # Lista confirmada
         logger.info(f"[Encerrar] Lista #{session.id} | ✅ CONFIRMADA | Host: {session.host.name}#{session.host.id} | {filled}/10 jogadores")
         mention_list = " ".join(p.mention for p in session.players)
         await message.channel.send(
             f"🔒 **Lista confirmada!** Jogadores finais ({filled}/{MAX_PLAYERS}):\n{mention_list}"
         )
 
-        # Se houver espera, criar nova lista com os próximos
         if session.waitlist:
             # Pega os próximos 10 da espera
             next_players = session.waitlist[:MAX_PLAYERS]
             remaining_waitlist = session.waitlist[MAX_PLAYERS:]
 
-            # Cria nova sessão com o mesmo host e incrementa o ID
             new_session = LobbySession(host=session.host, session_id=get_next_id())
             
-            # Adiciona os primeiros 10 da espera à nova lista
             for player in next_players:
                 new_session.add_player(player)
             
-            # Adiciona os restantes da espera à lista de espera da nova sessão
             for player in remaining_waitlist:
                 new_session.add_to_waitlist(player)
 
-            # Envia a nova lista
             new_view = LobbyView(new_session, active_lobbies)
             new_msg = await message.channel.send(
                 f"📋 **Nova lista criada automaticamente com a espera!**",

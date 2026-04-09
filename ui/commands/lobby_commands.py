@@ -36,7 +36,6 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             color=discord.Color.blue()
         )
 
-        # Comandos de Jogador
         embed.add_field(
             name="🎮 Comandos de Jogador",
             value=(
@@ -61,7 +60,6 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             inline=False
         )
 
-        # Lista de Administradores
         admin_mentions = [f"<@{admin_id}>" for admin_id in ADMIN_IDS]
         admins_text = ", ".join(admin_mentions) if admin_mentions else "Nenhum administrador configurado no .env"
         

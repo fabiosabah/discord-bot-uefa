@@ -6,10 +6,10 @@ from discord.ext import commands
 from core.config import ADMIN_IDS
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, 
-    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry, get_player
+    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry, get_player, get_last_update
 )
+from core.utils.time import relative_time
 
-# Logger específico para auditoria de ações
 audit_logger = logging.getLogger("Audit")
 
 def is_admin(user_id: int) -> bool:
@@ -18,13 +18,22 @@ def is_admin(user_id: int) -> bool:
 def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
 
+def build_footer(include_rules=True):
+    last_update = get_last_update()
+
+    if last_update:
+        time_now = relative_time(last_update)
+        update_text = f"📌 Última atualização: {time_now}"
+    else:
+        update_text = "🕹️ Nenhuma partida registrada ainda"
+    if include_rules:
+        return f"⚖️ Vitória +3 pts | Derrota -1 pt\n{update_text}"
+    return update_text
+    
 def setup_score_commands(bot: commands.Bot):
     logger = logging.getLogger("ScoreSetup")
     logger.info("Carregando comandos de score...")
 
-    # ─────────────────────────────────────────────
-    # REGISTRAR
-    # ─────────────────────────────────────────────
     @bot.command(name="registrar")
     async def cmd_registrar(ctx: commands.Context, member: discord.User, wins: int, losses: int):
         if not is_admin(ctx.author.id):
@@ -51,9 +60,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"✅ **{member.display_name}** atualizado: `{wins}V / {losses}D` → **{pts} pts**")
 
-    # ─────────────────────────────────────────────
-    # VITÓRIA
-    # ─────────────────────────────────────────────
+
     @bot.command(name="venceu")
     async def cmd_venceu(ctx: commands.Context, *members: discord.Member):
         if not is_admin(ctx.author.id):
@@ -77,9 +84,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"🏆 Vitória registrada para {' '.join(m.mention for m in members)}")
 
-    # ─────────────────────────────────────────────
-    # DERROTA
-    # ─────────────────────────────────────────────
+
     @bot.command(name="perdeu")
     async def cmd_perdeu(ctx: commands.Context, *members: discord.Member):
         if not is_admin(ctx.author.id):
@@ -103,9 +108,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"💀 Derrota registrada para {' '.join(m.mention for m in members)}")
 
-    # ─────────────────────────────────────────────
-    # UNDO
-    # ─────────────────────────────────────────────
+
     @bot.command(name="desfazer", aliases=["undo", "z"])
     async def cmd_desfazer(ctx: commands.Context):
         if not is_admin(ctx.author.id):
@@ -131,9 +134,6 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"↩️ Ação `{action['command']}` desfeita!")
 
-    # ─────────────────────────────────────────────
-    # PERFIL
-    # ─────────────────────────────────────────────
     @bot.command(name="perfil")
     async def cmd_perfil(ctx, target: discord.Member = None):
         target = target or ctx.author
@@ -189,9 +189,6 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.send(embed=embed)
 
-    # ─────────────────────────────────────────────
-    # TABELA
-    # ─────────────────────────────────────────────
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
         ranking = get_ranking()
@@ -212,14 +209,13 @@ def setup_score_commands(bot: commands.Bot):
             )
 
         embed.description = "\n".join(linhas)
-        embed.set_footer(text="Vitória +3 pts | Derrota -1 pt")
+        tempo = relative_time()
+        embed.set_footer(text=build_footer())
 
         await ctx.send(embed=embed)
 
     @bot.command(name="top")
     async def cmd_top(ctx: commands.Context, n: int = 10):
-        """Mostra o Top N jogadores (1 a 15)."""
-
         # 🔒 validação
         if n < 1 or n > 15:
             await ctx.send("❌ Escolha um número entre 1 e 15.")
@@ -256,6 +252,6 @@ def setup_score_commands(bot: commands.Bot):
             )
 
         embed.description = "🔥 **Melhores jogadores da liga**\n\n" + "\n".join(linhas)
-        embed.set_footer(text="Vitória +3 pts | Derrota -1 pt")
+        embed.set_footer(text=build_footer())
 
         await ctx.send(embed=embed)
