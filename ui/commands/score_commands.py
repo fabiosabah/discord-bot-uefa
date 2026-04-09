@@ -3,6 +3,7 @@ import discord
 import logging
 import json
 from discord.ext import commands
+import bot
 from core.config import ADMIN_IDS
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, 
@@ -157,7 +158,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(f"↩️ **Ação desfeita!** A última operação de `{command}` foi revertida para {len(affected_ids)} jogador(es).")
 
     
-@commands.command(name="perfil")
+@bot.command(name="perfil")
 async def cmd_perfil(ctx, target: discord.Member = None):
     target = target or ctx.author
 
