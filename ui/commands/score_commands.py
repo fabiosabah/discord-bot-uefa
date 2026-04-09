@@ -8,7 +8,7 @@ from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, 
     get_ranking, log_action, get_last_admin_action, delete_audit_log_entry, get_player, get_last_update
 )
-from core.utils.time import relative_time
+from core.utils.time import format_brazil_time, relative_time
 
 audit_logger = logging.getLogger("Audit")
 
@@ -22,8 +22,10 @@ def build_footer(include_rules=True):
     last_update = get_last_update()
 
     if last_update:
-        time_now = relative_time(last_update)
-        update_text = f"📌 Última atualização: {time_now}"
+        time= relative_time(last_update)
+        brazil_time = format_brazil_time(last_update)
+        
+        update_text = f"📌 Última atualização: {time} • {brazil_time}"
     else:
         update_text = "🕹️ Nenhuma partida registrada ainda"
     if include_rules:
