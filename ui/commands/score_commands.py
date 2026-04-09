@@ -6,7 +6,7 @@ from discord.ext import commands
 from core.config import ADMIN_IDS
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, 
-    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry
+    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry, get_player
 )
 
 # Logger específico para auditoria de ações
