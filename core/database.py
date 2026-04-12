@@ -3,6 +3,7 @@ import sqlite3
 import logging
 import os
 import json
+import re
 from datetime import datetime
 from core.config import DB_PATH
 
@@ -110,24 +111,7 @@ def migrate_db():
 
         existing_matches = conn.execute("SELECT COUNT(1) FROM match_history").fetchone()[0]
         if existing_matches == 0:
-            rows = conn.execute("""
-                SELECT id, command, affected_ids, details, created_at
-                FROM audit_log
-                WHERE command IN ('!venceu', '!perdeu')
-                ORDER BY id ASC
-            """).fetchall()
-            inserted = 0
-            for match_id, row in enumerate(rows, start=1):
-                affected_ids = json.loads(row["affected_ids"]) if row["affected_ids"] else []
-                result = "win" if row["command"] == "!venceu" else "loss"
-                for discord_id in affected_ids:
-                    conn.execute("""
-                        INSERT OR IGNORE INTO match_history
-                        (audit_id, match_id, discord_id, result, details, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (row["id"], match_id, discord_id, result, row["details"], row["created_at"]))
-                    inserted += 1
-            logger.info(f"[DB] Migração de histórico de partidas concluída: {len(rows)} eventos, {inserted} registros inseridos.")
+            rebuild_match_history()
         elif match_id_missing:
             audit_ids = conn.execute("SELECT DISTINCT audit_id FROM match_history ORDER BY audit_id ASC").fetchall()
             for match_id, audit_row in enumerate(audit_ids, start=1):
@@ -307,22 +291,40 @@ def get_next_match_id() -> int:
     return (row["max_match_id"] or 0) + 1
 
 
-def get_pending_match_id_for_opposite_result(result: str) -> int | None:
-    opposite = "loss" if result == "win" else "win"
-    with get_connection() as conn:
-        row = conn.execute("""
-            SELECT match_id,
-                   MIN(result) AS only_result,
-                   COUNT(DISTINCT result) AS result_count
-            FROM match_history
-            GROUP BY match_id
-            ORDER BY match_id DESC
-            LIMIT 1
-        """).fetchone()
+def _find_open_match_id(result: str, same_side: bool = False) -> int | None:
+    query = """
+        SELECT match_id,
+               SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) AS win_count,
+               SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) AS loss_count
+        FROM match_history
+        GROUP BY match_id
+        HAVING
+    """
 
-        if row and row["result_count"] == 1 and row["only_result"] == opposite:
-            return row["match_id"]
-    return None
+    if same_side:
+        query += """
+            (? = 'win' AND win_count > 0 AND loss_count = 0 AND win_count < 5)
+            OR (? = 'loss' AND loss_count > 0 AND win_count = 0 AND loss_count < 5)
+        """
+    else:
+        query += """
+            (? = 'win' AND win_count = 0 AND loss_count > 0)
+            OR (? = 'loss' AND loss_count = 0 AND win_count > 0)
+        """
+
+    query += "\n            ORDER BY match_id DESC\n            LIMIT 1"
+
+    with get_connection() as conn:
+        row = conn.execute(query, (result, result)).fetchone()
+    return row["match_id"] if row else None
+
+
+def get_pending_match_id_for_opposite_result(result: str) -> int | None:
+    return _find_open_match_id(result, same_side=False)
+
+
+def get_pending_match_id_for_same_side(result: str) -> int | None:
+    return _find_open_match_id(result, same_side=True)
 
 
 def record_match_history(audit_id: int, affected_ids: list[int], result: str, details: str, created_at: str, match_id: int):
@@ -348,6 +350,8 @@ def log_match_action(admin_id: int, admin_name: str, command: str, details: str,
     audit_id = log_action(admin_id, admin_name, command, details, affected_ids, created_at=created_at)
     result = "win" if command == "!venceu" else "loss"
     pending_match_id = get_pending_match_id_for_opposite_result(result)
+    if pending_match_id is None:
+        pending_match_id = get_pending_match_id_for_same_side(result)
     match_id = pending_match_id if pending_match_id is not None else get_next_match_id()
     if pending_match_id is not None:
         logger.info(f"[DB] Agrupando comando {command} ao match existente {match_id}.")
@@ -396,6 +400,72 @@ def create_or_replace_manual_match(match_id: int, winner_ids: list[int], loser_i
 
     logger.info(f"[DB] Match manual {match_id} registrado: {len(winner_ids)} vencedores, {len(loser_ids)} derrotados.")
     return audit_id
+
+
+def _parse_manual_match_details(details: str) -> tuple[int, list[int], list[int]] | None:
+    match = re.match(r"Manual match (\d+): winners=\[(.*?)\] losers=\[(.*?)\]", details)
+    if not match:
+        return None
+
+    match_id = int(match.group(1))
+    winner_ids = [int(x.strip()) for x in match.group(2).split(",") if x.strip()]
+    loser_ids = [int(x.strip()) for x in match.group(3).split(",") if x.strip()]
+    return match_id, winner_ids, loser_ids
+
+
+def rebuild_match_history() -> None:
+    logger.info("[DB] Reconstruindo match_history a partir de audit_log.")
+    with get_connection() as conn:
+        conn.execute("DELETE FROM match_history")
+        conn.commit()
+
+    rows = []
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT id, command, affected_ids, details, created_at
+            FROM audit_log
+            WHERE command IN ('!venceu', '!perdeu', '!registrarmatch')
+            ORDER BY id ASC
+        """).fetchall()
+
+    current_match_id = 0
+    for row in rows:
+        command = row["command"]
+        if command == "!registrarmatch":
+            parsed = _parse_manual_match_details(row["details"])
+            if not parsed:
+                logger.warning(f"[DB] Não foi possível parsear manual match: {row['details']}")
+                continue
+
+            match_id, winner_ids, loser_ids = parsed
+            current_match_id = max(current_match_id, match_id)
+            with get_connection() as conn:
+                for discord_id in winner_ids:
+                    conn.execute("""
+                        INSERT INTO match_history
+                        (audit_id, match_id, discord_id, result, details, created_at)
+                        VALUES (?, ?, ?, 'win', ?, ?)
+                    """, (row["id"], match_id, discord_id, row["details"], row["created_at"]))
+                for discord_id in loser_ids:
+                    conn.execute("""
+                        INSERT INTO match_history
+                        (audit_id, match_id, discord_id, result, details, created_at)
+                        VALUES (?, ?, ?, 'loss', ?, ?)
+                    """, (row["id"], match_id, discord_id, row["details"], row["created_at"]))
+                conn.commit()
+            continue
+
+        affected_ids = json.loads(row["affected_ids"]) if row["affected_ids"] else []
+        result = "win" if command == "!venceu" else "loss"
+        match_id = get_pending_match_id_for_opposite_result(result)
+        if match_id is None:
+            match_id = get_pending_match_id_for_same_side(result)
+        if match_id is None:
+            current_match_id += 1
+            match_id = current_match_id
+        record_match_history(row["id"], affected_ids, result, row["details"], row["created_at"], match_id)
+
+    logger.info("[DB] Reconstrução de match_history concluída.")
 
 
 def get_raw_match_audit_events(limit: int = 50) -> list[dict]:
