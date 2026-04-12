@@ -10,7 +10,7 @@ from core.database import (
     get_ranking, log_action, log_match_action, get_last_admin_action, delete_audit_log_entry,
     get_player, get_last_update, get_player_streak, get_player_match_history,
     get_match_summary, get_recent_match_summaries, get_player_top_opponents,
-    get_raw_match_audit_events, create_or_replace_manual_match, rebuild_match_history
+    get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match
 )
 from core.utils.time import format_brazil_time, relative_time
 
@@ -383,16 +383,23 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"✅ Match #{match_id:03d} registrado manualmente.")
 
-    @bot.command(name="rebuildhistory", aliases=["rebuildmatches", "repairhistory"])
-    async def cmd_rebuild_history(ctx: commands.Context):
+    @bot.command(name="limparhistorico", aliases=["clearmatchhistory", "apagarhistorico"])
+    async def cmd_clear_match_history(ctx: commands.Context, confirm: str = None):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        rebuild_match_history()
+        if confirm != "confirmar":
+            await ctx.send(
+                "⚠️ Para apagar o histórico de partidas, use `!limparhistorico confirmar`.",
+                delete_after=15
+            )
+            return
+
+        delete_match_history()
         await ctx.message.delete()
-        await ctx.send("✅ Histórico de partidas reconstruído a partir do audit_log.")
+        await ctx.send("🗑️ Histórico de partidas apagado com sucesso.")
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):

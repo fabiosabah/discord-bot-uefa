@@ -5,7 +5,6 @@ import os
 import json
 import re
 from datetime import datetime
-from typing import Optional
 from core.config import DB_PATH
 
 logger = logging.getLogger("Database")
@@ -91,8 +90,7 @@ def migrate_db():
 
         mh_columns = conn.execute("PRAGMA table_info(match_history)").fetchall()
         mh_column_names = [col["name"] for col in mh_columns]
-        match_id_missing = "match_id" not in mh_column_names
-        if match_id_missing:
+        if "match_id" not in mh_column_names:
             conn.execute("ALTER TABLE match_history ADD COLUMN match_id INTEGER")
             logger.info("[DB] Coluna 'match_id' adicionada via migration ao match_history.")
 
@@ -109,15 +107,6 @@ def migrate_db():
             ON match_history(match_id)
         """)
         logger.info("[DB] Índices de match_history criados ou já existentes.")
-
-        existing_matches = conn.execute("SELECT COUNT(1) FROM match_history").fetchone()[0]
-        if existing_matches == 0:
-            rebuild_match_history()
-        elif match_id_missing:
-            audit_ids = conn.execute("SELECT DISTINCT audit_id FROM match_history ORDER BY audit_id ASC").fetchall()
-            for match_id, audit_row in enumerate(audit_ids, start=1):
-                conn.execute("UPDATE match_history SET match_id = ? WHERE audit_id = ?", (match_id, audit_row["audit_id"]))
-            logger.info("[DB] match_id preenchido para histórico de partidas existente.")
 
         conn.commit()
     logger.info("[DB] Migração finalizada.")
@@ -378,6 +367,14 @@ def delete_audit_log_entry(entry_id: int):
     logger.info(f"[DB] Ação de auditoria {entry_id} desfeita e histórico de partidas correspondente removido.")
 
 
+def delete_match_history() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM match_history")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_history'")
+        conn.commit()
+    logger.info("[DB] Histórico de partidas apagado.")
+
+
 def create_or_replace_manual_match(match_id: int, winner_ids: list[int], loser_ids: list[int], admin_id: int, admin_name: str) -> int:
     details = f"Manual match {match_id}: winners={winner_ids} losers={loser_ids}"
     audit_id = log_action(admin_id, admin_name, "!registrarmatch", details, affected_ids=winner_ids + loser_ids)
@@ -401,111 +398,6 @@ def create_or_replace_manual_match(match_id: int, winner_ids: list[int], loser_i
 
     logger.info(f"[DB] Match manual {match_id} registrado: {len(winner_ids)} vencedores, {len(loser_ids)} derrotados.")
     return audit_id
-
-
-def _parse_manual_match_details(details: str) -> Optional[tuple[int, list[int], list[int]]]:
-    match = re.match(r"Manual match (\d+): winners=\[(.*?)\] losers=\[(.*?)\]", details)
-    if not match:
-        return None
-
-    match_id = int(match.group(1))
-    winner_ids = [int(x.strip()) for x in match.group(2).split(",") if x.strip()]
-    loser_ids = [int(x.strip()) for x in match.group(3).split(",") if x.strip()]
-    return match_id, winner_ids, loser_ids
-
-
-def _parse_affected_ids_from_details(details: str) -> list[int]:
-    match = re.search(r"(?:Vit[óo]ria para|Derrota para):\s*(.+)$", details)
-    if not match:
-        return []
-
-    names_text = match.group(1).strip()
-    if not names_text:
-        return []
-
-    names = [name.strip() for name in names_text.split(",") if name.strip()]
-    ids = []
-    with get_connection() as conn:
-        for name in names:
-            row = conn.execute(
-                "SELECT discord_id FROM players WHERE LOWER(display_name) = LOWER(?) LIMIT 1",
-                (name,)
-            ).fetchone()
-            if row:
-                ids.append(row["discord_id"])
-    return ids
-
-
-def _update_audit_affected_ids(audit_id: int, affected_ids: list[int]) -> None:
-    if not affected_ids:
-        return
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE audit_log SET affected_ids = ? WHERE id = ?",
-            (json.dumps(affected_ids), audit_id)
-        )
-        conn.commit()
-
-
-def rebuild_match_history() -> None:
-    logger.info("[DB] Reconstruindo match_history a partir de audit_log.")
-    with get_connection() as conn:
-        conn.execute("DELETE FROM match_history")
-        conn.commit()
-
-    rows = []
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT id, command, affected_ids, details, created_at
-            FROM audit_log
-            WHERE command IN ('!venceu', '!perdeu', '!registrarmatch')
-            ORDER BY id ASC
-        """).fetchall()
-
-    current_match_id = 0
-    for row in rows:
-        command = row["command"]
-        if command == "!registrarmatch":
-            parsed = _parse_manual_match_details(row["details"])
-            if not parsed:
-                logger.warning(f"[DB] Não foi possível parsear manual match: {row['details']}")
-                continue
-
-            match_id, winner_ids, loser_ids = parsed
-            current_match_id = max(current_match_id, match_id)
-            with get_connection() as conn:
-                for discord_id in winner_ids:
-                    conn.execute("""
-                        INSERT INTO match_history
-                        (audit_id, match_id, discord_id, result, details, created_at)
-                        VALUES (?, ?, ?, 'win', ?, ?)
-                    """, (row["id"], match_id, discord_id, row["details"], row["created_at"]))
-                for discord_id in loser_ids:
-                    conn.execute("""
-                        INSERT INTO match_history
-                        (audit_id, match_id, discord_id, result, details, created_at)
-                        VALUES (?, ?, ?, 'loss', ?, ?)
-                    """, (row["id"], match_id, discord_id, row["details"], row["created_at"]))
-                conn.commit()
-            continue
-
-        affected_ids = json.loads(row["affected_ids"]) if row["affected_ids"] else []
-        if not affected_ids:
-            affected_ids = _parse_affected_ids_from_details(row["details"])
-            if affected_ids:
-                _update_audit_affected_ids(row["id"], affected_ids)
-                logger.info(f"[DB] Recuperados affected_ids para audit {row['id']}: {affected_ids}")
-
-        result = "win" if command == "!venceu" else "loss"
-        match_id = get_pending_match_id_for_opposite_result(result)
-        if match_id is None:
-            match_id = get_pending_match_id_for_same_side(result)
-        if match_id is None:
-            current_match_id += 1
-            match_id = current_match_id
-        record_match_history(row["id"], affected_ids, result, row["details"], row["created_at"], match_id)
-
-    logger.info("[DB] Reconstrução de match_history concluída.")
 
 
 def get_raw_match_audit_events(limit: int = 50) -> list[dict]:
