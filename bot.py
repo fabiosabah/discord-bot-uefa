@@ -4,7 +4,7 @@ import logging
 import sys
 from discord.ext import commands
 from core.config import TOKEN
-from core.database import init_db, migrate_db
+from core.database import init_db, migrate_db, get_list_channel
 from ui.commands.lobby_commands import setup_lobby_commands
 from ui.commands.score_commands import setup_score_commands
 
@@ -37,6 +37,29 @@ async def on_ready():
     print("-" * 40)
     for guild in bot.guilds:
         logger.info(f"Servidor: {guild.name} | Membros: {len(guild.members)}")
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    if not message.content.startswith(bot.command_prefix):
+        return
+
+    if message.guild:
+        allowed_channel = get_list_channel(message.guild.id)
+        if allowed_channel and message.channel.id == allowed_channel:
+            content = message.content.strip()
+            command_name = content.split()[0][1:].lower() if content else ""
+            allowed = command_name in {"lista", "lobby", "inhouse"}
+            if not allowed:
+                await message.channel.send(
+                    "❌ Neste canal só é permitido usar `!lista` para abrir a lista.",
+                    delete_after=10
+                )
+                return
+
+    await bot.process_commands(message)
 
 logger.info("Configurando comandos...")
 setup_lobby_commands(bot, active_lobbies)
