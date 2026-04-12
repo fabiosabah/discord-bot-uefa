@@ -2,13 +2,15 @@
 import discord
 import logging
 import json
+import re
 from discord.ext import commands
 from core.config import ADMIN_IDS
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
     get_ranking, log_action, log_match_action, get_last_admin_action, delete_audit_log_entry,
     get_player, get_last_update, get_player_streak, get_player_match_history,
-    get_match_summary, get_recent_match_summaries, get_player_top_opponents
+    get_match_summary, get_recent_match_summaries, get_player_top_opponents,
+    get_raw_match_audit_events, create_or_replace_manual_match
 )
 from core.utils.time import format_brazil_time, relative_time
 
@@ -239,9 +241,8 @@ def setup_score_commands(bot: commands.Bot):
                 summary = get_match_summary(item["match_id"])
                 if not summary:
                     continue
-                date = summary["created_at"].replace("T", " ").split(".")[0]
                 recent_lines.append(
-                    f"`#{summary['match_id']:03d}` {date} — "
+                    f"`#{summary['match_id']:03d}` — "
                     f"🏆 {', '.join(summary['winners'])} | 💀 {', '.join(summary['losers'])}"
                 )
             if recent_lines:
@@ -278,9 +279,8 @@ def setup_score_commands(bot: commands.Bot):
 
             winners = summary["winners"] or ["(não registrado)"]
             losers = summary["losers"] or ["(não registrado)"]
-            date = summary["created_at"].replace("T", " ").split(".")[0]
             lines.append(
-                f"`#{summary['match_id']:03d}` {date} — "
+                f"`#{summary['match_id']:03d}` — "
                 f"🏆 {', '.join(winners)} | 💀 {', '.join(losers)}"
             )
 
@@ -308,9 +308,8 @@ def setup_score_commands(bot: commands.Bot):
         for summary in summaries:
             winners = summary["winners"] or ["(não registrado)"]
             losers = summary["losers"] or ["(não registrado)"]
-            date = summary["created_at"].replace("T", " ").split(".")[0]
             lines.append(
-                f"`#{summary['match_id']:03d}` {date} — "
+                f"`#{summary['match_id']:03d}` — "
                 f"🏆 {', '.join(winners)} | 💀 {', '.join(losers)}"
             )
 
@@ -321,6 +320,60 @@ def setup_score_commands(bot: commands.Bot):
         )
         embed.set_footer(text=f"Mostrando {len(lines)} partidas")
         await ctx.send(embed=embed)
+
+    @bot.command(name="debugpartidas", aliases=["debugmatches", "auditmatches"])
+    async def cmd_debug_partidas(ctx: commands.Context, limit: int = 30):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        events = get_raw_match_audit_events(limit)
+        if not events:
+            await ctx.send("📋 Nenhum evento de !venceu/!perdeu registrado.")
+            return
+
+        lines = []
+        for event in events:
+            players = event["players"] or ["(nenhum jogador registrado)"]
+            match_id = f"#{event['match_id']:03d}" if event["match_id"] else "(sem match)"
+            lines.append(
+                f"`{event['audit_id']:03d}` {event['command']} {match_id} — {', '.join(players)}"
+            )
+
+        embed = discord.Embed(
+            title="🛠️ Debug de partidas",
+            description="\n".join(lines),
+            color=discord.Color.orange()
+        )
+        embed.set_footer(text=f"Últimos {min(len(lines), limit)} eventos")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="registrarmatch", aliases=["matchfix", "matchmanual"])
+    async def cmd_registrar_match(ctx: commands.Context, match_id: int, *, rest: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if "--" not in rest:
+            await ctx.send(
+                "❌ Use: `!registrarmatch <match_id> @win1 @win2 -- @loss1 @loss2`",
+                delete_after=15
+            )
+            return
+
+        winners_text, losers_text = [part.strip() for part in rest.split("--", 1)]
+        wins = [int(m) for m in re.findall(r"<@!?(\d+)>", winners_text)]
+        losses = [int(m) for m in re.findall(r"<@!?(\d+)>", losers_text)]
+
+        if not wins and not losses:
+            await ctx.send("❌ Informe ao menos um vencedor ou um derrotado.", delete_after=15)
+            return
+
+        create_or_replace_manual_match(match_id, wins, losses, ctx.author.id, ctx.author.display_name)
+        await ctx.message.delete()
+        await ctx.send(f"✅ Match #{match_id:03d} registrado manualmente.")
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
