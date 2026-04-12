@@ -10,7 +10,7 @@ from core.database import (
     get_ranking, log_action, log_match_action, get_last_admin_action, delete_audit_log_entry,
     get_player, get_last_update, get_player_streak, get_player_match_history,
     get_match_summary, get_recent_match_summaries, get_player_top_opponents,
-    get_raw_match_audit_events, create_or_replace_manual_match
+    get_raw_match_audit_events, create_or_replace_manual_match, rebuild_match_history
 )
 from core.utils.time import format_brazil_time, relative_time
 
@@ -78,6 +78,10 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send("⚠️ Mencione jogadores.", delete_after=5)
             return
 
+        if len(members) != 5:
+            await ctx.send("⚠️ O comando `!venceu` exige exatamente 5 jogadores.", delete_after=10)
+            return
+
         nomes, ids = [], []
         for m in members:
             add_win(m.id, m.display_name)
@@ -100,6 +104,10 @@ def setup_score_commands(bot: commands.Bot):
 
         if not members:
             await ctx.send("⚠️ Mencione jogadores.", delete_after=5)
+            return
+
+        if len(members) != 5:
+            await ctx.send("⚠️ O comando `!perdeu` exige exatamente 5 jogadores.", delete_after=10)
             return
 
         nomes, ids = [], []
@@ -374,6 +382,17 @@ def setup_score_commands(bot: commands.Bot):
         create_or_replace_manual_match(match_id, wins, losses, ctx.author.id, ctx.author.display_name)
         await ctx.message.delete()
         await ctx.send(f"✅ Match #{match_id:03d} registrado manualmente.")
+
+    @bot.command(name="rebuildhistory", aliases=["rebuildmatches", "repairhistory"])
+    async def cmd_rebuild_history(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        rebuild_match_history()
+        await ctx.message.delete()
+        await ctx.send("✅ Histórico de partidas reconstruído a partir do audit_log.")
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
