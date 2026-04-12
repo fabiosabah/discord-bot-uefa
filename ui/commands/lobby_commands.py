@@ -20,7 +20,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             channel_mention = f" no canal <#{existing_message.channel.id}>" if existing_message else ""
             reply_text = f"⚠️ Já existe uma lista aberta{channel_mention}. Veja a lista atual abaixo."
             if existing_message:
-                await ctx.reply(reply_text, reference=existing_message.to_reference(), mention_author=False)
+                await ctx.send(reply_text, reference=existing_message.to_reference())
             else:
                 await ctx.send(reply_text)
             await ctx.message.delete()
