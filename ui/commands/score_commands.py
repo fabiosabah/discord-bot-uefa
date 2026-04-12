@@ -6,7 +6,9 @@ from discord.ext import commands
 from core.config import ADMIN_IDS
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
-    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry, get_player, get_last_update
+    get_ranking, log_action, log_match_action, get_last_admin_action, delete_audit_log_entry,
+    get_player, get_last_update, get_player_streak, get_player_match_history,
+    get_match_summary, get_recent_match_summaries, get_player_top_opponents
 )
 from core.utils.time import format_brazil_time, relative_time
 
@@ -80,8 +82,8 @@ def setup_score_commands(bot: commands.Bot):
             nomes.append(m.display_name)
             ids.append(m.id)
 
-        log_action(ctx.author.id, ctx.author.display_name, "!venceu",
-                   f"Vitória para: {', '.join(nomes)}", ids)
+        log_match_action(ctx.author.id, ctx.author.display_name, "!venceu",
+                         f"Vitória para: {', '.join(nomes)}", ids)
 
         await ctx.message.delete()
         await ctx.send(f"🏆 Vitória registrada para {' '.join(m.mention for m in members)}")
@@ -104,8 +106,8 @@ def setup_score_commands(bot: commands.Bot):
             nomes.append(m.display_name)
             ids.append(m.id)
 
-        log_action(ctx.author.id, ctx.author.display_name, "!perdeu",
-                   f"Derrota para: {', '.join(nomes)}", ids)
+        log_match_action(ctx.author.id, ctx.author.display_name, "!perdeu",
+                         f"Derrota para: {', '.join(nomes)}", ids)
 
         await ctx.message.delete()
         await ctx.send(f"💀 Derrota registrada para {' '.join(m.mention for m in members)}")
@@ -174,6 +176,14 @@ def setup_score_commands(bot: commands.Bot):
         pts = points(wins, losses)
         winrate = (wins / games * 100) if games else 0
 
+        streak = get_player_streak(target.id)
+        streak_type = streak["streak_type"]
+        streak_count = streak["streak_count"]
+
+        recent_matches = get_player_match_history(target.id, limit=3)
+        win_opponents = get_player_top_opponents(target.id, "win", limit=3)
+        loss_opponents = get_player_top_opponents(target.id, "loss", limit=3)
+
         ranking = get_ranking()
         pos = next((i+1 for i,p in enumerate(ranking) if p["discord_id"] == target.id), None)
 
@@ -193,11 +203,18 @@ def setup_score_commands(bot: commands.Bot):
         else:
             msg = "📉 Precisa melhorar"
 
+        if streak_type == "win":
+            streak_text = f"🔥 Win streak de {streak_count}! Duplinha maldita na área."
+        elif streak_type == "loss":
+            streak_text = f"📉 Loss streak de {streak_count}. Segura a onda, parceiro."
+        else:
+            streak_text = "⚖️ Ainda sem sequência definida."
+
         title = f"📊 Perfil de {target.display_name}"
         if pos == 1:
             title = f"👑 Líder da Liga: {target.display_name}"
 
-        embed = discord.Embed(title=title, description=msg, color=color)
+        embed = discord.Embed(title=title, description=f"{msg}\n{streak_text}", color=color)
         embed.set_thumbnail(url=target.display_avatar.url)
 
         embed.add_field(name="🏆 Vitórias", value=wins, inline=True)
@@ -207,11 +224,102 @@ def setup_score_commands(bot: commands.Bot):
         embed.add_field(name="🎮 Jogos", value=games, inline=True)
         embed.add_field(name="📈 Winrate", value=f"{winrate:.1f}%", inline=True)
 
+        if streak_type and streak_count:
+            if streak_type == "win":
+                embed.add_field(name="🔥 Sequência", value=f"{streak_count} vitória(s) seguida(s)", inline=True)
+            else:
+                embed.add_field(name="📉 Sequência", value=f"{streak_count} derrota(s) seguida(s)", inline=True)
+
         if pos:
             embed.add_field(name="🥇 Ranking", value=f"#{pos}", inline=True)
 
+        if recent_matches:
+            recent_lines = []
+            for item in recent_matches:
+                summary = get_match_summary(item["match_id"])
+                if not summary:
+                    continue
+                date = summary["created_at"].replace("T", " ").split(".")[0]
+                recent_lines.append(
+                    f"`#{summary['match_id']:03d}` {date} — "
+                    f"🏆 {', '.join(summary['winners'])} | 💀 {', '.join(summary['losers'])}"
+                )
+            if recent_lines:
+                embed.add_field(name="🕹️ Últimas 3 partidas", value="\n".join(recent_lines), inline=False)
+
+        if win_opponents:
+            win_lines = [f"{i+1}. {opp['display_name']} — {opp['count']}x" for i, opp in enumerate(win_opponents)]
+            win_lines.append("\nMeu freguês: inimigo que você mais derrotou.")
+            embed.add_field(name="😎 Meu freguês", value="\n".join(win_lines), inline=False)
+
+        if loss_opponents:
+            loss_lines = [f"{i+1}. {opp['display_name']} — {opp['count']}x" for i, opp in enumerate(loss_opponents)]
+            loss_lines.append("\nMeu nemesis: inimigo que mais te derrotou.")
+            embed.add_field(name="☠️ Meu nemesis", value="\n".join(loss_lines), inline=False)
+
         embed.set_footer(text="Sistema de Liga • UEFA Bot")
 
+        await ctx.send(embed=embed)
+
+    @bot.command(name="historico", aliases=["history"])
+    async def cmd_historico(ctx: commands.Context, member: discord.Member = None, limit: int = 8):
+        target = member or ctx.author
+        history = get_player_match_history(target.id, limit)
+
+        if not history:
+            await ctx.send(f"📋 Nenhum histórico encontrado para {target.display_name}.")
+            return
+
+        lines = []
+        for item in history:
+            summary = get_match_summary(item["match_id"])
+            if not summary:
+                continue
+
+            winners = summary["winners"] or ["(não registrado)"]
+            losers = summary["losers"] or ["(não registrado)"]
+            date = summary["created_at"].replace("T", " ").split(".")[0]
+            lines.append(
+                f"`#{summary['match_id']:03d}` {date} — "
+                f"🏆 {', '.join(winners)} | 💀 {', '.join(losers)}"
+            )
+
+        embed = discord.Embed(
+            title=f"📜 Histórico de partidas de {target.display_name}",
+            description="\n".join(lines[:limit]),
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text=f"Últimas {min(len(lines), limit)} partidas")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="ultimas", aliases=["ultimaspartidas", "recentes"])
+    async def cmd_ultimas(ctx: commands.Context, n: int = 7):
+        if n < 1 or n > 12:
+            await ctx.send("❌ Escolha um número entre 1 e 12.")
+            return
+
+        summaries = get_recent_match_summaries(n)
+        summaries = [s for s in summaries if s]
+        if not summaries:
+            await ctx.send("📋 Nenhuma partida registrada ainda.")
+            return
+
+        lines = []
+        for summary in summaries:
+            winners = summary["winners"] or ["(não registrado)"]
+            losers = summary["losers"] or ["(não registrado)"]
+            date = summary["created_at"].replace("T", " ").split(".")[0]
+            lines.append(
+                f"`#{summary['match_id']:03d}` {date} — "
+                f"🏆 {', '.join(winners)} | 💀 {', '.join(losers)}"
+            )
+
+        embed = discord.Embed(
+            title="📈 Últimas partidas registradas na liga",
+            description="\n".join(lines),
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text=f"Mostrando {len(lines)} partidas")
         await ctx.send(embed=embed)
 
     @bot.command(name="tabela")
