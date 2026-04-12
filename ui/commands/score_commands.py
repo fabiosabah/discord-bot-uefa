@@ -5,7 +5,7 @@ import json
 from discord.ext import commands
 from core.config import ADMIN_IDS
 from core.database import (
-    upsert_player, add_win, add_loss, remove_win, remove_loss, 
+    upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
     get_ranking, log_action, get_last_admin_action, delete_audit_log_entry, get_player, get_last_update
 )
 from core.utils.time import format_brazil_time, relative_time
@@ -135,6 +135,29 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"↩️ Ação `{action['command']}` desfeita!")
+
+    @bot.command(name="deletar")
+    async def cmd_deletar(ctx: commands.Context, member: discord.User):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
+            return
+
+        player = get_player(member.id)
+        if not player:
+            await ctx.send("❌ Jogador não encontrado no ranking.", delete_after=5)
+            return
+
+        delete_player(member.id)
+        log_action(
+            ctx.author.id, ctx.author.display_name,
+            "!deletar",
+            f"Removido {member.display_name} ({member.id}) do ranking",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"🗑️ **{member.display_name}** foi removido do ranking e do banco de dados.")
 
     @bot.command(name="perfil")
     async def cmd_perfil(ctx, target: discord.Member = None):

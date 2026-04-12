@@ -133,6 +133,13 @@ def get_player(discord_id: int):
     return dict(row) if row else None
 
 
+def delete_player(discord_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM players WHERE discord_id = ?", (discord_id,))
+        conn.commit()
+    logger.info(f"[DB] Jogador removido: {discord_id}")
+
+
 def get_ranking() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
