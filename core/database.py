@@ -5,6 +5,7 @@ import os
 import json
 import re
 from datetime import datetime
+from typing import Optional
 from core.config import DB_PATH
 
 logger = logging.getLogger("Database")
@@ -402,7 +403,7 @@ def create_or_replace_manual_match(match_id: int, winner_ids: list[int], loser_i
     return audit_id
 
 
-def _parse_manual_match_details(details: str) -> tuple[int, list[int], list[int]] | None:
+def _parse_manual_match_details(details: str) -> Optional[tuple[int, list[int], list[int]]]:
     match = re.match(r"Manual match (\d+): winners=\[(.*?)\] losers=\[(.*?)\]", details)
     if not match:
         return None
@@ -411,6 +412,39 @@ def _parse_manual_match_details(details: str) -> tuple[int, list[int], list[int]
     winner_ids = [int(x.strip()) for x in match.group(2).split(",") if x.strip()]
     loser_ids = [int(x.strip()) for x in match.group(3).split(",") if x.strip()]
     return match_id, winner_ids, loser_ids
+
+
+def _parse_affected_ids_from_details(details: str) -> list[int]:
+    match = re.search(r"(?:Vit[óo]ria para|Derrota para):\s*(.+)$", details)
+    if not match:
+        return []
+
+    names_text = match.group(1).strip()
+    if not names_text:
+        return []
+
+    names = [name.strip() for name in names_text.split(",") if name.strip()]
+    ids = []
+    with get_connection() as conn:
+        for name in names:
+            row = conn.execute(
+                "SELECT discord_id FROM players WHERE LOWER(display_name) = LOWER(?) LIMIT 1",
+                (name,)
+            ).fetchone()
+            if row:
+                ids.append(row["discord_id"])
+    return ids
+
+
+def _update_audit_affected_ids(audit_id: int, affected_ids: list[int]) -> None:
+    if not affected_ids:
+        return
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE audit_log SET affected_ids = ? WHERE id = ?",
+            (json.dumps(affected_ids), audit_id)
+        )
+        conn.commit()
 
 
 def rebuild_match_history() -> None:
@@ -456,6 +490,12 @@ def rebuild_match_history() -> None:
             continue
 
         affected_ids = json.loads(row["affected_ids"]) if row["affected_ids"] else []
+        if not affected_ids:
+            affected_ids = _parse_affected_ids_from_details(row["details"])
+            if affected_ids:
+                _update_audit_affected_ids(row["id"], affected_ids)
+                logger.info(f"[DB] Recuperados affected_ids para audit {row['id']}: {affected_ids}")
+
         result = "win" if command == "!venceu" else "loss"
         match_id = get_pending_match_id_for_opposite_result(result)
         if match_id is None:
