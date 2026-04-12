@@ -15,12 +15,23 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
     @bot.command(name="lista", aliases=["lobby", "inhouse"])
     async def open_list(ctx: commands.Context):
         if active_lobbies:
+            stale_ids = [msg_id for msg_id, session in active_lobbies.items() if session.closed]
+            for msg_id in stale_ids:
+                active_lobbies.pop(msg_id, None)
+
+        if active_lobbies:
             existing_session = next(iter(active_lobbies.values()))
             existing_message = existing_session.message
             channel_mention = f" no canal <#{existing_message.channel.id}>" if existing_message else ""
             reply_text = f"⚠️ Já existe uma lista aberta{channel_mention}. Veja a lista atual abaixo."
-            if existing_message:
+            if existing_message and existing_message.channel.id == ctx.channel.id:
                 await ctx.send(reply_text, reference=existing_message.to_reference())
+            elif existing_message:
+                reply_text = (
+                    f"⚠️ Já existe uma lista aberta{channel_mention}. "
+                    f"Acesse: {existing_message.jump_url}"
+                )
+                await ctx.send(reply_text)
             else:
                 await ctx.send(reply_text)
             await ctx.message.delete()
