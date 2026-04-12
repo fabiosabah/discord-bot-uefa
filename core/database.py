@@ -42,6 +42,12 @@ def init_db():
                 created_at   TEXT    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS server_config (
+                guild_id        INTEGER PRIMARY KEY,
+                list_channel_id INTEGER
+            )
+        """)
         conn.commit()
     logger.info("[DB] Banco de dados inicializado.")
 
@@ -131,6 +137,32 @@ def get_player(discord_id: int):
             "SELECT * FROM players WHERE discord_id = ?", (discord_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def get_list_channel(guild_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT list_channel_id FROM server_config WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+    return row["list_channel_id"] if row else None
+
+
+def set_list_channel(guild_id: int, channel_id: int):
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO server_config (guild_id, list_channel_id)
+            VALUES (?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET list_channel_id = excluded.list_channel_id
+        """, (guild_id, channel_id))
+        conn.commit()
+    logger.info(f"[DB] Canal de lista registrado para guild {guild_id}: {channel_id}")
+
+
+def clear_list_channel(guild_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM server_config WHERE guild_id = ?", (guild_id,))
+        conn.commit()
+    logger.info(f"[DB] Canal de lista removido para guild {guild_id}")
 
 
 def delete_player(discord_id: int):

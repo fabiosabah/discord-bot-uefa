@@ -102,6 +102,8 @@ class AddUserSelect(discord.ui.UserSelect):
             response = f"🔔 {member.mention} foi adicionado à espera (posição {len(session.waitlist)})."
         else:
             session.add_player(member)
+            if session.is_full():
+                session.schedule_auto_close(self.active_lobbies)
             list_type = "lista"
             response = f"✅ {member.mention} foi adicionado à lista."
 
@@ -123,6 +125,10 @@ class LobbyView(discord.ui.View):
         super().__init__(timeout=None)
         self.session = session
         self.active_lobbies = active_lobbies
+
+        if session.closed:
+            for child in self.children:
+                child.disabled = True
 
     @discord.ui.button(label="✋ Entrar", style=discord.ButtonStyle.success, custom_id="entrar")
     async def entrar(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -152,8 +158,9 @@ class LobbyView(discord.ui.View):
             await session.message.edit(embed=session.build_embed(), view=self)
 
             if session.is_full():
+                session.schedule_auto_close(self.active_lobbies)
                 await session.message.channel.send(
-                    f"🔒 **Lista completa! (10/10)**\nUse o botão \"Encerrar lista\" para finalizar ou mais pessoas podem entrar na espera."
+                    f"🔒 **Lista completa! (10/10)**\nA lista será encerrada automaticamente em 3 minutos se não for finalizada antes."
                 )
 
     @discord.ui.button(label="🚪 Sair", style=discord.ButtonStyle.danger, custom_id="sair")
@@ -236,4 +243,4 @@ class LobbyView(discord.ui.View):
             item.disabled = True
 
         await session.message.edit(embed=session.build_embed(), view=self)
-        await close_session(session, interaction, self.active_lobbies)
+        await close_session(session, self.active_lobbies)

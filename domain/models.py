@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import discord
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 from core.database import get_captains_from_list
@@ -13,6 +14,32 @@ class LobbySession:
         self.waitlist: list[discord.Member] = []
         self.waitlist_ids: set[int] = set()
         self.closed = False
+        self.close_task: asyncio.Task | None = None
+
+    def cancel_auto_close(self):
+        if self.close_task and not self.close_task.done():
+            self.close_task.cancel()
+        self.close_task = None
+
+    def schedule_auto_close(self, active_lobbies: dict):
+        if self.closed or self.close_task is not None:
+            return
+        loop = asyncio.get_running_loop()
+        self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies))
+
+    async def _auto_close_countdown(self, active_lobbies: dict):
+        try:
+            await asyncio.sleep(180)
+            if self.closed:
+                return
+
+            if self.message is None:
+                return
+
+            from services.lobby_service import close_session
+            await close_session(self, active_lobbies)
+        except asyncio.CancelledError:
+            pass
 
     def add_player(self, member: discord.Member) -> bool:
         if self.closed or member.id in self.player_ids or member.id in self.waitlist_ids:

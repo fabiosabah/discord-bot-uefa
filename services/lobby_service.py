@@ -8,16 +8,17 @@ logger = logging.getLogger("LobbyService")
 
 async def close_session(
     session: LobbySession,
-    interaction: discord.Interaction,
     active_lobbies: dict
 ):
     from ui.views.lobby_view import LobbyView
     from services.state import get_next_id
     
     session.closed = True
+    session.cancel_auto_close()
     message = session.message
     
     if message:
+        await message.edit(embed=session.build_embed(), view=LobbyView(session, active_lobbies))
         active_lobbies.pop(message.id, None)
 
     filled = len(session.players)
@@ -59,6 +60,9 @@ async def close_session(
             )
             new_session.message = new_msg
             active_lobbies[new_msg.id] = new_session
+
+            if new_session.is_full():
+                new_session.schedule_auto_close(active_lobbies)
 
             mention_waitlist = " ".join(p.mention for p in next_players)
             await message.channel.send(
