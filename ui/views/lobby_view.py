@@ -160,7 +160,7 @@ class LobbyView(discord.ui.View):
             if session.is_full():
                 session.schedule_auto_close(self.active_lobbies)
                 await session.message.channel.send(
-                    f"🔒 **Lista completa! (10/10)**\nA lista será encerrada automaticamente em 3 minutos se não for finalizada antes."
+                    f"🔒 **Lista completa! (10/10)**\nA lista será encerrada automaticamente em 10 minutos se não for finalizada antes."
                 )
 
     @discord.ui.button(label="🚪 Sair", style=discord.ButtonStyle.danger, custom_id="sair")

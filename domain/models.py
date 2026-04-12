@@ -29,7 +29,7 @@ class LobbySession:
 
     async def _auto_close_countdown(self, active_lobbies: dict):
         try:
-            await asyncio.sleep(180)
+            await asyncio.sleep(600)
             if self.closed:
                 return
 
