@@ -77,7 +77,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             value=(
                 "`!lista` ou `!lobby`: Abre uma nova lista de presença.\n"
                 "`!tabela`: Mostra o ranking atual da liga.\n"
-                "`!perfil @usuario`: Mostra as estatísticas de um jogador, vitórias e derrotas por enquanto.\n"
+                "`!perfil @usuario`: Mostra as estatísticas de um jogador.\n"
                 "`!uefa` ou `!liga`: Abre este guia de ajuda."
             ),
             inline=False
@@ -93,6 +93,21 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             inline=False
         )
 
+        # Comandos OCR / Score (Apenas ADMs)
+        embed.add_field(
+            name="📸 Comandos OCR e Importação",
+            value=(
+                "`!scanhistory [limite]`: Varre mensagens antigas do canal de imagens e enfileira apenas imagens para OCR.\n"
+                "`!pendenciaimagem`: Lista imagens que ainda não foram processadas.\n"
+                "`!detalhesimagem <job_id>`: Mostra os metadados OCR e o texto extraído do job.\n"
+                "`!rawtextimagem <job_id>`: Mostra o raw_text completo extraído pelo OCR para diagnóstico.\n"
+                "`!importarimagem <job_id> <mapeamento>`: Registra a imagem como partida usando o mapeamento de nomes para IDs (suporta `hero=...`).\n"
+                "`!confirmarimagem <job_id> <texto>`: Confirma manualmente o texto OCR e salva para uso posterior.\n"
+                "`!fixhero <match_id> @usuario <herói>`: Corrige o herói de um jogador em uma partida importada."
+            ),
+            inline=False
+        )
+
         # Comandos Administrativos
         embed.add_field(
             name="🛠️ Comandos Administrativos (Apenas ADMs)",
@@ -100,6 +115,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 "`!venceu @u1 @u2...`: Adiciona 1 vitória (+3 pts) para os jogadores.\n"
                 "`!perdeu @u1 @u2...`: Adiciona 1 derrota (-1 pt) para os jogadores.\n"
                 "`!registrar @u <V> <D>`: Define manualmente o score de um jogador.\n"
+                "`!registrarmatch <id> @win... -- @loss...`: Registra partida manual sem imagem.\n"
                 "`!desfazer` ou `!undo`: Desfaz sua última ação de vitória/derrota.\n"
                 "**Botões da Lista:** ADMs podem adicionar/remover pessoas e encerrar qualquer lista."
             ),
