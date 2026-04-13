@@ -111,6 +111,7 @@ def migrate_db():
                 discord_id INTEGER NOT NULL,
                 result     TEXT    NOT NULL,
                 details    TEXT,
+                hero       TEXT,
                 created_at TEXT    NOT NULL,
                 UNIQUE(audit_id, discord_id)
             )
@@ -122,6 +123,10 @@ def migrate_db():
         if "match_id" not in mh_column_names:
             conn.execute("ALTER TABLE match_history ADD COLUMN match_id INTEGER")
             logger.info("[DB] Coluna 'match_id' adicionada via migration ao match_history.")
+
+        if "hero" not in mh_column_names:
+            conn.execute("ALTER TABLE match_history ADD COLUMN hero TEXT")
+            logger.info("[DB] Coluna 'hero' adicionada via migration ao match_history.")
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_match_history_discord_id
@@ -270,7 +275,7 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
     return mapping
 
 
-def insert_ocr_match(job_id: int, player_name_to_discord_id: dict[str, int], admin_id: int, admin_name: str) -> int:
+def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], admin_id: int, admin_name: str) -> int:
     job = get_match_screenshot(job_id)
     if job is None:
         raise ValueError(f"Job de screenshot {job_id} não encontrado")
@@ -305,20 +310,20 @@ def insert_ocr_match(job_id: int, player_name_to_discord_id: dict[str, int], adm
     for player in players:
         if not isinstance(player, dict):
             continue
-        player_name = player.get("name") or player.get("player")
+        player_name = (player.get("name") or player.get("player") or "").strip()
         team = (player.get("team") or player.get("side") or "").strip().lower()
         if not player_name or not team:
             continue
 
-        discord_id = player_name_to_discord_id.get(player_name)
-        if discord_id is None:
+        entry = player_mapping.get(player_name)
+        if entry is None:
             missing.append(player_name)
             continue
 
         if team == winner_team:
-            winners.append(discord_id)
+            winners.append(entry["discord_id"])
         else:
-            losers.append(discord_id)
+            losers.append(entry["discord_id"])
 
     if missing:
         raise ValueError(f"Mapeamento incompleto. Falta mapear os jogadores: {', '.join(missing)}")
@@ -335,23 +340,25 @@ def insert_ocr_match(job_id: int, player_name_to_discord_id: dict[str, int], adm
         for player in players:
             if not isinstance(player, dict):
                 continue
-            player_name = player.get("name") or player.get("player")
+            player_name = (player.get("name") or player.get("player") or "").strip()
             team = (player.get("team") or player.get("side") or "").strip().lower()
-            discord_id = player_name_to_discord_id.get(player_name)
-            if discord_id is None:
+            entry = player_mapping.get(player_name)
+            if entry is None:
                 continue
 
+            discord_id = entry["discord_id"]
+            hero = entry.get("hero") or player.get("hero") or None
             if team == winner_team:
                 add_win(discord_id, player_name)
                 conn.execute(
-                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, created_at) VALUES (?, ?, ?, 'win', ?, ?)",
-                    (audit_id, match_id, discord_id, details, created_at)
+                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, hero, created_at) VALUES (?, ?, ?, 'win', ?, ?, ?)",
+                    (audit_id, match_id, discord_id, details, hero, created_at)
                 )
             else:
                 add_loss(discord_id, player_name)
                 conn.execute(
-                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, created_at) VALUES (?, ?, ?, 'loss', ?, ?)",
-                    (audit_id, match_id, discord_id, details, created_at)
+                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, hero, created_at) VALUES (?, ?, ?, 'loss', ?, ?, ?)",
+                    (audit_id, match_id, discord_id, details, hero, created_at)
                 )
         conn.commit()
 
@@ -372,7 +379,7 @@ def insert_ocr_match(job_id: int, player_name_to_discord_id: dict[str, int], adm
     original_metadata = parsed
     original_metadata["imported_by"] = admin_id
     original_metadata["match_id"] = match_id
-    original_metadata["mapping"] = player_name_to_discord_id
+    original_metadata["mapping"] = player_mapping
     set_match_screenshot_status(job_id, "imported", metadata=json.dumps(original_metadata, ensure_ascii=False))
     logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id}")
     return audit_id
@@ -525,7 +532,7 @@ def get_pending_match_id_for_same_side(result: str) -> int | None:
     return _find_open_match_id(result, same_side=True)
 
 
-def record_match_history(audit_id: int, affected_ids: list[int], result: str, details: str, created_at: str, match_id: int):
+def record_match_history(audit_id: int, affected_ids: list[int], result: str, details: str, created_at: str, match_id: int, hero: str | None = None):
     if not affected_ids:
         logger.info(f"[DB] Sem IDs afetados para gravar match_history do audit {audit_id}.")
         return
@@ -535,12 +542,25 @@ def record_match_history(audit_id: int, affected_ids: list[int], result: str, de
         for discord_id in affected_ids:
             conn.execute("""
                 INSERT OR IGNORE INTO match_history
-                (audit_id, match_id, discord_id, result, details, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (audit_id, match_id, discord_id, result, details, created_at))
+                (audit_id, match_id, discord_id, result, details, hero, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (audit_id, match_id, discord_id, result, details, hero, created_at))
             inserted += 1
         conn.commit()
     logger.info(f"[DB] Gravado match_history do audit {audit_id} com match_id {match_id}: {inserted} registros.")
+
+
+def update_match_hero(match_id: int, discord_id: int, hero: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE match_history SET hero = ? WHERE match_id = ? AND discord_id = ?",
+            (hero, match_id, discord_id)
+        )
+        conn.commit()
+    updated = cursor.rowcount if hasattr(cursor, "rowcount") else 0
+    if updated:
+        logger.info(f"[DB] Match {match_id} hero atualizado para {discord_id}: {hero}")
+    return updated > 0
 
 
 def log_match_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None) -> int:
@@ -726,6 +746,7 @@ def get_match_summary(match_id: int) -> dict | None:
             SELECT mh.result,
                    mh.discord_id,
                    p.display_name,
+                   mh.hero,
                    al.command,
                    al.details,
                    al.created_at
@@ -743,6 +764,9 @@ def get_match_summary(match_id: int) -> dict | None:
     losers = []
     for row in rows:
         display_name = row['display_name'] or str(row['discord_id'])
+        hero = row['hero']
+        if hero:
+            display_name = f"{display_name} ({hero})"
         if row['result'] == 'win':
             winners.append(display_name)
         else:

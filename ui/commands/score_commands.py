@@ -13,7 +13,8 @@ from core.database import (
     get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match,
     get_pending_match_screenshots, get_match_screenshot, set_match_screenshot_status,
     enqueue_match_screenshot, is_match_screenshot_enqueued,
-    find_player_by_display_name, resolve_player_names_exact, insert_ocr_match
+    find_player_by_display_name, resolve_player_names_exact, insert_ocr_match,
+    update_match_hero
 )
 from core.ocr import can_process_ocr, process_match_screenshot
 from core.utils.time import format_brazil_time, relative_time
@@ -27,8 +28,8 @@ def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
 
 
-def parse_player_mapping(mapping_text: str) -> list[tuple[str, int]]:
-    mappings: list[tuple[str, int]] = []
+def parse_player_mapping(mapping_text: str) -> list[dict[str, object]]:
+    mappings: list[dict[str, object]] = []
     if not mapping_text:
         return mappings
 
@@ -37,6 +38,13 @@ def parse_player_mapping(mapping_text: str) -> list[tuple[str, int]]:
         if not token:
             continue
 
+        hero = None
+        hero_match = re.search(r'\bhero\s*=\s*("[^"]+"|[^,;\s]+)', token, flags=re.IGNORECASE)
+        if hero_match:
+            hero_value = hero_match.group(1).strip()
+            hero = hero_value.strip('"').strip()
+            token = (token[:hero_match.start()] + token[hero_match.end():]).strip()
+
         match = re.match(r'^(?:"(?P<quoted>[^"]+)"|(?P<plain>[^=]+))\s*=\s*@?(?P<id>\d+)$', token)
         if not match:
             continue
@@ -44,7 +52,7 @@ def parse_player_mapping(mapping_text: str) -> list[tuple[str, int]]:
         player_key = match.group("quoted") or match.group("plain")
         player_key = player_key.strip()
         discord_id = int(match.group("id"))
-        mappings.append((player_key, discord_id))
+        mappings.append({"player_key": player_key, "discord_id": discord_id, "hero": hero})
 
     return mappings
 
@@ -551,14 +559,18 @@ def setup_score_commands(bot: commands.Bot):
         mappings = parse_player_mapping(mapping_text)
         if not mappings:
             await ctx.send(
-                "❌ Forneça mapeamentos no formato `1=@123456789012345678`, `\"Nome do jogador\"=@123...` ou `PlayerName=@123`.",
+                "❌ Forneça mapeamentos no formato `1=@123456789012345678`, `\"Nome do jogador\"=@123...`, `PlayerName=@123` ou `1=@123 hero=Rubick`.",
                 delete_after=15
             )
             return
 
-        player_mapping: dict[str, int] = {}
+        player_mapping: dict[str, dict[str, object]] = {}
         unresolved = []
-        for player_key, discord_id in mappings:
+        for mapping in mappings:
+            player_key = mapping["player_key"]
+            discord_id = mapping["discord_id"]
+            hero = mapping.get("hero")
+
             if player_key.isdigit():
                 index = int(player_key) - 1
                 if index < 0 or index >= len(players):
@@ -566,13 +578,15 @@ def setup_score_commands(bot: commands.Bot):
                     return
                 player_key = players[index].get("name") or players[index].get("player") or f"player_{player_key}"
 
-            player_mapping[player_key] = discord_id
+            player_mapping[player_key] = {"discord_id": discord_id, "hero": hero}
 
         extracted_names = [ (p.get("name") or p.get("player") or "").strip() for p in players ]
         missing_names = [name for name in extracted_names if name and name not in player_mapping]
         if missing_names:
             auto = resolve_player_names_exact(missing_names)
-            player_mapping.update(auto)
+            for name, discord_id in auto.items():
+                if name not in player_mapping:
+                    player_mapping[name] = {"discord_id": discord_id}
             missing_names = [name for name in missing_names if name not in player_mapping]
 
         if missing_names:
@@ -590,6 +604,38 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Imagem {job_id} importada como partida no banco.")
+
+    @bot.command(name="fixhero", aliases=["corrigirhero"])
+    async def cmd_fix_hero(ctx: commands.Context, match_id: int, member: discord.Member, *, hero: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        hero = hero.strip()
+        if not hero:
+            await ctx.send("❌ Informe o herói após o jogador.", delete_after=10)
+            return
+
+        updated = update_match_hero(match_id, member.id, hero)
+        if not updated:
+            await ctx.send(
+                f"❌ Não foi possível encontrar o jogador {member.mention} na partida {match_id}."
+                " Verifique se o match_id está correto e se o jogador pertence à partida.",
+                delete_after=20
+            )
+            return
+
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!fixhero",
+            f"match_id={match_id} discord_id={member.id} hero={hero}",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Hero de {member.mention} atualizado para **{hero}** na partida {match_id}.")
 
     @bot.command(name="registrarmatch", aliases=["matchfix", "matchmanual"])
     async def cmd_registrar_match(ctx: commands.Context, match_id: int, *, rest: str):
