@@ -61,6 +61,35 @@ def init_db():
                 list_channel_id INTEGER
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS match_screenshots (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id   INTEGER NOT NULL,
+                guild_id     INTEGER NOT NULL,
+                channel_id   INTEGER NOT NULL,
+                author_id    INTEGER NOT NULL,
+                image_url    TEXT    NOT NULL,
+                status       TEXT    NOT NULL DEFAULT 'pending',
+                metadata     TEXT,
+                created_at   TEXT    NOT NULL,
+                processed_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS match_imports (
+                match_id       INTEGER PRIMARY KEY,
+                steam_match_id TEXT,
+                dota_match_id  TEXT,
+                match_date     TEXT,
+                mode           TEXT,
+                winner         TEXT,
+                duration       TEXT,
+                radiant_score  INTEGER,
+                dire_score     INTEGER,
+                raw_metadata   TEXT,
+                created_at     TEXT    NOT NULL
+            )
+        """)
         conn.commit()
     logger.info("[DB] Banco de dados inicializado.")
 
@@ -105,6 +134,18 @@ def migrate_db():
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_match_history_match_id
             ON match_history(match_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_match_screenshots_status
+            ON match_screenshots(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_match_imports_steam_match_id
+            ON match_imports(steam_match_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_match_imports_match_date
+            ON match_imports(match_date)
         """)
         logger.info("[DB] Índices de match_history criados ou já existentes.")
 
@@ -189,6 +230,173 @@ def get_player(discord_id: int):
             "SELECT * FROM players WHERE discord_id = ?", (discord_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def find_player_by_display_name(display_name: str) -> list[dict]:
+    if not display_name:
+        return []
+
+    search_term = display_name.strip()
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT discord_id, display_name FROM players WHERE LOWER(display_name) = LOWER(?) LIMIT 10",
+            (search_term,)
+        ).fetchall()
+        if rows:
+            return [dict(r) for r in rows]
+
+        rows = conn.execute(
+            "SELECT discord_id, display_name FROM players WHERE LOWER(display_name) LIKE LOWER(?) LIMIT 10",
+            (f"%{search_term}%",)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
+    mapping: dict[str, int] = {}
+    if not player_names:
+        return mapping
+
+    with get_connection() as conn:
+        for name in player_names:
+            if not name:
+                continue
+            row = conn.execute(
+                "SELECT discord_id FROM players WHERE LOWER(display_name) = LOWER(?) LIMIT 1",
+                (name.strip(),)
+            ).fetchone()
+            if row:
+                mapping[name] = row["discord_id"]
+    return mapping
+
+
+def insert_ocr_match(job_id: int, player_name_to_discord_id: dict[str, int], admin_id: int, admin_name: str) -> int:
+    job = get_match_screenshot(job_id)
+    if job is None:
+        raise ValueError(f"Job de screenshot {job_id} não encontrado")
+
+    if not job["metadata"]:
+        raise ValueError("Job não contém metadados OCR para importação.")
+
+    try:
+        parsed = json.loads(job["metadata"])
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Metadados OCR inválidos: {exc}") from exc
+
+    players = parsed.get("players") or []
+    if not isinstance(players, list) or len(players) < 2:
+        raise ValueError("Metadados OCR não contêm lista válida de jogadores.")
+
+    winner = parsed.get("winner")
+    if winner is None:
+        radiant_win = parsed.get("radiant_win")
+        if radiant_win is None:
+            raise ValueError("Não foi possível determinar o time vencedor nos metadados OCR.")
+        winner = "Radiant" if radiant_win else "Dire"
+
+    winner_team = winner.strip().lower()
+    if winner_team not in {"radiant", "dire"}:
+        raise ValueError("Valor de vencedor desconhecido nos metadados OCR.")
+
+    winners: list[int] = []
+    losers: list[int] = []
+    missing: list[str] = []
+
+    for player in players:
+        if not isinstance(player, dict):
+            continue
+        player_name = player.get("name") or player.get("player")
+        team = (player.get("team") or player.get("side") or "").strip().lower()
+        if not player_name or not team:
+            continue
+
+        discord_id = player_name_to_discord_id.get(player_name)
+        if discord_id is None:
+            missing.append(player_name)
+            continue
+
+        if team == winner_team:
+            winners.append(discord_id)
+        else:
+            losers.append(discord_id)
+
+    if missing:
+        raise ValueError(f"Mapeamento incompleto. Falta mapear os jogadores: {', '.join(missing)}")
+
+    if not winners or not losers:
+        raise ValueError("A importação OCR não contém vencedores ou perdedores válidos.")
+
+    details = f"OCR import job {job_id} steam_match_id={parsed.get('steam_match_id')} winner={winner}"
+    audit_id = log_action(admin_id, admin_name, "!ocrmatch", details, affected_ids=winners + losers)
+    match_id = get_next_match_id()
+    created_at = datetime.now().isoformat()
+
+    with get_connection() as conn:
+        for player in players:
+            if not isinstance(player, dict):
+                continue
+            player_name = player.get("name") or player.get("player")
+            team = (player.get("team") or player.get("side") or "").strip().lower()
+            discord_id = player_name_to_discord_id.get(player_name)
+            if discord_id is None:
+                continue
+
+            if team == winner_team:
+                add_win(discord_id, player_name)
+                conn.execute(
+                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, created_at) VALUES (?, ?, ?, 'win', ?, ?)",
+                    (audit_id, match_id, discord_id, details, created_at)
+                )
+            else:
+                add_loss(discord_id, player_name)
+                conn.execute(
+                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, created_at) VALUES (?, ?, ?, 'loss', ?, ?)",
+                    (audit_id, match_id, discord_id, details, created_at)
+                )
+        conn.commit()
+
+    insert_match_import(
+        match_id=match_id,
+        steam_match_id=parsed.get("steam_match_id"),
+        dota_match_id=parsed.get("dota_match_id"),
+        match_date=parsed.get("match_date") or parsed.get("game_details", {}).get("date"),
+        mode=parsed.get("mode") or parsed.get("game_details", {}).get("mode"),
+        winner=winner.title(),
+        duration=parsed.get("duration") or parsed.get("game_details", {}).get("duration"),
+        radiant_score=parsed.get("radiant_score"),
+        dire_score=parsed.get("dire_score"),
+        raw_metadata=json.dumps(parsed, ensure_ascii=False),
+        created_at=created_at
+    )
+
+    original_metadata = parsed
+    original_metadata["imported_by"] = admin_id
+    original_metadata["match_id"] = match_id
+    original_metadata["mapping"] = player_name_to_discord_id
+    set_match_screenshot_status(job_id, "imported", metadata=json.dumps(original_metadata, ensure_ascii=False))
+    logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id}")
+    return audit_id
+
+
+def insert_match_import(
+    match_id: int,
+    steam_match_id: str | None,
+    dota_match_id: str | None,
+    match_date: str | None,
+    mode: str | None,
+    winner: str | None,
+    duration: str | None,
+    radiant_score: int | None,
+    dire_score: int | None,
+    raw_metadata: str | None,
+    created_at: str
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO match_imports (match_id, steam_match_id, dota_match_id, match_date, mode, winner, duration, radiant_score, dire_score, raw_metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (match_id, steam_match_id, dota_match_id, match_date, mode, winner, duration, radiant_score, dire_score, raw_metadata, created_at)
+        )
+        conn.commit()
 
 
 def get_list_channel(guild_id: int):
@@ -373,6 +581,55 @@ def delete_match_history() -> None:
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_history'")
         conn.commit()
     logger.info("[DB] Histórico de partidas apagado.")
+
+
+def enqueue_match_screenshot(message_id: int, guild_id: int, channel_id: int, author_id: int, image_url: str, created_at: str) -> int:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO match_screenshots (message_id, guild_id, channel_id, author_id, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (message_id, guild_id, channel_id, author_id, image_url, created_at)
+        )
+        conn.commit()
+        job_id = cursor.lastrowid
+    logger.info(f"[DB] Screenshot enfileirada: job {job_id} ({image_url})")
+    return job_id
+
+
+def is_match_screenshot_enqueued(message_id: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM match_screenshots WHERE message_id = ? LIMIT 1",
+            (message_id,)
+        ).fetchone()
+    return bool(row)
+
+
+def get_pending_match_screenshots(limit: int = 20) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, message_id, guild_id, channel_id, author_id, image_url, status, metadata, created_at FROM match_screenshots WHERE status = 'pending' ORDER BY id ASC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def set_match_screenshot_status(job_id: int, status: str, metadata: str | None = None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE match_screenshots SET status = ?, metadata = ?, processed_at = ? WHERE id = ?",
+            (status, metadata, datetime.now().isoformat(), job_id)
+        )
+        conn.commit()
+    logger.info(f"[DB] Screenshot job {job_id} marcado como {status}.")
+
+
+def get_match_screenshot(job_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, message_id, guild_id, channel_id, author_id, image_url, status, metadata, created_at, processed_at FROM match_screenshots WHERE id = ?",
+            (job_id,)
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def create_or_replace_manual_match(match_id: int, winner_ids: list[int], loser_ids: list[int], admin_id: int, admin_name: str) -> int:

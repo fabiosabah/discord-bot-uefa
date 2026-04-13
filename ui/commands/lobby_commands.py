@@ -25,7 +25,10 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             channel_mention = f" no canal <#{existing_message.channel.id}>" if existing_message else ""
             reply_text = f"⚠️ Já existe uma lista aberta{channel_mention}. Veja a lista atual abaixo."
             if existing_message and existing_message.channel.id == ctx.channel.id:
-                await ctx.send(reply_text, reference=existing_message.to_reference())
+                try:
+                    await ctx.send(reply_text, reference=existing_message.to_reference())
+                except discord.HTTPException:
+                    await ctx.send(reply_text)
             elif existing_message:
                 reply_text = (
                     f"⚠️ Já existe uma lista aberta{channel_mention}. "

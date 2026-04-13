@@ -1,2 +1,4 @@
 discord.py
 python-dotenv
+google-cloud-vision
+openai

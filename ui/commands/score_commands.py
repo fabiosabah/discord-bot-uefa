@@ -4,14 +4,18 @@ import logging
 import json
 import re
 from discord.ext import commands
-from core.config import ADMIN_IDS
+from core.config import ADMIN_IDS, IMAGE_CHANNEL_ID
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
     get_ranking, log_action, log_match_action, get_last_admin_action, delete_audit_log_entry,
     get_player, get_last_update, get_player_streak, get_player_match_history,
     get_match_summary, get_recent_match_summaries, get_player_top_opponents,
-    get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match
+    get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match,
+    get_pending_match_screenshots, get_match_screenshot, set_match_screenshot_status,
+    enqueue_match_screenshot, is_match_screenshot_enqueued,
+    find_player_by_display_name, resolve_player_names_exact, insert_ocr_match
 )
+from core.ocr import can_process_ocr, process_match_screenshot
 from core.utils.time import format_brazil_time, relative_time
 
 audit_logger = logging.getLogger("Audit")
@@ -21,6 +25,29 @@ def is_admin(user_id: int) -> bool:
 
 def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
+
+
+def parse_player_mapping(mapping_text: str) -> list[tuple[str, int]]:
+    mappings: list[tuple[str, int]] = []
+    if not mapping_text:
+        return mappings
+
+    for token in re.split(r"[;,]\s*", mapping_text.strip()):
+        token = token.strip()
+        if not token:
+            continue
+
+        match = re.match(r'^(?:"(?P<quoted>[^"]+)"|(?P<plain>[^=]+))\s*=\s*@?(?P<id>\d+)$', token)
+        if not match:
+            continue
+
+        player_key = match.group("quoted") or match.group("plain")
+        player_key = player_key.strip()
+        discord_id = int(match.group("id"))
+        mappings.append((player_key, discord_id))
+
+    return mappings
+
 
 def build_footer(include_rules=True):
     last_update = get_last_update()
@@ -356,6 +383,213 @@ def setup_score_commands(bot: commands.Bot):
         )
         embed.set_footer(text=f"Últimos {min(len(lines), limit)} eventos")
         await ctx.send(embed=embed)
+
+    @bot.command(name="pendenciaimagem", aliases=["pendingimages", "pendenciasimagem"])
+    async def cmd_pending_images(ctx: commands.Context, limit: int = 10):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        jobs = get_pending_match_screenshots(limit)
+        if not jobs:
+            await ctx.send("📋 Nenhuma imagem pendente para processamento.")
+            return
+
+        lines = []
+        for job in jobs:
+            lines.append(
+                f"`{job['id']:03d}` {job['image_url']} — enviado por <@{job['author_id']}> em {job['created_at']}"
+            )
+
+        embed = discord.Embed(
+            title="📷 Imagens de partida pendentes",
+            description="\n".join(lines),
+            color=discord.Color.orange()
+        )
+        embed.set_footer(text=f"Mostrando {len(lines)} imagens")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="reenfileirarimagens", aliases=["scanimages", "scanhistory", "reenfileira"])
+    async def cmd_rescan_image_history(ctx: commands.Context, channel: discord.TextChannel = None, limit: int = 500):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        target_channel = channel or (bot.get_channel(IMAGE_CHANNEL_ID) if IMAGE_CHANNEL_ID else None)
+        if target_channel is None:
+            await ctx.send("❌ Canal de imagens não foi encontrado. Defina `IMAGE_CHANNEL_ID` ou passe um canal mencionando ele.", delete_after=10)
+            return
+
+        if limit < 1 or limit > 2000:
+            await ctx.send("❌ O limite deve ser entre 1 e 2000 mensagens.", delete_after=10)
+            return
+
+        queued = 0
+        skipped = 0
+        async for message in target_channel.history(limit=limit, oldest_first=False):
+            for attachment in message.attachments:
+                content_type = attachment.content_type or ""
+                if not (content_type.startswith("image") or attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))):
+                    continue
+
+                if is_match_screenshot_enqueued(message.id):
+                    skipped += 1
+                    continue
+
+                enqueue_match_screenshot(
+                    message.id,
+                    message.guild.id if message.guild else 0,
+                    target_channel.id,
+                    message.author.id,
+                    attachment.url,
+                    message.created_at.isoformat()
+                )
+                queued += 1
+
+        await ctx.send(
+            f"✅ Varredura concluída: {queued} imagem(ns) enfileiradas, {skipped} já existentes do histórico de {limit} mensagens.",
+            delete_after=20
+        )
+
+    @bot.command(name="detalhesimagem", aliases=["imagedetails", "imagemdetalhes"])
+    async def cmd_image_details(ctx: commands.Context, job_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        metadata = None
+        players = []
+        if job["metadata"]:
+            try:
+                metadata = json.loads(job["metadata"])
+                players = metadata.get("players") or []
+            except json.JSONDecodeError:
+                metadata = None
+
+        description_lines = [
+            f"**Status:** {job['status']}",
+            f"**Imagem:** {job['image_url']}",
+            f"**Criado em:** {job['created_at']}",
+        ]
+
+        if metadata:
+            description_lines.append(f"**Vencedor previsto:** {metadata.get('winner') or ('Radiant' if metadata.get('radiant_win') else 'Dire')}")
+            description_lines.append(f"**Duração:** {metadata.get('duration') or metadata.get('game_details', {}).get('duration', 'desconhecida')}" )
+            if players:
+                for index, player in enumerate(players, start=1):
+                    player_name = player.get("name") or player.get("player") or "(sem nome)"
+                    team = player.get("team") or player.get("side") or "?"
+                    hero = player.get("hero") or ""
+                    kda = player.get("score") or player.get("kda") or ""
+                    display = f"{index}. `{player_name}` [{team}]"
+                    if hero:
+                        display += f" — {hero}"
+                    if kda:
+                        display += f" — {kda}"
+                    description_lines.append(display)
+        else:
+            description_lines.append("*Metadados OCR não disponíveis ou inválidos.*")
+
+        embed = discord.Embed(
+            title=f"🔎 Detalhes da imagem {job_id}",
+            description="\n".join(description_lines),
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+
+    @bot.command(name="confirmarimagem", aliases=["confirmimage"])
+    async def cmd_confirm_image(ctx: commands.Context, job_id: int, *, text: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        set_match_screenshot_status(job_id, "confirmed", metadata=text)
+        await ctx.message.delete()
+        await ctx.send(f"✅ Imagem {job_id} confirmada. Use o texto para registrar o histórico: {text}")
+
+    @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
+    async def cmd_import_image(ctx: commands.Context, job_id: int, *, mapping_text: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR processados.", delete_after=10)
+            return
+
+        try:
+            parsed = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        players = parsed.get("players") or []
+        if not isinstance(players, list) or not players:
+            await ctx.send(f"❌ Não foi possível obter a lista de jogadores do job {job_id}.", delete_after=10)
+            return
+
+        mappings = parse_player_mapping(mapping_text)
+        if not mappings:
+            await ctx.send(
+                "❌ Forneça mapeamentos no formato `1=@123456789012345678`, `\"Nome do jogador\"=@123...` ou `PlayerName=@123`.",
+                delete_after=15
+            )
+            return
+
+        player_mapping: dict[str, int] = {}
+        unresolved = []
+        for player_key, discord_id in mappings:
+            if player_key.isdigit():
+                index = int(player_key) - 1
+                if index < 0 or index >= len(players):
+                    await ctx.send(f"❌ Índice inválido: {player_key}", delete_after=10)
+                    return
+                player_key = players[index].get("name") or players[index].get("player") or f"player_{player_key}"
+
+            player_mapping[player_key] = discord_id
+
+        extracted_names = [ (p.get("name") or p.get("player") or "").strip() for p in players ]
+        missing_names = [name for name in extracted_names if name and name not in player_mapping]
+        if missing_names:
+            auto = resolve_player_names_exact(missing_names)
+            player_mapping.update(auto)
+            missing_names = [name for name in missing_names if name not in player_mapping]
+
+        if missing_names:
+            await ctx.send(
+                f"❌ Ainda faltam mapear os seguintes jogadores: {', '.join(missing_names)}",
+                delete_after=20
+            )
+            return
+
+        try:
+            insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
+        except Exception as exc:
+            await ctx.send(f"❌ Falha ao importar imagem: {exc}", delete_after=20)
+            return
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Imagem {job_id} importada como partida no banco.")
 
     @bot.command(name="registrarmatch", aliases=["matchfix", "matchmanual"])
     async def cmd_registrar_match(ctx: commands.Context, match_id: int, *, rest: str):
