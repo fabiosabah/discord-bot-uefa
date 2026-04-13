@@ -9,36 +9,55 @@ logger = logging.getLogger("OCR")
 
 
 def can_process_ocr() -> bool:
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            import google.genai  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
     try:
         import openai  # noqa: F401
     except ImportError:
         return False
-    return bool(os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    return bool(os.getenv("OPENAI_API_KEY"))
 
 
 def can_process_llm() -> bool:
     return can_process_ocr()
 
 
-def _build_openai_client():
+def _build_ai_client():
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            from google import genai
+        except ImportError as exc:
+            raise RuntimeError(
+                "google-genai is required for GEMINI_API_KEY. Install it with `pip install google-genai`."
+            ) from exc
+
+        client = genai.Client(api_key=gemini_key)
+        return "gemini", client
+
     try:
         import openai
     except ImportError as exc:
         raise RuntimeError(
-            "openai is required. Install it with `pip install openai`."
+            "openai is required if GEMINI_API_KEY is not set. Install it with `pip install openai`."
         ) from exc
 
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY or GEMINI_API_KEY is required for OCR processing.")
+        raise RuntimeError("OPENAI_API_KEY is required for OCR processing.")
 
     openai.api_key = api_key
-
     api_base = os.getenv("OPENAI_API_BASE")
     if api_base:
         openai.api_base = api_base
 
-    return openai
+    return "openai", openai
 
 
 def _extract_text_from_response(response: Any) -> str:
@@ -81,24 +100,51 @@ def _extract_text_from_response(response: Any) -> str:
 
 
 def extract_text_from_image_url(image_url: str) -> str:
-    openai = _build_openai_client()
-    model = os.getenv("OPENAI_MODEL", "gemini-1.5-flash")
-    response = openai.responses.create(
-        model=model,
-        input={
-            "type": "input_image",
-            "image_url": image_url,
-            "detail": "high",
-        },
-        instructions=(
-            "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
-            "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
-        ),
-        temperature=0.0,
-        max_output_tokens=1000,
+    provider, client = _build_ai_client()
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-1.5-flash"
+    instructions = (
+        "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
+        "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
     )
 
-    text = _extract_text_from_response(response)
+    if provider == "gemini":
+        from google.genai import types
+
+        text_prompt = f"{instructions}\nImagem: {image_url}"
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=text_prompt)]
+            )
+        ]
+
+        response_text = ""
+        for chunk in client.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="MEDIUM")
+            ),
+        ):
+            chunk_text = getattr(chunk, "text", None)
+            if chunk_text:
+                response_text += chunk_text
+
+        text = response_text
+    else:
+        response = client.responses.create(
+            model=model,
+            input={
+                "type": "input_image",
+                "image_url": image_url,
+                "detail": "high",
+            },
+            instructions=instructions,
+            temperature=0.0,
+            max_output_tokens=1000,
+        )
+        text = _extract_text_from_response(response)
+
     if not text:
         raise RuntimeError("Falha ao extrair texto da imagem via Gemini.")
     return text
@@ -418,87 +464,112 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
     if not can_process_llm():
         return None
 
-    openai = _build_openai_client()
-    model = os.getenv("OPENAI_MODEL", "gemini-1.5-flash")
+    provider, client = _build_ai_client()
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-1.5-flash"
     prompt = _build_llm_prompt(raw_text, image_url)
 
-    response = openai.responses.create(
-        model=model,
-        input=raw_text,
-        instructions=prompt,
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "dota_match_data",
-                "description": "Estrutura JSON com match_info e teams para partida Dota 2",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "steam_match_id": {"type": ["string", "null"]},
-                        "dota_match_id": {"type": ["string", "null"]},
-                        "match_date": {"type": ["string", "null"]},
-                        "valid_dota_screenshot": {"type": ["boolean", "null"]},
-                        "match_info": {
-                            "type": ["object", "null"],
-                            "properties": {
-                                "game_mode": {"type": ["string", "null"]},
-                                "duration": {"type": ["string", "null"]},
-                                "winner": {"type": ["string", "null"]},
-                                "score": {
-                                    "type": ["object", "null"],
-                                    "properties": {
-                                        "radiant": {"type": ["integer", "null"]},
-                                        "dire": {"type": ["integer", "null"]}
-                                    },
-                                    "additionalProperties": False
-                                }
-                            },
-                            "additionalProperties": False
-                        },
-                        "teams": {
-                            "type": ["object", "null"],
-                            "properties": {
-                                "radiant": {
-                                    "type": ["array", "null"],
-                                    "items": {
-                                        "type": "object",
+    if provider == "gemini":
+        from google.genai import types
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)]
+            )
+        ]
+
+        response_text = ""
+        for chunk in client.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="MEDIUM")
+            ),
+        ):
+            chunk_text = getattr(chunk, "text", None)
+            if chunk_text:
+                response_text += chunk_text
+
+        content = response_text
+    else:
+        response = client.responses.create(
+            model=model,
+            input=raw_text,
+            instructions=prompt,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "dota_match_data",
+                    "description": "Estrutura JSON com match_info e teams para partida Dota 2",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "steam_match_id": {"type": ["string", "null"]},
+                            "dota_match_id": {"type": ["string", "null"]},
+                            "match_date": {"type": ["string", "null"]},
+                            "valid_dota_screenshot": {"type": ["boolean", "null"]},
+                            "match_info": {
+                                "type": ["object", "null"],
+                                "properties": {
+                                    "game_mode": {"type": ["string", "null"]},
+                                    "duration": {"type": ["string", "null"]},
+                                    "winner": {"type": ["string", "null"]},
+                                    "score": {
+                                        "type": ["object", "null"],
                                         "properties": {
-                                            "player": {"type": ["string", "null"]},
-                                            "hero": {"type": ["string", "null"]},
-                                            "kda": {"type": ["string", "null"]},
-                                            "net_worth": {"type": ["integer", "null"]}
+                                            "radiant": {"type": ["integer", "null"]},
+                                            "dire": {"type": ["integer", "null"]}
                                         },
-                                        "required": ["player", "hero", "kda", "net_worth"],
                                         "additionalProperties": False
                                     }
                                 },
-                                "dire": {
-                                    "type": ["array", "null"],
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "player": {"type": ["string", "null"]},
-                                            "hero": {"type": ["string", "null"]},
-                                            "kda": {"type": ["string", "null"]},
-                                            "net_worth": {"type": ["integer", "null"]}
-                                        },
-                                        "required": ["player", "hero", "kda", "net_worth"],
-                                        "additionalProperties": False
-                                    }
-                                }
+                                "additionalProperties": False
                             },
-                            "additionalProperties": False
-                        }
-                    },
-                    "additionalProperties": False
+                            "teams": {
+                                "type": ["object", "null"],
+                                "properties": {
+                                    "radiant": {
+                                        "type": ["array", "null"],
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "player": {"type": ["string", "null"]},
+                                                "hero": {"type": ["string", "null"]},
+                                                "kda": {"type": ["string", "null"]},
+                                                "net_worth": {"type": ["integer", "null"]}
+                                            },
+                                            "required": ["player", "hero", "kda", "net_worth"],
+                                            "additionalProperties": False
+                                        }
+                                    },
+                                    "dire": {
+                                        "type": ["array", "null"],
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "player": {"type": ["string", "null"]},
+                                                "hero": {"type": ["string", "null"]},
+                                                "kda": {"type": ["string", "null"]},
+                                                "net_worth": {"type": ["integer", "null"]}
+                                            },
+                                            "required": ["player", "hero", "kda", "net_worth"],
+                                            "additionalProperties": False
+                                        }
+                                    }
+                                },
+                                "additionalProperties": False
+                            }
+                        },
+                        "additionalProperties": False
+                    }
                 }
-            }
-        },
-        temperature=0.0,
-        max_output_tokens=800,
-    )
+            },
+            temperature=0.0,
+            max_output_tokens=800,
+        )
 
-    content = _extract_text_from_response(response)
+        content = _extract_text_from_response(response)
+
     parsed = _parse_json_payload(content)
     if parsed is not None:
         return parsed
