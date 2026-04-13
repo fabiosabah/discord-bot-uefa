@@ -124,18 +124,28 @@ def _parse_gold(text: str) -> dict[str, Any]:
 def _parse_players(text: str) -> list[dict[str, Any]]:
     players: list[dict[str, Any]] = []
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    pattern = re.compile(r"^(?P<name>.+?)\s+(?P<score>\d+\s*[/x]\s*\d+\s*[/x]\s*\d+|\d+)\s+(?P<gold>\d{1,3}(?:[.,]\d{3})*)(?:\s+gold)?", re.IGNORECASE)
+    pattern = re.compile(
+        r"^(?P<name>.+?)\s+(?P<score>\d+\s*[/x]\s*\d+\s*[/x]\s*\d+|\d+)\s+(?P<gold>\d{1,3}(?:[.,]\d{3})*)(?:\s+gold)?(?:\s+(?P<hero>.+))?$",
+        re.IGNORECASE
+    )
     for line in lines:
         match = pattern.search(line)
         if match:
             name = match.group("name")
             score = match.group("score")
             gold_text = match.group("gold")
+            hero = match.group("hero")
             try:
                 gold = int(gold_text.replace(".", "").replace(",", ""))
             except ValueError:
                 gold = None
-            players.append({"name": name, "score": score, "gold": gold, "raw_line": line})
+            players.append({
+                "name": name,
+                "score": score,
+                "gold": gold,
+                "hero": hero.strip() if isinstance(hero, str) and hero.strip() else None,
+                "raw_line": line
+            })
     return players
 
 
