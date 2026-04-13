@@ -16,6 +16,7 @@ from core.database import (
     find_player_by_display_name, resolve_player_names_exact, insert_ocr_match,
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
+    delete_match_screenshots,
     update_match_hero
 )
 from core.ocr import can_process_ocr, process_match_screenshot
@@ -914,6 +915,24 @@ def setup_score_commands(bot: commands.Bot):
         delete_match_history()
         await ctx.message.delete()
         await ctx.send("🗑️ Histórico de partidas apagado com sucesso.")
+
+    @bot.command(name="limparhistoricodeimagens", aliases=["clearimagehistory", "apagarhistoricodeimagens"])
+    async def cmd_clear_image_history(ctx: commands.Context, confirm: str = None):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if confirm != "confirmar":
+            await ctx.send(
+                "⚠️ Para apagar o histórico de imagens OCR, use `!limparhistoricodeimagens confirmar`.",
+                delete_after=15
+            )
+            return
+
+        delete_match_screenshots()
+        await ctx.message.delete()
+        await ctx.send("🗑️ Histórico de imagens OCR apagado com sucesso.")
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):

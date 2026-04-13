@@ -2,6 +2,7 @@
 import discord
 import logging
 from core.config import MAX_PLAYERS
+from core.database import delete_lobby_session, save_lobby_session
 from domain.models import LobbySession
 
 logger = logging.getLogger("LobbyService")
@@ -20,6 +21,7 @@ async def close_session(
     if message:
         await message.edit(embed=session.build_embed(), view=LobbyView(session, active_lobbies))
         active_lobbies.pop(message.id, None)
+        delete_lobby_session(message.guild.id)
 
     filled = len(session.players)
     cancelled = filled < MAX_PLAYERS
@@ -60,6 +62,7 @@ async def close_session(
             )
             new_session.message = new_msg
             active_lobbies[new_msg.id] = new_session
+            save_lobby_session(new_session, created_at=new_session.message.created_at.isoformat())
 
             if new_session.is_full():
                 new_session.schedule_auto_close(active_lobbies)

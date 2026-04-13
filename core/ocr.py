@@ -101,36 +101,25 @@ def _extract_text_from_response(response: Any) -> str:
 
 def extract_text_from_image_url(image_url: str) -> str:
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-1.5-flash"
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
     instructions = (
         "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
         "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
     )
 
     if provider == "gemini":
-        from google.genai import types
-
-        text_prompt = f"{instructions}\nImagem: {image_url}"
-        contents = [
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=text_prompt)]
-            )
-        ]
-
-        response_text = ""
-        for chunk in client.models.generate_content_stream(
+        response = client.responses.create(
             model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level="MEDIUM")
-            ),
-        ):
-            chunk_text = getattr(chunk, "text", None)
-            if chunk_text:
-                response_text += chunk_text
-
-        text = response_text
+            input={
+                "type": "input_image",
+                "image_url": image_url,
+                "detail": "high",
+            },
+            instructions=instructions,
+            temperature=0.0,
+            max_output_tokens=1000,
+        )
+        text = _extract_text_from_response(response)
     else:
         response = client.responses.create(
             model=model,
@@ -146,7 +135,7 @@ def extract_text_from_image_url(image_url: str) -> str:
         text = _extract_text_from_response(response)
 
     if not text:
-        raise RuntimeError("Falha ao extrair texto da imagem via Gemini.")
+        raise RuntimeError("Falha ao extrair texto da imagem via OCR.")
     return text
 
 
@@ -465,32 +454,17 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
         return None
 
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-1.5-flash"
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
     prompt = _build_llm_prompt(raw_text, image_url)
 
     if provider == "gemini":
-        from google.genai import types
-
-        contents = [
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=prompt)]
-            )
-        ]
-
-        response_text = ""
-        for chunk in client.models.generate_content_stream(
+        response = client.responses.create(
             model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level="MEDIUM")
-            ),
-        ):
-            chunk_text = getattr(chunk, "text", None)
-            if chunk_text:
-                response_text += chunk_text
-
-        content = response_text
+            input=prompt,
+            temperature=0.0,
+            max_output_tokens=800,
+        )
+        content = _extract_text_from_response(response)
     else:
         response = client.responses.create(
             model=model,

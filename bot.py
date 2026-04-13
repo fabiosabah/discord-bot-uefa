@@ -12,9 +12,12 @@ from core.database import (
     get_image_channel,
     enqueue_match_screenshot,
     get_pending_match_screenshots,
-    set_match_screenshot_status
+    set_match_screenshot_status,
+    get_lobby_sessions,
+    delete_lobby_session
 )
 from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
+from domain.models import LobbySession
 from ui.commands.lobby_commands import setup_lobby_commands
 from ui.commands.score_commands import setup_score_commands
 
@@ -39,6 +42,68 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 active_lobbies = {}
 
+class PartialMember:
+    def __init__(self, id: int, display_name: str):
+        self.id = id
+        self.display_name = display_name
+        self.name = display_name
+
+    @property
+    def mention(self):
+        return f"<@{self.id}>"
+
+
+async def _resolve_member(guild: discord.Guild, member_id: int):
+    member = guild.get_member(member_id)
+    if member:
+        return member
+    try:
+        return await guild.fetch_member(member_id)
+    except discord.NotFound:
+        return PartialMember(member_id, f"Usuário {member_id}")
+
+
+async def restore_saved_lobby_sessions():
+    saved_sessions = get_lobby_sessions()
+
+    for row in saved_sessions:
+        guild = bot.get_guild(row["guild_id"])
+        if not guild:
+            delete_lobby_session(row["guild_id"])
+            continue
+
+        channel = bot.get_channel(row["channel_id"])
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(row["channel_id"])
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                delete_lobby_session(row["guild_id"])
+                continue
+
+        try:
+            message = await channel.fetch_message(row["message_id"])
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            delete_lobby_session(row["guild_id"])
+            continue
+
+        host = await _resolve_member(guild, row["host_id"])
+        session = LobbySession(host=host, session_id=row["session_id"])
+        session.message = message
+        session.players = [await _resolve_member(guild, pid) for pid in row["player_ids"]]
+        session.player_ids = set(row["player_ids"])
+        session.waitlist = [await _resolve_member(guild, wid) for wid in row["waitlist_ids"]]
+        session.waitlist_ids = set(row["waitlist_ids"])
+        session.closed = bool(row["closed"])
+
+        if session.closed:
+            delete_lobby_session(row["guild_id"])
+            continue
+
+        active_lobbies[message.id] = session
+        if session.is_full():
+            session.schedule_auto_close(active_lobbies)
+
+
 @bot.event
 async def on_ready():
     init_db()
@@ -47,6 +112,8 @@ async def on_ready():
     print("-" * 40)
     for guild in bot.guilds:
         logger.info(f"Servidor: {guild.name} | Membros: {len(guild.members)}")
+
+    await restore_saved_lobby_sessions()
 
     if can_process_ocr():
         bot.loop.create_task(ocr_background_worker())

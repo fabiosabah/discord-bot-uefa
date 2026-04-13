@@ -70,6 +70,19 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS lobby_sessions (
+                guild_id     INTEGER PRIMARY KEY,
+                session_id   INTEGER NOT NULL,
+                message_id   INTEGER NOT NULL,
+                channel_id   INTEGER NOT NULL,
+                host_id      INTEGER NOT NULL,
+                player_ids   TEXT    NOT NULL,
+                waitlist_ids TEXT    NOT NULL,
+                closed       INTEGER NOT NULL DEFAULT 0,
+                created_at   TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS match_screenshots (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id   INTEGER NOT NULL,
@@ -142,6 +155,12 @@ def migrate_db():
         if "hero" not in mh_column_names:
             conn.execute("ALTER TABLE match_history ADD COLUMN hero TEXT")
             logger.info("[DB] Coluna 'hero' adicionada via migration ao match_history.")
+
+        lobby_columns = conn.execute("PRAGMA table_info(lobby_sessions)").fetchall()
+        lobby_column_names = [col["name"] for col in lobby_columns]
+        if "session_id" not in lobby_column_names:
+            conn.execute("ALTER TABLE lobby_sessions ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0")
+            logger.info("[DB] Coluna 'session_id' adicionada via migration ao lobby_sessions.")
 
         sc_columns = conn.execute("PRAGMA table_info(server_config)").fetchall()
         sc_column_names = [col["name"] for col in sc_columns]
@@ -489,6 +508,72 @@ def clear_list_channel(guild_id: int):
     logger.info(f"[DB] Canal de lista removido para guild {guild_id}")
 
 
+def save_lobby_session(session, created_at: str | None = None):
+    if not session.message or not session.message.guild:
+        logger.warning("[DB] Não foi possível salvar sessão de lobby sem mensagem ou guild.")
+        return
+
+    if created_at is None:
+        created_at = datetime.now().isoformat()
+
+    player_ids = json.dumps(list(session.player_ids), ensure_ascii=False)
+    waitlist_ids = json.dumps(list(session.waitlist_ids), ensure_ascii=False)
+
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO lobby_sessions
+                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                session_id   = excluded.session_id,
+                message_id   = excluded.message_id,
+                channel_id   = excluded.channel_id,
+                host_id      = excluded.host_id,
+                player_ids   = excluded.player_ids,
+                waitlist_ids = excluded.waitlist_ids,
+                closed       = excluded.closed,
+                created_at   = excluded.created_at
+        """, (
+            session.message.guild.id,
+            session.id,
+            session.message.id,
+            session.message.channel.id,
+            session.host.id,
+            player_ids,
+            waitlist_ids,
+            1 if session.closed else 0,
+            created_at
+        ))
+        conn.commit()
+    logger.info(f"[DB] Sessão de lobby salva para guild {session.message.guild.id} (msg {session.message.id}).")
+
+
+def delete_lobby_session(guild_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM lobby_sessions WHERE guild_id = ?", (guild_id,))
+        conn.commit()
+    logger.info(f"[DB] Sessão de lobby removida para guild {guild_id}")
+
+
+def get_lobby_sessions() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM lobby_sessions WHERE closed = 0").fetchall()
+    return [
+        {
+            "guild_id": row["guild_id"],
+            "session_id": row["session_id"],
+            "message_id": row["message_id"],
+            "channel_id": row["channel_id"],
+            "host_id": row["host_id"],
+            "player_ids": json.loads(row["player_ids"]),
+            "waitlist_ids": json.loads(row["waitlist_ids"]),
+            "closed": bool(row["closed"]),
+            "created_at": row["created_at"]
+        }
+        for row in rows
+    ]
+
+
 def delete_player(discord_id: int):
     with get_connection() as conn:
         conn.execute("DELETE FROM players WHERE discord_id = ?", (discord_id,))
@@ -691,6 +776,14 @@ def delete_match_history() -> None:
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_history'")
         conn.commit()
     logger.info("[DB] Histórico de partidas apagado.")
+
+
+def delete_match_screenshots() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM match_screenshots")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_screenshots'")
+        conn.commit()
+    logger.info("[DB] Histórico de screenshots apagado.")
 
 
 def enqueue_match_screenshot(message_id: int, guild_id: int, channel_id: int, author_id: int, image_url: str, created_at: str) -> int:

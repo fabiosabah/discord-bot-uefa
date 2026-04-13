@@ -6,18 +6,42 @@ from domain.models import LobbySession
 from ui.views.lobby_view import LobbyView
 from services.state import get_next_id
 from core.config import ADMIN_IDS, is_admin
-from core.database import get_list_channel, set_list_channel, clear_list_channel
+from core.database import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session
 
 logger = logging.getLogger("LobbyCommands")
 
 def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
-    
+    async def _cleanup_stale_lobbies():
+        stale_ids = []
+        for msg_id, session in list(active_lobbies.items()):
+            if session.closed or session.message is None:
+                stale_ids.append(msg_id)
+                continue
+
+            try:
+                await session.message.channel.fetch_message(session.message.id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                stale_ids.append(msg_id)
+
+        for msg_id in stale_ids:
+            session = active_lobbies.pop(msg_id, None)
+            if session and session.message and session.message.guild:
+                delete_lobby_session(session.message.guild.id)
+
+    async def _create_list(ctx: commands.Context):
+        session_id = get_next_id()
+        session = LobbySession(host=ctx.author, session_id=session_id)
+        logger.info(f"[Comando] 🆕 NOVA LISTA CRIADA | ID: #{session.id} | Host: {ctx.author.name}#{ctx.author.id}")
+        view = LobbyView(session, active_lobbies)
+        msg = await ctx.send(embed=session.build_embed(), view=view)
+        session.message = msg
+        active_lobbies[msg.id] = session
+        save_lobby_session(session)
+        await ctx.message.delete()
+
     @bot.command(name="lista", aliases=["lobby", "inhouse"])
     async def open_list(ctx: commands.Context):
-        if active_lobbies:
-            stale_ids = [msg_id for msg_id, session in active_lobbies.items() if session.closed]
-            for msg_id in stale_ids:
-                active_lobbies.pop(msg_id, None)
+        await _cleanup_stale_lobbies()
 
         if active_lobbies:
             existing_session = next(iter(active_lobbies.values()))
@@ -50,17 +74,32 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 await ctx.message.delete()
                 return
 
-        session_id = get_next_id()
-        session = LobbySession(host=ctx.author, session_id=session_id)
-        logger.info(f"[Comando] 🆕 NOVA LISTA CRIADA | ID: #{session.id} | Host: {ctx.author.name}#{ctx.author.id}")
-        
-        view = LobbyView(session, active_lobbies)
+        await _create_list(ctx)
 
-        msg = await ctx.send(embed=session.build_embed(), view=view)
-        session.message = msg
-        active_lobbies[msg.id] = session
+    @bot.command(name="forcelista", aliases=["forcelobby", "forceopen"])
+    async def force_list(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores podem forçar a abertura de uma nova lista.", delete_after=8)
+            return
 
-        await ctx.message.delete()
+        await _cleanup_stale_lobbies()
+        if ctx.guild:
+            delete_lobby_session(ctx.guild.id)
+
+        if active_lobbies:
+            for session in list(active_lobbies.values()):
+                try:
+                    if session.message:
+                        await session.message.delete()
+                except discord.HTTPException:
+                    pass
+            active_lobbies.clear()
+            await ctx.send("⚠️ Lista anterior removida e nova lista sendo criada.", delete_after=8)
+        else:
+            await ctx.send("✅ Nenhuma lista ativa encontrada. Abrindo nova lista.", delete_after=8)
+
+        await _create_list(ctx)
 
     @bot.command(name="uefa", aliases=["liga", "comandos"])
     async def help_command(ctx: commands.Context):
@@ -89,6 +128,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             value=(
                 "`!registrarcanal`: Registra o canal atual como canal exclusivo para abrir listas.\n"
                 "`!limparcanal`: Remove a configuração e permite abrir listas em qualquer canal.\n"
+                "`!forcelista`: Força a abertura de uma nova lista mesmo que uma antiga esteja registrada.\n"
                 "`!registrarcanalimagem`: Registra o canal atual para leitura de imagens OCR.\n"
                 "`!limparcanalimagem`: Remove a imagem OCR registrada e volta a usar apenas o ENV ou nenhum canal.\n"
                 "`!canalimagem`: Mostra o canal de imagem OCR atualmente configurado."

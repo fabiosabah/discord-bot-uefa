@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import discord
 import logging
+from core.database import save_lobby_session
 from domain.models import LobbySession
 from core.config import ADMIN_IDS
 
@@ -59,6 +60,7 @@ class RemoveSelect(discord.ui.Select):
 
         view = LobbyView(session, self.active_lobbies)
         await session.message.edit(embed=session.build_embed(), view=view)
+        save_lobby_session(session)
 
         name = removed_member.display_name if removed_member else "Pessoa"
         response = f"✅ **{name}** foi removido da {list_type}."
@@ -111,6 +113,7 @@ class AddUserSelect(discord.ui.UserSelect):
         audit_logger.info(f"[ADIÇÃO] {interaction.user.name} ({interaction.user.id}) ADICIONOU {member.name} ({member.id}) à {list_type} na Lista #{session.id}")
 
         await session.message.edit(embed=session.build_embed(), view=LobbyView(session, self.active_lobbies))
+        save_lobby_session(session)
         await interaction.followup.send(response, ephemeral=True)
 
 
@@ -148,6 +151,7 @@ class LobbyView(discord.ui.View):
             session.add_to_waitlist(interaction.user)
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na ESPERA da Lista #{session.id}")
             await session.message.edit(embed=session.build_embed(), view=self)
+            save_lobby_session(session)
             await interaction.followup.send(
                 f"🔔 Lista cheia! Você foi adicionado na espera (posição {len(session.waitlist)}).", 
                 ephemeral=True
@@ -156,6 +160,7 @@ class LobbyView(discord.ui.View):
             session.add_player(interaction.user)
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na LISTA da Lista #{session.id}")
             await session.message.edit(embed=session.build_embed(), view=self)
+            save_lobby_session(session)
 
             if session.is_full():
                 session.schedule_auto_close(self.active_lobbies)
@@ -191,6 +196,7 @@ class LobbyView(discord.ui.View):
                 msg += f"\n🔔 **{promoted.display_name}** foi promovido da espera para a lista."
 
         await session.message.edit(embed=session.build_embed(), view=self)
+        save_lobby_session(session)
         await interaction.followup.send(msg, ephemeral=True)
 
     @discord.ui.button(label="➕ Adicionar pessoa", style=discord.ButtonStyle.secondary, custom_id="adicionar")

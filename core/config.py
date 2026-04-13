@@ -15,7 +15,7 @@ LEAGUE_EMOJI = os.getenv("LEAGUE_EMOJI", "🎮")
 IMAGE_CHANNEL_ID = int(os.getenv("IMAGE_CHANNEL_ID")) if os.getenv("IMAGE_CHANNEL_ID") else None
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gemini-1.5-flash")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gemini-3-flash-preview")
 
 # Caminho do Banco de Dados (Railway Volume)
 DB_PATH = os.getenv("DB_PATH", "data/database.db")
