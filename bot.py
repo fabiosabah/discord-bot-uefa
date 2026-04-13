@@ -95,7 +95,8 @@ async def restore_saved_lobby_sessions():
         session.waitlist = [await _resolve_member(guild, wid) for wid in row["waitlist_ids"]]
         session.waitlist_ids = set(row["waitlist_ids"])
         session.closed = bool(row["closed"])
-        session.auto_close_at = datetime.fromisoformat(row["auto_close_at"]) if row["auto_close_at"] else None
+        auto_close_at = row["auto_close_at"] if "auto_close_at" in row.keys() else None
+        session.auto_close_at = datetime.fromisoformat(auto_close_at) if auto_close_at else None
 
         if session.closed:
             delete_lobby_session(row["guild_id"])

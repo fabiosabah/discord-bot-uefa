@@ -576,7 +576,8 @@ def get_lobby_sessions() -> list[dict]:
             "player_ids": json.loads(row["player_ids"]),
             "waitlist_ids": json.loads(row["waitlist_ids"]),
             "closed": bool(row["closed"]),
-            "created_at": row["created_at"]
+            "created_at": row["created_at"],
+            "auto_close_at": row["auto_close_at"] if "auto_close_at" in row.keys() else None
         }
         for row in rows
     ]
