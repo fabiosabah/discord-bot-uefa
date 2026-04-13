@@ -108,31 +108,45 @@ def extract_text_from_image_url(image_url: str) -> str:
     )
 
     if provider == "gemini":
-        response = client.responses.create(
-            model=model,
-            input={
-                "type": "input_image",
-                "image_url": image_url,
-                "detail": "high",
-            },
-            instructions=instructions,
-            temperature=0.0,
-            max_output_tokens=1000,
+        from google.genai import types
+        # Configuração de Thinking conforme o Google AI Studio
+        generate_content_config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True,
+            ),
         )
-        text = _extract_text_from_response(response)
+        
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=instructions),
+                        types.Part.from_url(url=image_url, mime_type="image/jpeg")
+                    ],
+                ),
+            ],
+            config=generate_content_config
+        )
+        text = response.text
     else:
-        response = client.responses.create(
+        # Fallback para OpenAI se configurado
+        response = client.chat.completions.create(
             model=model,
-            input={
-                "type": "input_image",
-                "image_url": image_url,
-                "detail": "high",
-            },
-            instructions=instructions,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": instructions},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
             temperature=0.0,
-            max_output_tokens=1000,
+            max_tokens=1000,
         )
-        text = _extract_text_from_response(response)
+        text = response.choices[0].message.content
 
     if not text:
         raise RuntimeError("Falha ao extrair texto da imagem via OCR.")
@@ -458,13 +472,25 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
     prompt = _build_llm_prompt(raw_text, image_url)
 
     if provider == "gemini":
-        response = client.responses.create(
-            model=model,
-            input=prompt,
-            temperature=0.0,
-            max_output_tokens=800,
+        from google.genai import types
+        # Configuração de Thinking conforme o Google AI Studio
+        generate_content_config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True,
+            ),
         )
-        content = _extract_text_from_response(response)
+        
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)],
+                ),
+            ],
+            config=generate_content_config
+        )
+        content = response.text
     else:
         response = client.responses.create(
             model=model,

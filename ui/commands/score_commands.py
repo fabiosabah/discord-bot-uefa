@@ -916,7 +916,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send("🗑️ Histórico de partidas apagado com sucesso.")
 
-    @bot.command(name="limparhistoricodeimagens", aliases=["clearimagehistory", "apagarhistoricodeimagens"])
+    @bot.command(name="limparhistoricodeimagens", aliases=["clearimagehistory", "apagarhistoricodeimagens", "limparimagens"])
     async def cmd_clear_image_history(ctx: commands.Context, confirm: str = None):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
@@ -925,7 +925,7 @@ def setup_score_commands(bot: commands.Bot):
 
         if confirm != "confirmar":
             await ctx.send(
-                "⚠️ Para apagar o histórico de imagens OCR, use `!limparhistoricodeimagens confirmar`.",
+                "⚠️ Para apagar o histórico de imagens OCR, use `!limparimagens confirmar`.",
                 delete_after=15
             )
             return
