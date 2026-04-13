@@ -633,3 +633,4 @@ def process_match_screenshot(job_id: int, job: dict | None = None) -> dict[str, 
 
     set_match_screenshot_status(job_id, "processed", metadata=metadata)
     return {"job": job, "parsed": parsed}
+
