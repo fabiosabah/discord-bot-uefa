@@ -456,15 +456,22 @@ def setup_score_commands(bot: commands.Bot):
 
         queued = 0
         skipped = 0
+        ignored = 0
         async for message in target_channel.history(limit=limit, oldest_first=False):
+            if not message.attachments:
+                ignored += 1
+                continue
+
+            image_found = False
             for attachment in message.attachments:
                 content_type = attachment.content_type or ""
                 if not (content_type.startswith("image") or attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))):
                     continue
 
+                image_found = True
                 if is_match_screenshot_enqueued(message.id):
                     skipped += 1
-                    continue
+                    break
 
                 enqueue_match_screenshot(
                     message.id,
@@ -476,8 +483,11 @@ def setup_score_commands(bot: commands.Bot):
                 )
                 queued += 1
 
+            if not image_found:
+                ignored += 1
+
         await status_message.edit(content=(
-            f"✅ Varredura concluída: {queued} imagem(ns) enfileiradas, {skipped} já existentes do histórico de {limit} mensagens."
+            f"✅ Varredura concluída: {queued} imagem(ns) enfileiradas, {skipped} já existentes, {ignored} mensagens sem imagem ignoradas do histórico de {limit} mensagens."
         ))
 
     @bot.command(name="detalhesimagem", aliases=["imagedetails", "imagemdetalhes"])
