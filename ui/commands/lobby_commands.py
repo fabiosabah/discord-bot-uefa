@@ -85,10 +85,13 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
         # Configuração de canal de lista
         embed.add_field(
-            name="🛠️ Comandos de Configuração",
+            name="🛠️ Comandos de Configuração (Apenas ADMs)",
             value=(
                 "`!registrarcanal`: Registra o canal atual como canal exclusivo para abrir listas.\n"
-                "`!limparcanal`: Remove a configuração e permite abrir listas em qualquer canal."
+                "`!limparcanal`: Remove a configuração e permite abrir listas em qualquer canal.\n"
+                "`!registrarcanalimagem`: Registra o canal atual para leitura de imagens OCR.\n"
+                "`!limparcanalimagem`: Remove a imagem OCR registrada e volta a usar apenas o ENV ou nenhum canal.\n"
+                "`!canalimagem`: Mostra o canal de imagem OCR atualmente configurado."
             ),
             inline=False
         )
@@ -97,13 +100,14 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         embed.add_field(
             name="📸 Comandos OCR e Importação",
             value=(
-                "`!scanhistory [limite]`: Varre mensagens antigas do canal de imagens e enfileira apenas imagens para OCR.\n"
-                "`!pendenciaimagem`: Lista imagens que ainda não foram processadas.\n"
-                "`!detalhesimagem <job_id>`: Mostra os metadados OCR e o texto extraído do job.\n"
-                "`!rawtextimagem <job_id>`: Mostra o raw_text completo extraído pelo OCR para diagnóstico.\n"
-                "`!importarimagem <job_id> <mapeamento>`: Registra a imagem como partida usando o mapeamento de nomes para IDs (suporta `hero=...`).\n"
-                "`!confirmarimagem <job_id> <texto>`: Confirma manualmente o texto OCR e salva para uso posterior.\n"
-                "`!fixhero <match_id> @usuario <herói>`: Corrige o herói de um jogador em uma partida importada."
+                "`!scanhistory [limite]`: Enfileira imagens antigas para OCR.\n"
+                "`!pendenciaimagem`: Lista imagens aguardando processamento.\n"
+                "`!detalhesimagem <job_id>`: Mostra o JSON extraído e os dados OCR do job.\n"
+                "`!rawtextimagem <job_id>`: Exibe o texto bruto extraído para diagnóstico.\n"
+                "`!importarimagem <job_id> <mapeamento>`: Registra a imagem como partida usando o mapeamento de nomes para IDs.\n"
+                "`!confirmarimagem <job_id> <texto>`: Corrige manualmente os metadados OCR.\n"
+                "`!fixhero <match_id> @usuario <herói>`: Ajusta o herói de um jogador em uma partida importada.\n"
+                "`!devhelp`: Obtenha documentação técnica de fluxo e esquema do banco."
             ),
             inline=False
         )
@@ -133,6 +137,64 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
         embed.set_footer(text="Dúvidas? Entre em contato com um administrador.")
         
+        await ctx.send(embed=embed)
+
+    @bot.command(name="devhelp", aliases=["debughelp", "devdocs", "techhelp"])
+    async def dev_help_command(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores podem acessar a ajuda técnica.", delete_after=8)
+            return
+
+        embed = discord.Embed(
+            title="🛠️ Documentação Técnica - Liga Dota",
+            description="Informações detalhadas do fluxo de OCR, revisão e esquema de banco de dados.",
+            color=discord.Color.dark_blue()
+        )
+
+        embed.add_field(
+            name="🔍 Fluxo de verificação de imagem",
+            value=(
+                "1. A imagem é enviada no canal configurado ou enfileirada com `!scanhistory`.\n"
+                "2. O job entra em `match_screenshots` como `pending`.\n"
+                "3. O worker processa a imagem e tenta extrair texto com o LLM/Gemini.\n"
+                "4. O LLM tenta retornar JSON estruturado em `match_info`/`teams`. Se não for um placar de Dota válido, o job é rejeitado.\n"
+                "5. O resultado é salvo em `metadata` e o job vira `processed` ou `failed`.\n"
+                "6. Admins revisam com `!detalhesimagem` e `!rawtextimagem` antes de importar."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🗄️ Tabelas SQLite e relações",
+            value=(
+                "`players`: jogadores do Discord com `discord_id`, `display_name`, `wins`, `losses`.\n"
+                "`player_aliases`: aliases de nicknames ligados a um mesmo `discord_id`.\n"
+                "`match_screenshots`: jobs de OCR com `image_url`, `status`, `metadata`, `created_at` e `processed_at`.\n"
+                "`match_imports`: partidas importadas com dados resumo e `raw_metadata` em JSON.\n"
+                "`match_history`: histórico detalhado por jogador em cada `match_id`.\n"
+                "`audit_log`: rastreia comandos administrativos e IDs afetados.\n"
+                "`server_config`: configura canais por guild, incluindo `list_channel_id` e `image_channel_id`."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚙️ Comandos avançados de processo",
+            value=(
+                "`!detalhesimagem <job_id>`: Veja o JSON extraído e possíveis falhas de OCR.\n"
+                "`!rawtextimagem <job_id>`: Verifique o texto bruto extraído do screenshot.\n"
+                "`!confirmarimagem <job_id> <texto>`: Substitui metadados OCR por um JSON/texto corrigido.\n"
+                "`!importarimagem <job_id> <mapeamento>`: Importa a partida após revisão.\n"
+                "`!registrarcanalimagem`: Registra o canal atual para leitura de imagens OCR.\n"
+                "`!limparcanalimagem`: Limpa a configuração de canal de imagem OCR.\n"
+                "`!canalimagem`: Mostra o canal de imagem OCR configurado.\n"
+                "`!addalias` / `!removealias`: Mapear aliases de nick para um mesmo Discord.\n"
+                "`!aliases @user`: Lista os aliases registrados para o usuário."
+            ),
+            inline=False
+        )
+
         await ctx.send(embed=embed)
 
     @bot.command(name="registrarcanal")

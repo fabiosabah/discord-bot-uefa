@@ -9,6 +9,7 @@ from core.database import (
     init_db,
     migrate_db,
     get_list_channel,
+    get_image_channel,
     enqueue_match_screenshot,
     get_pending_match_screenshots,
     set_match_screenshot_status
@@ -50,17 +51,25 @@ async def on_ready():
     if can_process_ocr():
         bot.loop.create_task(ocr_background_worker())
     else:
-        logger.warning("OCR desativado: configure GOOGLE_CLOUD_VISION_API_KEY ou GOOGLE_APPLICATION_CREDENTIALS.")
+        logger.warning(
+            "OCR desativado: configure OPENAI_API_KEY ou GEMINI_API_KEY."
+        )
 
     if not can_process_llm():
-        logger.warning("LLM desativado: configure OPENAI_API_KEY para usar a interpretação com IA.")
+        logger.warning("LLM desativado: configure OPENAI_API_KEY ou GEMINI_API_KEY para usar a interpretação com IA.")
 
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    if IMAGE_CHANNEL_ID and message.channel.id == IMAGE_CHANNEL_ID:
+    image_channel_id = IMAGE_CHANNEL_ID
+    if message.guild:
+        guild_image_channel = get_image_channel(message.guild.id)
+        if guild_image_channel:
+            image_channel_id = guild_image_channel
+
+    if image_channel_id and message.channel.id == image_channel_id:
         if message.attachments:
             added = 0
             for attachment in message.attachments:
@@ -120,6 +129,16 @@ async def ocr_background_worker():
                 result = process_match_screenshot(job["id"], job=job)
                 parsed = result.get("parsed", {})
                 logger.info(f"OCR concluído para job {job['id']}: {parsed.get('duration', 'sem duração')}.")
+                channel = bot.get_channel(job["channel_id"])
+                if channel:
+                    if parsed.get("valid_dota_screenshot") is False:
+                        await channel.send(
+                            f"⚠️ O job {job['id']} não parece ser um placar de Dota válido e foi marcado como não processado."
+                        )
+                    else:
+                        await channel.send(
+                            f"✅ OCR concluído para a imagem do job {job['id']}. JSON processado e disponível. Use `!detalhesimagem {job['id']}` para revisar ou `!importarimagem {job['id']} <mapeamento>` para importar."
+                        )
             except Exception as exc:
                 logger.exception(f"Erro ao processar imagem OCR para job {job['id']}")
                 set_match_screenshot_status(job["id"], "failed", metadata=str(exc))

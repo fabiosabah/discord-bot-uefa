@@ -33,6 +33,13 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_aliases (
+                discord_id INTEGER NOT NULL,
+                alias      TEXT    NOT NULL COLLATE NOCASE,
+                PRIMARY KEY (discord_id, alias)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 admin_id     INTEGER NOT NULL,
@@ -57,8 +64,9 @@ def init_db():
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS server_config (
-                guild_id        INTEGER PRIMARY KEY,
-                list_channel_id INTEGER
+                guild_id          INTEGER PRIMARY KEY,
+                list_channel_id   INTEGER,
+                image_channel_id  INTEGER
             )
         """)
         conn.execute("""
@@ -104,6 +112,13 @@ def migrate_db():
             logger.info("[DB] Coluna 'affected_ids' adicionada via migration.")
 
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_aliases (
+                discord_id INTEGER NOT NULL,
+                alias      TEXT    NOT NULL COLLATE NOCASE,
+                PRIMARY KEY (discord_id, alias)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS match_history (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 audit_id   INTEGER NOT NULL,
@@ -127,6 +142,10 @@ def migrate_db():
         if "hero" not in mh_column_names:
             conn.execute("ALTER TABLE match_history ADD COLUMN hero TEXT")
             logger.info("[DB] Coluna 'hero' adicionada via migration ao match_history.")
+
+        if "image_channel_id" not in column_names:
+            conn.execute("ALTER TABLE server_config ADD COLUMN image_channel_id INTEGER")
+            logger.info("[DB] Coluna 'image_channel_id' adicionada via migration ao server_config.")
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_match_history_discord_id
@@ -266,9 +285,15 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
         for name in player_names:
             if not name:
                 continue
+            normalized = name.strip()
             row = conn.execute(
-                "SELECT discord_id FROM players WHERE LOWER(display_name) = LOWER(?) LIMIT 1",
-                (name.strip(),)
+                """
+                SELECT discord_id FROM players WHERE LOWER(display_name) = LOWER(?)
+                UNION
+                SELECT discord_id FROM player_aliases WHERE LOWER(alias) = LOWER(?)
+                LIMIT 1
+                """,
+                (normalized, normalized)
             ).fetchone()
             if row:
                 mapping[name] = row["discord_id"]
@@ -414,15 +439,45 @@ def get_list_channel(guild_id: int):
     return row["list_channel_id"] if row else None
 
 
+def get_image_channel(guild_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT image_channel_id FROM server_config WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+    return row["image_channel_id"] if row else None
+
+
 def set_list_channel(guild_id: int, channel_id: int):
     with get_connection() as conn:
         conn.execute("""
-            INSERT INTO server_config (guild_id, list_channel_id)
-            VALUES (?, ?)
+            INSERT INTO server_config (guild_id, list_channel_id, image_channel_id)
+            VALUES (?, ?, NULL)
             ON CONFLICT(guild_id) DO UPDATE SET list_channel_id = excluded.list_channel_id
         """, (guild_id, channel_id))
         conn.commit()
     logger.info(f"[DB] Canal de lista registrado para guild {guild_id}: {channel_id}")
+
+
+def set_image_channel(guild_id: int, channel_id: int):
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO server_config (guild_id, list_channel_id, image_channel_id)
+            VALUES (?, NULL, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET image_channel_id = excluded.image_channel_id
+        """, (guild_id, channel_id))
+        conn.commit()
+    logger.info(f"[DB] Canal de imagem registrado para guild {guild_id}: {channel_id}")
+
+
+def clear_image_channel(guild_id: int):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO server_config (guild_id, list_channel_id, image_channel_id) VALUES (?, NULL, NULL)"
+            " ON CONFLICT(guild_id) DO UPDATE SET image_channel_id = NULL",
+            (guild_id,)
+        )
+        conn.commit()
+    logger.info(f"[DB] Canal de imagem removido para guild {guild_id}")
 
 
 def clear_list_channel(guild_id: int):
@@ -474,6 +529,39 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
             LIMIT 2
         """, player_ids).fetchall()
     return [dict(r) for r in rows]
+
+
+def add_player_alias(discord_id: int, alias: str) -> None:
+    alias = alias.strip()
+    if not alias:
+        return
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO player_aliases (discord_id, alias) VALUES (?, ?)",
+            (discord_id, alias)
+        )
+        conn.commit()
+
+
+def remove_player_alias(discord_id: int, alias: str) -> None:
+    alias = alias.strip()
+    if not alias:
+        return
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM player_aliases WHERE discord_id = ? AND alias = ?",
+            (discord_id, alias)
+        )
+        conn.commit()
+
+
+def get_player_aliases(discord_id: int) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT alias FROM player_aliases WHERE discord_id = ? ORDER BY alias",
+            (discord_id,)
+        ).fetchall()
+    return [row["alias"] for row in rows]
 
 
 def log_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None, created_at: str | None = None) -> int:

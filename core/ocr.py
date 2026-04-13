@@ -10,34 +10,14 @@ logger = logging.getLogger("OCR")
 
 def can_process_ocr() -> bool:
     try:
-        from google.cloud import vision  # noqa: F401
-    except ImportError:
-        return False
-    return bool(os.getenv("GOOGLE_CLOUD_VISION_API_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
-
-
-def can_process_llm() -> bool:
-    try:
         import openai  # noqa: F401
     except ImportError:
         return False
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
 
-def _build_vision_client():
-    try:
-        from google.cloud import vision
-        from google.api_core.client_options import ClientOptions
-    except ImportError as exc:
-        raise RuntimeError(
-            "google-cloud-vision is required. Install it with `pip install google-cloud-vision`."
-        ) from exc
-
-    api_key = os.getenv("GOOGLE_CLOUD_VISION_API_KEY")
-    if api_key:
-        return vision.ImageAnnotatorClient(client_options=ClientOptions(api_key=api_key))
-
-    return vision.ImageAnnotatorClient()
+def can_process_llm() -> bool:
+    return can_process_ocr()
 
 
 def _build_openai_client():
@@ -48,9 +28,11 @@ def _build_openai_client():
             "openai is required. Install it with `pip install openai`."
         ) from exc
 
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if not openai.api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for LLM processing.")
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY or GEMINI_API_KEY is required for OCR processing.")
+
+    openai.api_key = api_key
 
     api_base = os.getenv("OPENAI_API_BASE")
     if api_base:
@@ -59,16 +41,67 @@ def _build_openai_client():
     return openai
 
 
+def _extract_text_from_response(response: Any) -> str:
+    if response is None:
+        return ""
+
+    if hasattr(response, "output") and response.output:
+        for item in response.output:
+            content = getattr(item, "content", None)
+            if isinstance(content, list):
+                for part in content:
+                    text = getattr(part, "text", None)
+                    if isinstance(text, str) and text:
+                        return text
+            text = getattr(item, "text", None)
+            if isinstance(text, str) and text:
+                return text
+
+    text = getattr(response, "output_text", None)
+    if isinstance(text, str) and text:
+        return text
+
+    if hasattr(response, "to_dict"):
+        try:
+            data = response.to_dict()
+            if isinstance(data, dict):
+                output = data.get("output")
+                if isinstance(output, list):
+                    for item in output:
+                        content = item.get("content")
+                        if isinstance(content, list):
+                            for part in content:
+                                text = part.get("text")
+                                if isinstance(text, str) and text:
+                                    return text
+        except Exception:
+            pass
+
+    return ""
+
+
 def extract_text_from_image_url(image_url: str) -> str:
-    from google.cloud import vision
+    openai = _build_openai_client()
+    model = os.getenv("OPENAI_MODEL", "gemini-1.5-flash")
+    response = openai.responses.create(
+        model=model,
+        input={
+            "type": "input_image",
+            "image_url": image_url,
+            "detail": "high",
+        },
+        instructions=(
+            "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
+            "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
+        ),
+        temperature=0.0,
+        max_output_tokens=1000,
+    )
 
-    client = _build_vision_client()
-    image = vision.Image(source=vision.ImageSource(image_uri=image_url))
-    response = client.document_text_detection(image=image)
-    if response.error.message:
-        raise RuntimeError(f"Vision API error: {response.error.message}")
-
-    return response.full_text_annotation.text or ""
+    text = _extract_text_from_response(response)
+    if not text:
+        raise RuntimeError("Falha ao extrair texto da imagem via Gemini.")
+    return text
 
 
 def _parse_duration(text: str) -> str | None:
@@ -149,6 +182,37 @@ def _parse_players(text: str) -> list[dict[str, Any]]:
     return players
 
 
+def _is_probably_dota_score_text(raw_text: str) -> bool:
+    if not raw_text:
+        return False
+
+    text = raw_text.lower()
+    keywords = [
+        "radiant",
+        "dire",
+        "kda",
+        "net worth",
+        "networth",
+        "gold",
+        "hero",
+        "kills",
+        "score",
+        "captains mode",
+        "all pick",
+        "ranked",
+        "match duration",
+        "duration",
+    ]
+    matches = sum(1 for keyword in keywords if keyword in text)
+    if matches >= 2:
+        return True
+
+    if re.search(r"\b\d+\s*[/x]\s*\d+\s*[/x]\s*\d+\b", raw_text):
+        return True
+
+    return False
+
+
 def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
     candidate = raw_text.strip()
     if not candidate.startswith("{"):
@@ -166,89 +230,188 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
 
+    if payload.get("valid_dota_screenshot") is False:
+        return {
+            "raw_text": raw_text,
+            "valid_dota_screenshot": False,
+            "metadata_payload": payload,
+        }
+
+    match_info = payload.get("match_info")
+    teams = payload.get("teams")
+    if isinstance(match_info, dict) and isinstance(teams, dict):
+        radiant_score = None
+        dire_score = None
+        score = match_info.get("score") or {}
+        if isinstance(score, dict):
+            radiant_score = score.get("radiant")
+            dire_score = score.get("dire")
+
+        winner = match_info.get("winner")
+        radiant_win = isinstance(winner, str) and winner.lower() == "radiant"
+        parsed_players: list[dict[str, Any]] = []
+
+        for team_name in ("radiant", "dire"):
+            team_list = teams.get(team_name)
+            if not isinstance(team_list, list):
+                continue
+            for entry in team_list:
+                if not isinstance(entry, dict):
+                    continue
+                parsed_players.append({
+                    "name": entry.get("player"),
+                    "hero": entry.get("hero"),
+                    "score": entry.get("kda"),
+                    "net_worth": entry.get("net_worth"),
+                    "team": team_name,
+                    "raw_entry": entry,
+                })
+
+        return {
+            "raw_text": raw_text,
+            "steam_match_id": payload.get("steam_match_id"),
+            "dota_match_id": payload.get("dota_match_id"),
+            "match_date": payload.get("match_date") or match_info.get("date"),
+            "mode": match_info.get("game_mode"),
+            "winner": winner,
+            "duration": match_info.get("duration"),
+            "radiant_win": radiant_win,
+            "radiant_score": radiant_score,
+            "dire_score": dire_score,
+            "score": score,
+            "radiant_kills": None,
+            "dire_kills": None,
+            "radiant_gold": None,
+            "dire_gold": None,
+            "players": parsed_players,
+            "metadata_payload": payload,
+        }
+
     game_details = payload.get("game_details")
     teams = payload.get("teams")
-    if not game_details or not teams:
-        return None
+    if game_details and teams:
+        radiant_score = None
+        dire_score = None
+        winner = game_details.get("winner")
+        score = game_details.get("score") or {}
+        if isinstance(score, dict):
+            radiant_score = score.get("radiant")
+            dire_score = score.get("dire")
 
-    radiant_score = None
-    dire_score = None
-    winner = game_details.get("winner")
-    score = game_details.get("score") or {}
-    if isinstance(score, dict):
-        radiant_score = score.get("radiant")
-        dire_score = score.get("dire")
+        parsed_players: list[dict[str, Any]] = []
+        for team_name in ("radiant", "dire"):
+            team_list = teams.get(team_name) or []
+            for entry in team_list:
+                if not isinstance(entry, dict):
+                    continue
+                parsed_players.append({
+                    "name": entry.get("player"),
+                    "hero": entry.get("hero"),
+                    "score": entry.get("kda"),
+                    "net_worth": entry.get("net_worth"),
+                    "team": team_name,
+                    "raw_entry": entry,
+                })
 
-    parsed_players: list[dict[str, Any]] = []
-    for team_name in ("radiant", "dire"):
-        team_list = teams.get(team_name) or []
-        for entry in team_list:
+        return {
+            "raw_text": raw_text,
+            "steam_match_id": payload.get("steam_match_id"),
+            "dota_match_id": payload.get("dota_match_id"),
+            "match_date": payload.get("match_date") or game_details.get("date"),
+            "mode": game_details.get("mode"),
+            "winner": winner,
+            "duration": game_details.get("duration"),
+            "radiant_win": isinstance(winner, str) and winner.lower() == "radiant",
+            "radiant_score": radiant_score,
+            "dire_score": dire_score,
+            "score": score,
+            "radiant_kills": None,
+            "dire_kills": None,
+            "radiant_gold": None,
+            "dire_gold": None,
+            "players": parsed_players,
+            "metadata_payload": payload,
+        }
+
+    if "players" in payload or "score" in payload or "winner" in payload:
+        radiant_score = None
+        dire_score = None
+        score = payload.get("score") or {}
+        if isinstance(score, dict):
+            radiant_score = score.get("radiant")
+            dire_score = score.get("dire")
+
+        radiant_win = payload.get("radiant_win")
+        if not isinstance(radiant_win, bool):
+            radiant_win = None
+
+        parsed_players: list[dict[str, Any]] = []
+        for entry in payload.get("players", []):
             if not isinstance(entry, dict):
                 continue
             parsed_players.append({
-                "name": entry.get("player"),
+                "name": entry.get("name"),
                 "hero": entry.get("hero"),
-                "score": entry.get("kda"),
+                "score": entry.get("score"),
                 "net_worth": entry.get("net_worth"),
-                "team": team_name,
+                "team": entry.get("team"),
                 "raw_entry": entry,
             })
 
-    return {
-        "raw_text": raw_text,
-        "steam_match_id": payload.get("steam_match_id"),
-        "dota_match_id": payload.get("dota_match_id"),
-        "match_date": payload.get("match_date") or game_details.get("date"),
-        "mode": game_details.get("mode"),
-        "winner": winner,
-        "duration": game_details.get("duration"),
-        "radiant_win": isinstance(winner, str) and winner.lower() == "radiant",
-        "radiant_score": radiant_score,
-        "dire_score": dire_score,
-        "score": score,
-        "radiant_kills": None,
-        "dire_kills": None,
-        "radiant_gold": None,
-        "dire_gold": None,
-        "players": parsed_players,
-        "metadata_payload": payload,
-    }
-
-
-def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> list[dict[str, str]]:
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "Você é um assistente especialista em Dota 2. Recebe texto extraído de uma imagem de placar "
-                "ou de detalhes de partida e deve retornar apenas JSON válido com as informações da partida. "
-                "Não responda em markdown ou texto adicional."
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                "Extraia o máximo de informações possíveis sobre a partida. Retorne um objeto JSON com os campos: "
-                "steam_match_id, dota_match_id, match_date, mode, winner, duration, score, teams. "
-                "O campo score deve ser um objeto com radiant e dire. "
-                "O campo teams deve conter radiant e dire, cada um com uma lista de jogadores contendo: player, hero, kda, net_worth. "
-                "Se não houver algum campo, coloque null ou não inclua. "
-                "Use o texto a seguir para extrair esses valores."
-            )
+        return {
+            "raw_text": raw_text,
+            "steam_match_id": payload.get("steam_match_id"),
+            "dota_match_id": payload.get("dota_match_id"),
+            "match_date": payload.get("match_date"),
+            "mode": payload.get("mode"),
+            "winner": payload.get("winner"),
+            "duration": payload.get("duration"),
+            "radiant_win": radiant_win,
+            "radiant_score": radiant_score,
+            "dire_score": dire_score,
+            "score": score,
+            "radiant_kills": payload.get("radiant_kills"),
+            "dire_kills": payload.get("dire_kills"),
+            "radiant_gold": payload.get("radiant_gold"),
+            "dire_gold": payload.get("dire_gold"),
+            "players": parsed_players,
+            "metadata_payload": payload,
         }
-    ]
+
+    return None
+
+
+def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
+    prompt = (
+        "Você é um assistente especialista em Dota 2. Recebe texto extraído de uma imagem de placar "
+        "ou de detalhes de partida e deve retornar apenas JSON válido com as informações da partida. "
+        "Não responda em markdown ou texto adicional. Retorne um objeto JSON com a estrutura abaixo. "
+        "Use null quando algum valor não puder ser extraído. Se o texto não for um placar de Dota 2, "
+        "retorne apenas {\"valid_dota_screenshot\": false}.\n\n"
+        "Exemplo de formato desejado:\n"
+        "{\n"
+        "  \"valid_dota_screenshot\": true,\n"
+        "  \"match_info\": {\n"
+        "    \"game_mode\": \"Captains Mode\",\n"
+        "    \"duration\": \"51:29\",\n"
+        "    \"winner\": \"Dire\",\n"
+        "    \"score\": {\"radiant\": 37, \"dire\": 40}\n"
+        "  },\n"
+        "  \"teams\": {\n"
+        "    \"radiant\": [\n"
+        "      {\"player\": \"WFz [-pRs-]\", \"hero\": \"Beastmaster\", \"kda\": \"10 / 13 / 18\", \"net_worth\": 25632},\n"
+        "      ...\n"
+        "    ],\n"
+        "    \"dire\": [ ... ]\n"
+        "  }\n"
+        "}"
+    )
 
     if image_url:
-        messages.append({
-            "role": "user",
-            "content": f"Imagem de origem: {image_url}"
-        })
+        prompt += f"\nImagem de origem: {image_url}."
 
-    messages.append({
-        "role": "user",
-        "content": f"Texto OCR:\n{raw_text}"
-    })
-    return messages
+    prompt += f"\nTexto OCR:\n{raw_text}"
+    return prompt
 
 
 def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[str, Any] | None:
@@ -256,29 +419,106 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
         return None
 
     openai = _build_openai_client()
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gemini-1.5-flash")
     prompt = _build_llm_prompt(raw_text, image_url)
 
-    completion = openai.ChatCompletion.create(
+    response = openai.responses.create(
         model=model,
-        messages=prompt,
+        input=raw_text,
+        instructions=prompt,
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "dota_match_data",
+                "description": "Estrutura JSON com match_info e teams para partida Dota 2",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "steam_match_id": {"type": ["string", "null"]},
+                        "dota_match_id": {"type": ["string", "null"]},
+                        "match_date": {"type": ["string", "null"]},
+                        "valid_dota_screenshot": {"type": ["boolean", "null"]},
+                        "match_info": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "game_mode": {"type": ["string", "null"]},
+                                "duration": {"type": ["string", "null"]},
+                                "winner": {"type": ["string", "null"]},
+                                "score": {
+                                    "type": ["object", "null"],
+                                    "properties": {
+                                        "radiant": {"type": ["integer", "null"]},
+                                        "dire": {"type": ["integer", "null"]}
+                                    },
+                                    "additionalProperties": False
+                                }
+                            },
+                            "additionalProperties": False
+                        },
+                        "teams": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "radiant": {
+                                    "type": ["array", "null"],
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "player": {"type": ["string", "null"]},
+                                            "hero": {"type": ["string", "null"]},
+                                            "kda": {"type": ["string", "null"]},
+                                            "net_worth": {"type": ["integer", "null"]}
+                                        },
+                                        "required": ["player", "hero", "kda", "net_worth"],
+                                        "additionalProperties": False
+                                    }
+                                },
+                                "dire": {
+                                    "type": ["array", "null"],
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "player": {"type": ["string", "null"]},
+                                            "hero": {"type": ["string", "null"]},
+                                            "kda": {"type": ["string", "null"]},
+                                            "net_worth": {"type": ["integer", "null"]}
+                                        },
+                                        "required": ["player", "hero", "kda", "net_worth"],
+                                        "additionalProperties": False
+                                    }
+                                }
+                            },
+                            "additionalProperties": False
+                        }
+                    },
+                    "additionalProperties": False
+                }
+            }
+        },
         temperature=0.0,
-        max_tokens=800
+        max_output_tokens=800,
     )
 
-    content = completion.choices[0].message.content
+    content = _extract_text_from_response(response)
     parsed = _parse_json_payload(content)
     if parsed is not None:
         return parsed
 
-    # If the LLM output is not pure JSON, try to extract JSON from it.
-    return _parse_json_payload(str(content))
+    return _parse_json_payload(str(content) if content is not None else "")
 
 
 def parse_dota_match_text(raw_text: str, image_url: str | None = None) -> dict[str, Any]:
     parsed = _parse_json_payload(raw_text)
     if parsed is not None:
+        if parsed.get("valid_dota_screenshot") is False:
+            return parsed
         return parsed
+
+    if not _is_probably_dota_score_text(raw_text):
+        return {
+            "raw_text": raw_text,
+            "valid_dota_screenshot": False,
+            "reason": "text_does_not_match_dota_score",
+        }
 
     parsed = _parse_text_with_llm(raw_text, image_url)
     if parsed is not None:
@@ -315,5 +555,10 @@ def process_match_screenshot(job_id: int, job: dict | None = None) -> dict[str, 
     raw_text = extract_text_from_image_url(job["image_url"])
     parsed = parse_dota_match_text(raw_text, job["image_url"])
     metadata = json.dumps(parsed, ensure_ascii=False)
+
+    if parsed.get("valid_dota_screenshot") is False:
+        set_match_screenshot_status(job_id, "failed", metadata=metadata)
+        return {"job": job, "parsed": parsed}
+
     set_match_screenshot_status(job_id, "processed", metadata=metadata)
     return {"job": job, "parsed": parsed}

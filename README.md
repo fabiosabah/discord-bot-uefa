@@ -61,9 +61,8 @@ LEAGUE_NAME=Your League Name
 LEAGUE_EMOJI=🎮
 ADMIN_IDS=123456789,987654321
 IMAGE_CHANNEL_ID=1489444995667591339
-GOOGLE_CLOUD_VISION_API_KEY=your_google_vision_api_key
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=your_openai_or_gemini_api_key
+OPENAI_MODEL=gemini-1.5-flash
 ```
 
 | Variable | Description |
@@ -73,9 +72,8 @@ OPENAI_MODEL=gpt-4.1-mini
 | `LEAGUE_EMOJI` | Emoji displayed in the embed title |
 | `ADMIN_IDS` | Comma-separated user IDs with admin permission |
 | `IMAGE_CHANNEL_ID` | Discord channel ID for Dota match screenshot uploads |
-| `GOOGLE_CLOUD_VISION_API_KEY` | API key for Google Cloud Vision OCR |
-| `OPENAI_API_KEY` | API key for OpenAI to interpret OCR text with LLM |
-| `OPENAI_MODEL` | Optional OpenAI model for match interpretation (default `gpt-4.1-mini`) |
+| `OPENAI_API_KEY` | API key for Gemini/OpenAI for direct image OCR and match parsing |
+| `OPENAI_MODEL` | Optional model for image and text processing (default `gemini-1.5-flash`) |
 
 > **Note:** The maximum number of players (`MAX_PLAYERS`) is set to `10` directly in `config.py`.
 

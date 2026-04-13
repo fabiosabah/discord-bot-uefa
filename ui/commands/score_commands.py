@@ -14,6 +14,8 @@ from core.database import (
     get_pending_match_screenshots, get_match_screenshot, set_match_screenshot_status,
     enqueue_match_screenshot, is_match_screenshot_enqueued,
     find_player_by_display_name, resolve_player_names_exact, insert_ocr_match,
+    add_player_alias, remove_player_alias, get_player_aliases,
+    get_image_channel, set_image_channel, clear_image_channel,
     update_match_hero
 )
 from core.ocr import can_process_ocr, process_match_screenshot
@@ -440,10 +442,15 @@ def setup_score_commands(bot: commands.Bot):
                     return
 
         if target_channel is None:
-            target_channel = bot.get_channel(IMAGE_CHANNEL_ID) if IMAGE_CHANNEL_ID else None
+            image_channel_id = get_image_channel(ctx.guild.id) if ctx.guild else None
+            if image_channel_id:
+                target_channel = bot.get_channel(image_channel_id)
+
+        if target_channel is None and IMAGE_CHANNEL_ID:
+            target_channel = bot.get_channel(IMAGE_CHANNEL_ID)
 
         if target_channel is None:
-            await ctx.send("❌ Canal de imagens não foi encontrado. Defina `IMAGE_CHANNEL_ID` ou passe um canal mencionando ele.", delete_after=10)
+            await ctx.send("❌ Canal de imagens não foi encontrado. Registre um canal de imagem ou passe um canal mencionando ele.", delete_after=10)
             return
 
         if limit < 1 or limit > 2000:
@@ -490,6 +497,64 @@ def setup_score_commands(bot: commands.Bot):
             f"✅ Varredura concluída: {queued} imagem(ns) enfileiradas, {skipped} já existentes, {ignored} mensagens sem imagem ignoradas do histórico de {limit} mensagens."
         ))
 
+    @bot.command(name="registrarcanalimagem", aliases=["registrarcanalocr"])
+    async def cmd_register_image_channel(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if not ctx.guild:
+            await ctx.message.delete()
+            await ctx.send("❌ Este comando só pode ser usado em um servidor.", delete_after=8)
+            return
+
+        set_image_channel(ctx.guild.id, ctx.channel.id)
+        await ctx.message.delete()
+        await ctx.send(
+            f"✅ Canal <#{ctx.channel.id}> registrado para leitura de imagens de partida.",
+            delete_after=15
+        )
+
+    @bot.command(name="limparcanalimagem", aliases=["limparcanalocr"])
+    async def cmd_clear_image_channel(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if not ctx.guild:
+            await ctx.message.delete()
+            await ctx.send("❌ Este comando só pode ser usado em um servidor.", delete_after=8)
+            return
+
+        clear_image_channel(ctx.guild.id)
+        await ctx.message.delete()
+        await ctx.send(
+            "✅ Canal de imagem OCR foi removido. Imagens só serão processadas em canais explicitamente configurados.",
+            delete_after=15
+        )
+
+    @bot.command(name="canalimagem", aliases=["imagemcanal"])
+    async def cmd_show_image_channel(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if not ctx.guild:
+            await ctx.message.delete()
+            await ctx.send("❌ Este comando só pode ser usado em um servidor.", delete_after=8)
+            return
+
+        image_channel_id = get_image_channel(ctx.guild.id)
+        if image_channel_id:
+            await ctx.send(f"📌 Canal de imagem OCR registrado: <#{image_channel_id}>")
+        elif IMAGE_CHANNEL_ID:
+            await ctx.send(f"📌 Canal de imagem OCR definido via ENV: <#{IMAGE_CHANNEL_ID}>")
+        else:
+            await ctx.send("⚠️ Nenhum canal de imagem OCR registrado.")
+
     @bot.command(name="detalhesimagem", aliases=["imagedetails", "imagemdetalhes"])
     async def cmd_image_details(ctx: commands.Context, job_id: int):
         if not is_admin(ctx.author.id):
@@ -518,8 +583,23 @@ def setup_score_commands(bot: commands.Bot):
         ]
 
         if metadata:
-            description_lines.append(f"**Vencedor previsto:** {metadata.get('winner') or ('Radiant' if metadata.get('radiant_win') else 'Dire')}")
-            description_lines.append(f"**Duração:** {metadata.get('duration') or metadata.get('game_details', {}).get('duration', 'desconhecida')}")
+            match_info = metadata.get("match_info") or metadata.get("game_details")
+            if match_info:
+                game_mode = match_info.get("game_mode") or match_info.get("mode")
+                duration = match_info.get("duration")
+                winner = match_info.get("winner") or ("Radiant" if match_info.get("radiant_win") else "Dire")
+                score = match_info.get("score") or {}
+                radiant_score = score.get("radiant")
+                dire_score = score.get("dire")
+                description_lines.append(f"**Modo de jogo:** {game_mode or 'desconhecido'}")
+                description_lines.append(f"**Vencedor previsto:** {winner}")
+                description_lines.append(f"**Duração:** {duration or 'desconhecida'}")
+                if radiant_score is not None and dire_score is not None:
+                    description_lines.append(f"**Placar:** Radiant {radiant_score} x {dire_score} Dire")
+            else:
+                description_lines.append(f"**Vencedor previsto:** {metadata.get('winner') or ('Radiant' if metadata.get('radiant_win') else 'Dire')}")
+                description_lines.append(f"**Duração:** {metadata.get('duration') or metadata.get('game_details', {}).get('duration', 'desconhecida')}")
+
             if players:
                 for index, player in enumerate(players, start=1):
                     player_name = player.get("name") or player.get("player") or "(sem nome)"
@@ -727,6 +807,69 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Hero de {member.mention} atualizado para **{hero}** na partida {match_id}.")
+
+    @bot.command(name="addalias", aliases=["aliasadd", "alias"])
+    async def cmd_add_alias(ctx: commands.Context, member: discord.Member, *, alias: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        alias = alias.strip()
+        if not alias:
+            await ctx.send("❌ Informe o apelido após o membro.", delete_after=10)
+            return
+
+        add_player_alias(member.id, alias)
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!addalias",
+            f"discord_id={member.id} alias={alias}",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Alias `{alias}` adicionado para {member.mention}.")
+
+    @bot.command(name="removealias", aliases=["delalias"])
+    async def cmd_remove_alias(ctx: commands.Context, member: discord.Member, *, alias: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        alias = alias.strip()
+        if not alias:
+            await ctx.send("❌ Informe o alias a ser removido.", delete_after=10)
+            return
+
+        remove_player_alias(member.id, alias)
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!removealias",
+            f"discord_id={member.id} alias={alias}",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Alias `{alias}` removido para {member.mention}.")
+
+    @bot.command(name="aliases", aliases=["aliaslist"])
+    async def cmd_alias_list(ctx: commands.Context, member: discord.Member):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        aliases = get_player_aliases(member.id)
+        if not aliases:
+            await ctx.send(f"⚠️ Nenhum alias registrado para {member.mention}.", delete_after=10)
+            return
+
+        alias_list = '\n'.join(f"- `{alias}`" for alias in aliases)
+        await ctx.send(f"📝 Aliases para {member.mention}:\n{alias_list}")
 
     @bot.command(name="registrarmatch", aliases=["matchfix", "matchmanual"])
     async def cmd_registrar_match(ctx: commands.Context, match_id: int, *, rest: str):
