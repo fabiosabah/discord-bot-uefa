@@ -450,6 +450,10 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send("❌ O limite deve ser entre 1 e 2000 mensagens.", delete_after=10)
             return
 
+        status_message = await ctx.send(
+            f"⏳ Iniciando varredura de até {limit} mensagens em {target_channel.mention}..."
+        )
+
         queued = 0
         skipped = 0
         async for message in target_channel.history(limit=limit, oldest_first=False):
@@ -472,10 +476,9 @@ def setup_score_commands(bot: commands.Bot):
                 )
                 queued += 1
 
-        await ctx.send(
-            f"✅ Varredura concluída: {queued} imagem(ns) enfileiradas, {skipped} já existentes do histórico de {limit} mensagens.",
-            delete_after=20
-        )
+        await status_message.edit(content=(
+            f"✅ Varredura concluída: {queued} imagem(ns) enfileiradas, {skipped} já existentes do histórico de {limit} mensagens."
+        ))
 
     @bot.command(name="detalhesimagem", aliases=["imagedetails", "imagemdetalhes"])
     async def cmd_image_details(ctx: commands.Context, job_id: int):
