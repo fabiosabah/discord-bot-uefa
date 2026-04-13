@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import discord
+from datetime import datetime, timedelta
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 from core.database import get_captains_from_list
 
 class LobbySession:
+    CLOSE_DELAY_SECONDS = 180
+
     def __init__(self, host: discord.Member, session_id: int):
         self.id = session_id
         self.host = host
@@ -15,21 +18,38 @@ class LobbySession:
         self.waitlist_ids: set[int] = set()
         self.closed = False
         self.close_task: asyncio.Task | None = None
+        self.auto_close_at: datetime | None = None
 
     def cancel_auto_close(self):
         if self.close_task and not self.close_task.done():
             self.close_task.cancel()
         self.close_task = None
+        self.auto_close_at = None
 
-    def schedule_auto_close(self, active_lobbies: dict):
-        if self.closed or self.close_task is not None:
+    def schedule_auto_close(self, active_lobbies: dict, delay: int | None = None):
+        if self.closed:
             return
-        loop = asyncio.get_running_loop()
-        self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies))
 
-    async def _auto_close_countdown(self, active_lobbies: dict):
+        if self.close_task is not None:
+            return
+
+        now = datetime.now()
+        if delay is None:
+            if self.auto_close_at:
+                delay = max(0, int((self.auto_close_at - now).total_seconds()))
+            else:
+                delay = self.CLOSE_DELAY_SECONDS
+                self.auto_close_at = now + timedelta(seconds=delay)
+        else:
+            self.auto_close_at = now + timedelta(seconds=delay)
+
+        loop = asyncio.get_running_loop()
+        self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies, delay))
+
+    async def _auto_close_countdown(self, active_lobbies: dict, delay: int):
         try:
-            await asyncio.sleep(600)
+            if delay > 0:
+                await asyncio.sleep(delay)
             if self.closed:
                 return
 
@@ -142,6 +162,16 @@ class LobbySession:
                 f"`{i+1:02d}.` {p.mention}" for i, p in enumerate(self.waitlist)
             )
             embed.add_field(name=f"🔔 Espera ({len(self.waitlist)})", value=waitlist_str, inline=False)
+
+        if self.auto_close_at and not self.closed:
+            remaining = self.auto_close_at - datetime.now()
+            if remaining.total_seconds() > 0:
+                minutes = int(remaining.total_seconds() // 60)
+                seconds = int(remaining.total_seconds() % 60)
+                timer_text = f"⏱️ Fechamento automático em {minutes}m{seconds:02d}s"
+            else:
+                timer_text = "⏱️ Fechamento automático em breve"
+            embed.add_field(name="⏳ Tempo restante", value=timer_text, inline=False)
 
         captains_text = self._get_captains_field()
         if captains_text:

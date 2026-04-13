@@ -3,6 +3,7 @@ import asyncio
 import discord
 import logging
 import sys
+from datetime import datetime
 from discord.ext import commands
 from core.config import TOKEN, IMAGE_CHANNEL_ID
 from core.database import (
@@ -94,13 +95,14 @@ async def restore_saved_lobby_sessions():
         session.waitlist = [await _resolve_member(guild, wid) for wid in row["waitlist_ids"]]
         session.waitlist_ids = set(row["waitlist_ids"])
         session.closed = bool(row["closed"])
+        session.auto_close_at = datetime.fromisoformat(row["auto_close_at"]) if row["auto_close_at"] else None
 
         if session.closed:
             delete_lobby_session(row["guild_id"])
             continue
 
         active_lobbies[message.id] = session
-        if session.is_full():
+        if session.auto_close_at or session.is_full():
             session.schedule_auto_close(active_lobbies)
 
 

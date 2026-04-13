@@ -71,15 +71,16 @@ def init_db():
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS lobby_sessions (
-                guild_id     INTEGER PRIMARY KEY,
-                session_id   INTEGER NOT NULL,
-                message_id   INTEGER NOT NULL,
-                channel_id   INTEGER NOT NULL,
-                host_id      INTEGER NOT NULL,
-                player_ids   TEXT    NOT NULL,
-                waitlist_ids TEXT    NOT NULL,
-                closed       INTEGER NOT NULL DEFAULT 0,
-                created_at   TEXT    NOT NULL
+                guild_id       INTEGER PRIMARY KEY,
+                session_id     INTEGER NOT NULL,
+                message_id     INTEGER NOT NULL,
+                channel_id     INTEGER NOT NULL,
+                host_id        INTEGER NOT NULL,
+                player_ids     TEXT    NOT NULL,
+                waitlist_ids   TEXT    NOT NULL,
+                closed         INTEGER NOT NULL DEFAULT 0,
+                created_at     TEXT    NOT NULL,
+                auto_close_at  TEXT
             )
         """)
         conn.execute("""
@@ -161,6 +162,10 @@ def migrate_db():
         if "session_id" not in lobby_column_names:
             conn.execute("ALTER TABLE lobby_sessions ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0")
             logger.info("[DB] Coluna 'session_id' adicionada via migration ao lobby_sessions.")
+
+        if "auto_close_at" not in lobby_column_names:
+            conn.execute("ALTER TABLE lobby_sessions ADD COLUMN auto_close_at TEXT")
+            logger.info("[DB] Coluna 'auto_close_at' adicionada via migration ao lobby_sessions.")
 
         sc_columns = conn.execute("PRAGMA table_info(server_config)").fetchall()
         sc_column_names = [col["name"] for col in sc_columns]
@@ -518,12 +523,13 @@ def save_lobby_session(session, created_at: str | None = None):
 
     player_ids = json.dumps(list(session.player_ids), ensure_ascii=False)
     waitlist_ids = json.dumps(list(session.waitlist_ids), ensure_ascii=False)
+    auto_close_at = session.auto_close_at.isoformat() if session.auto_close_at else None
 
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO lobby_sessions
-                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, created_at, auto_close_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 session_id   = excluded.session_id,
                 message_id   = excluded.message_id,
@@ -532,7 +538,8 @@ def save_lobby_session(session, created_at: str | None = None):
                 player_ids   = excluded.player_ids,
                 waitlist_ids = excluded.waitlist_ids,
                 closed       = excluded.closed,
-                created_at   = excluded.created_at
+                created_at   = excluded.created_at,
+                auto_close_at= excluded.auto_close_at
         """, (
             session.message.guild.id,
             session.id,
@@ -542,7 +549,8 @@ def save_lobby_session(session, created_at: str | None = None):
             player_ids,
             waitlist_ids,
             1 if session.closed else 0,
-            created_at
+            created_at,
+            auto_close_at
         ))
         conn.commit()
     logger.info(f"[DB] Sessão de lobby salva para guild {session.message.guild.id} (msg {session.message.id}).")

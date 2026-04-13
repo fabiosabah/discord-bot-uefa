@@ -159,13 +159,16 @@ class LobbyView(discord.ui.View):
         else:
             session.add_player(interaction.user)
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na LISTA da Lista #{session.id}")
+
+            if session.is_full():
+                session.schedule_auto_close(self.active_lobbies)
+
             await session.message.edit(embed=session.build_embed(), view=self)
             save_lobby_session(session)
 
             if session.is_full():
-                session.schedule_auto_close(self.active_lobbies)
                 await session.message.channel.send(
-                    f"🔒 **Lista completa! (10/10)**\nA lista será encerrada automaticamente em 10 minutos se não for finalizada antes."
+                    f"🔒 **Lista completa! (10/10)**\nA lista será encerrada automaticamente em 3 minutos se não for finalizada antes."
                 )
 
     @discord.ui.button(label="🚪 Sair", style=discord.ButtonStyle.danger, custom_id="sair")
