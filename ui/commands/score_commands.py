@@ -419,13 +419,29 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="reenfileirarimagens", aliases=["scanimages", "scanhistory", "reenfileira"])
-    async def cmd_rescan_image_history(ctx: commands.Context, channel: discord.TextChannel = None, limit: int = 500):
+    async def cmd_rescan_image_history(ctx: commands.Context, channel: str = None, limit: int = 500):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        target_channel = channel or (bot.get_channel(IMAGE_CHANNEL_ID) if IMAGE_CHANNEL_ID else None)
+        target_channel = None
+        if channel:
+            if channel.isdigit():
+                limit = int(channel)
+            else:
+                try:
+                    target_channel = await commands.TextChannelConverter().convert(ctx, channel)
+                except commands.ChannelNotFound:
+                    await ctx.send(
+                        "❌ Canal não encontrado. Use uma menção de canal, nome de canal ou defina `IMAGE_CHANNEL_ID`.",
+                        delete_after=10
+                    )
+                    return
+
+        if target_channel is None:
+            target_channel = bot.get_channel(IMAGE_CHANNEL_ID) if IMAGE_CHANNEL_ID else None
+
         if target_channel is None:
             await ctx.send("❌ Canal de imagens não foi encontrado. Defina `IMAGE_CHANNEL_ID` ou passe um canal mencionando ele.", delete_after=10)
             return
