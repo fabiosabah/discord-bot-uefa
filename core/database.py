@@ -143,7 +143,9 @@ def migrate_db():
             conn.execute("ALTER TABLE match_history ADD COLUMN hero TEXT")
             logger.info("[DB] Coluna 'hero' adicionada via migration ao match_history.")
 
-        if "image_channel_id" not in column_names:
+        sc_columns = conn.execute("PRAGMA table_info(server_config)").fetchall()
+        sc_column_names = [col["name"] for col in sc_columns]
+        if "image_channel_id" not in sc_column_names:
             conn.execute("ALTER TABLE server_config ADD COLUMN image_channel_id INTEGER")
             logger.info("[DB] Coluna 'image_channel_id' adicionada via migration ao server_config.")
 
