@@ -139,6 +139,18 @@ ADMIN_IDS=123456789
 | Command | Aliases | Description |
 |---|---|---|
 | `!lista` | `!lobby`, `!inhouse` | Creates a new signup list |
+| `!definirherois <league_match_id> hero1, hero2, ...` | `!setmatchheroes`, `!setherois` | Sets heroes in slot order for an existing league match |
+| `!definirjogadores <league_match_id> @p1 @p2 ...` | `!setmatchplayers`, `!setplayers` | Sets player names from Discord mentions in slot order for an existing league match |
+| `!nick <league_match_id> <slot> <new_nick> @player` | `!setnick`, `!renomear` | Updates the player name for the specified slot in an existing league match |
+
+> **Note:** the commands above are admin-only. Only user IDs configured in `ADMIN_IDS` can run them.
+
+### Example usage
+
+```text
+!definirherois 123 Phantom Assassin, Juggernaut, Crystal Maiden, Ember Spirit, Lion, Axe, Tidehunter, Vengeful Spirit, Sniper, Pudge
+!definirjogadores 123 @Player1 @Player2 @Player3 @Player4 @Player5 @Player6 @Player7 @Player8 @Player9 @Player10
+```
 
 ---
 

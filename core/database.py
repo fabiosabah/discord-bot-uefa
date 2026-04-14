@@ -919,6 +919,19 @@ def update_league_match_player_names(league_match_id: int, player_names: list[st
     return updated
 
 
+def update_league_match_player_name_by_slot(league_match_id: int, slot: int, player_name: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE match_players SET player_name = ? WHERE league_match_id = ? AND slot = ?",
+            (player_name.strip(), league_match_id, slot)
+        )
+        conn.commit()
+    updated = cursor.rowcount if hasattr(cursor, "rowcount") else 0
+    if updated:
+        logger.info(f"[DB] Atualizado nick do slot {slot} para league_match_id {league_match_id}.")
+    return updated > 0
+
+
 def log_match_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None) -> int:
     created_at = datetime.now().isoformat()
     audit_id = log_action(admin_id, admin_name, command, details, affected_ids, created_at=created_at)

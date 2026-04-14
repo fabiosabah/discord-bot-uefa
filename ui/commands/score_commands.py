@@ -17,7 +17,8 @@ from core.database import (
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
     delete_match_screenshots, delete_match_screenshot,
-    update_match_hero, update_league_match_heroes, update_league_match_player_names
+    update_match_hero, update_league_match_heroes, update_league_match_player_names,
+    update_league_match_player_name_by_slot
 )
 from core.ocr import can_process_ocr, process_match_screenshot
 from core.utils.time import format_brazil_time, relative_time
@@ -976,6 +977,78 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Nomes dos jogadores definidos para a partida {league_match_id}.")
+
+    @bot.command(name="nick", aliases=["setnick", "renomear"])
+    async def cmd_set_match_player_nick(ctx: commands.Context, league_match_id: int, slot: int, *, rest: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        match = get_match_by_league_id(league_match_id)
+        if not match:
+            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            return
+
+        players = match.get("players_data") or []
+        player_entry = next((p for p in players if p.get("slot") == slot), None)
+        if not player_entry:
+            await ctx.send(
+                f"❌ Slot {slot} não encontrado para a partida {league_match_id}. Use o slot correto.",
+                delete_after=20
+            )
+            return
+
+        mention_match = re.search(r"<@!?(?P<id>\d+)>", rest)
+        if not mention_match:
+            await ctx.send(
+                "❌ Mencione o jogador do Discord com @ e informe o novo nick. Ex: `!nick 123 3 ShadowBlade @Player`",
+                delete_after=20
+            )
+            return
+
+        discord_id = int(mention_match.group("id"))
+        new_nick = (rest[:mention_match.start()] + rest[mention_match.end():]).strip()
+        if not new_nick:
+            await ctx.send(
+                "❌ Informe o novo nick juntamente com a menção do jogador.",
+                delete_after=20
+            )
+            return
+
+        updated = update_league_match_player_name_by_slot(league_match_id, slot, new_nick)
+        if not updated:
+            await ctx.send(
+                f"❌ Não foi possível atualizar o nick no slot {slot} da partida {league_match_id}.",
+                delete_after=20
+            )
+            return
+
+        user = None
+        if ctx.guild:
+            user = ctx.guild.get_member(discord_id)
+        if user is None:
+            user = bot.get_user(discord_id)
+
+        if user:
+            existing = get_player(user.id)
+            if existing:
+                upsert_player(user.id, existing["display_name"], existing["wins"], existing["losses"])
+            else:
+                upsert_player(user.id, user.display_name, 0, 0)
+
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!nick",
+            f"league_match_id={league_match_id} slot={slot} discord_id={discord_id} new_nick={new_nick}",
+            affected_ids=[discord_id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(
+            f"✅ Nick do slot {slot} na partida {league_match_id} atualizado para **{new_nick}** (<@{discord_id}>)."
+        )
 
     @bot.command(name="addalias", aliases=["aliasadd", "alias"])
     async def cmd_add_alias(ctx: commands.Context, member: discord.Member, *, alias: str):

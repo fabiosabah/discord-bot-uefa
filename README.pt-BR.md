@@ -133,6 +133,18 @@ ADMIN_IDS=123456789
 | Comando | Aliases | Descrição |
 |---|---|---|
 | `!lista` | `!lobby`, `!inhouse` | Cria uma nova lista de presença |
+| `!definirherois <league_match_id> hero1, hero2, ...` | `!setmatchheroes`, `!setherois` | Define os heróis na ordem dos slots para uma partida da liga existente |
+| `!definirjogadores <league_match_id> @p1 @p2 ...` | `!setmatchplayers`, `!setplayers` | Define os nomes de jogador pelo Discord, na ordem dos slots, para uma partida da liga existente |
+| `!nick <league_match_id> <slot> <novo_nick> @jogador` | `!setnick`, `!renomear` | Atualiza o nome do jogador para o slot especificado em uma partida da liga existente |
+
+> **Atenção:** os comandos acima são restritos a administradores listados em `ADMIN_IDS`.
+
+### Exemplo de uso
+
+```text
+!definirherois 123 Phantom Assassin, Juggernaut, Crystal Maiden, Ember Spirit, Lion, Axe, Tidehunter, Vengeful Spirit, Sniper, Pudge
+!definirjogadores 123 @Jogador1 @Jogador2 @Jogador3 @Jogador4 @Jogador5 @Jogador6 @Jogador7 @Jogador8 @Jogador9 @Jogador10
+```
 
 ---
 
