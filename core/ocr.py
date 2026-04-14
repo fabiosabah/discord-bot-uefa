@@ -116,6 +116,21 @@ def extract_text_from_image_url(image_url: str) -> str:
             ),
         )
         
+        mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
+
+        def build_image_part(image_url: str):
+            try:
+                return types.Part.from_uri(uri=image_url, mime_type=mime_type)
+            except TypeError:
+                try:
+                    return types.Part.from_uri(file_uri=image_url, mime_type=mime_type)
+                except TypeError:
+                    import urllib.request
+
+                    image_data = urllib.request.urlopen(image_url).read()
+                    return types.Part.from_bytes(data=image_data, mime_type=mime_type)
+
+        image_part = build_image_part(image_url)
         response = client.models.generate_content(
             model=model,
             contents=[
@@ -123,7 +138,7 @@ def extract_text_from_image_url(image_url: str) -> str:
                     role="user",
                     parts=[
                         types.Part.from_text(text=instructions),
-                        types.Part.from_uri(image_url)
+                        image_part
                     ],
                 ),
             ],
