@@ -449,11 +449,15 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
 
+    original_payload = payload
+    if isinstance(payload.get("metadata_payload"), dict):
+        payload = payload["metadata_payload"]
+
     if payload.get("valid_dota_screenshot") is False:
         return {
             "raw_text": raw_text,
             "valid_dota_screenshot": False,
-            "metadata_payload": payload,
+            "metadata_payload": original_payload,
         }
 
     match_info = payload.get("match_info") or payload.get("game_details")
@@ -466,7 +470,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             parsed_players.append({
                 "slot": entry.get("slot"),
                 "player_name": entry.get("player_name") or entry.get("name") or entry.get("player"),
-                "hero_name": entry.get("hero_name") or entry.get("hero"),
+                "hero_name": entry.get("hero_name") or entry.get("hero") or entry.get("heroi"),
                 "kda": entry.get("kda") or entry.get("score"),
                 "networth": entry.get("networth") or entry.get("net_worth"),
                 "team": _normalize_team(entry.get("team") or entry.get("side")),
@@ -491,7 +495,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 },
             },
             "players_data": parsed_players,
-            "metadata_payload": payload,
+            "metadata_payload": original_payload,
         }
 
     teams = payload.get("teams")

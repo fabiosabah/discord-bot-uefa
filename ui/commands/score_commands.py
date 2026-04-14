@@ -16,7 +16,7 @@ from core.database import (
     find_player_by_display_name, resolve_player_names_exact, insert_ocr_match, get_match_by_league_id,
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
-    delete_match_screenshots,
+    delete_match_screenshots, delete_match_screenshot,
     update_match_hero
 )
 from core.ocr import can_process_ocr, process_match_screenshot
@@ -578,69 +578,40 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
             return
 
-        metadata = None
-        players = []
-        if job["metadata"]:
-            try:
-                metadata = json.loads(job["metadata"])
-                players = metadata.get("players_data") or metadata.get("players") or []
-            except json.JSONDecodeError:
-                metadata = None
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR.", delete_after=10)
+            return
 
-        description_lines = [
-            f"**Status:** {job['status']}",
-            f"**Imagem:** {job['image_url']}",
-            f"**Criado em:** {job['created_at']}",
-        ]
+        try:
+            metadata = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
 
-        if metadata:
-            match_info = metadata.get("match_info") or metadata.get("game_details")
-            if match_info:
-                game_mode = match_info.get("game_mode") or match_info.get("mode")
-                duration = match_info.get("duration")
-                winner = match_info.get("winner") or ("Radiant" if match_info.get("radiant_win") else "Dire")
-                score = match_info.get("score") or {}
-                radiant_score = score.get("radiant")
-                dire_score = score.get("dire")
-                description_lines.append(f"**Modo de jogo:** {game_mode or 'desconhecido'}")
-                description_lines.append(f"**Vencedor previsto:** {winner}")
-                description_lines.append(f"**Duração:** {duration or 'desconhecida'}")
-                if radiant_score is not None and dire_score is not None:
-                    description_lines.append(f"**Placar:** Radiant {radiant_score} x {dire_score} Dire")
-            else:
-                description_lines.append(f"**Vencedor previsto:** {metadata.get('winner') or ('Radiant' if metadata.get('radiant_win') else 'Dire')}")
-                description_lines.append(f"**Duração:** {metadata.get('duration') or metadata.get('game_details', {}).get('duration', 'desconhecida')}")
+        # Converter para JSON formatado para exibição
+        metadata_text = json.dumps(metadata, indent=2, ensure_ascii=False)
 
-            if players:
-                for index, player in enumerate(players, start=1):
-                    player_name = player.get("name") or player.get("player") or "(sem nome)"
-                    team = player.get("team") or player.get("side") or "?"
-                    hero = player.get("hero") or ""
-                    kda = player.get("score") or player.get("kda") or ""
-                    display = f"{index}. `{player_name}` [{team}]"
-                    if hero:
-                        display += f" — {hero}"
-                    if kda:
-                        display += f" — {kda}"
-                    description_lines.append(display)
-            else:
-                raw_text = metadata.get("raw_text") or metadata.get("metadata_payload", {}).get("raw_text")
-                if raw_text:
-                    raw_preview = raw_text.replace("\n", " ")[:400].strip()
-                    if len(raw_text) > 400:
-                        raw_preview += "..."
-                    description_lines.append("**OCR raw:**")
-                    description_lines.append(f"{raw_preview}")
-                description_lines.append("*Nenhum jogador detectado nos metadados OCR. Use o texto acima para depurar ou confirme manualmente.*")
-        else:
-            description_lines.append("*Metadados OCR não disponíveis ou inválidos.*")
+        def sanitize_code_block(text: str) -> str:
+            return text.replace('```', '`\u200b``')
 
-        embed = discord.Embed(
-            title=f"🔎 Detalhes da imagem {job_id}",
-            description="\n".join(description_lines),
-            color=discord.Color.blue()
-        )
-        await ctx.send(embed=embed)
+        def split_chunks(text: str, max_size: int = 1900) -> list[str]:
+            chunks: list[str] = []
+            while text:
+                chunk = text[:max_size]
+                if len(text) > max_size:
+                    last_newline = chunk.rfind("\n")
+                    if last_newline > max_size // 2:
+                        chunk = chunk[:last_newline]
+                chunks.append(chunk)
+                text = text[len(chunk):]
+            return chunks
+
+        sanitized_text = sanitize_code_block(metadata_text)
+        chunks = split_chunks(sanitized_text)
+
+        await ctx.send(f"🔎 Detalhes do job {job_id} (JSON mapeado):")
+        for chunk in chunks:
+            await ctx.send(f"```json\n{chunk}\n```")
 
     @bot.command(name="rawtextimagem", aliases=["rawtextimage", "rawimagem", "rawtext"])
     async def cmd_raw_text_image(ctx: commands.Context, job_id: int):
@@ -694,6 +665,72 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(f"✅ Texto OCR bruto para o job {job_id} é longo e será exibido em {len(chunks)} partes.")
         for index, chunk in enumerate(chunks, start=1):
             await ctx.send(f"```\n{chunk}\n```\n({index}/{len(chunks)})")
+
+    @bot.command(name="metadadosimagem", aliases=["imagemjson", "imagejson", "jsonimagem"])
+    async def cmd_image_metadata(ctx: commands.Context, job_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR.", delete_after=10)
+            return
+
+        try:
+            metadata = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        def sanitize_code_block(text: str) -> str:
+            return text.replace('```', '`\u200b``')
+
+        def split_chunks(text: str, max_size: int = 1900) -> list[str]:
+            chunks: list[str] = []
+            while text:
+                chunk = text[:max_size]
+                if len(text) > max_size:
+                    last_newline = chunk.rfind("\n")
+                    if last_newline > max_size // 2:
+                        chunk = chunk[:last_newline]
+                chunks.append(chunk)
+                text = text[len(chunk):]
+            return chunks
+
+        metadata_text = json.dumps(metadata, ensure_ascii=False, indent=2)
+        sanitized_text = sanitize_code_block(metadata_text)
+        chunks = split_chunks(sanitized_text)
+
+        for chunk in chunks:
+            await ctx.send(f"```json\n{chunk}\n```")
+
+    @bot.command(name="removerimagem", aliases=["deleteimage", "deleteimagem", "removeimage"])
+    async def cmd_remove_image(ctx: commands.Context, job_id: int, confirm: str = None):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if confirm != "confirmar":
+            await ctx.send(
+                "⚠️ Para remover o job de OCR, use `!removerimagem <job_id> confirmar`.",
+                delete_after=15
+            )
+            return
+
+        if not get_match_screenshot(job_id):
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        delete_match_screenshot(job_id)
+        await ctx.message.delete()
+        await ctx.send(f"🗑️ Job de imagem {job_id} removido com sucesso.")
 
     @bot.command(name="confirmarimagem", aliases=["confirmimage"])
     async def cmd_confirm_image(ctx: commands.Context, job_id: int, *, text: str):

@@ -937,6 +937,13 @@ def delete_match_screenshots() -> None:
     logger.info("[DB] Histórico de screenshots apagado.")
 
 
+def delete_match_screenshot(job_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM match_screenshots WHERE id = ?", (job_id,))
+        conn.commit()
+    logger.info(f"[DB] Screenshot job {job_id} removido.")
+
+
 def enqueue_match_screenshot(message_id: int, guild_id: int, channel_id: int, author_id: int, image_url: str, created_at: str) -> int:
     with get_connection() as conn:
         cursor = conn.execute(
