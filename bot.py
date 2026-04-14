@@ -213,9 +213,8 @@ async def ocr_background_worker():
                 logger.exception(f"Erro ao processar imagem OCR para job {job['id']}")
                 set_match_screenshot_status(job["id"], "failed", metadata=str(exc))
 
-            await asyncio.sleep(5)
-
-        await asyncio.sleep(10)
+            # Rate limit the worker to roughly 15 requests per minute for Gemini 3 Flash.
+            await asyncio.sleep(4)
 
 
 logger.info("Configurando comandos...")
