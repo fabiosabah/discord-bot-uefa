@@ -5,6 +5,7 @@ import os
 import json
 import re
 from datetime import datetime
+from typing import Any
 from core.config import DB_PATH
 
 logger = logging.getLogger("Database")
@@ -112,6 +113,38 @@ def init_db():
                 created_at     TEXT    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS matches (
+                league_match_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_hash      TEXT    UNIQUE NOT NULL,
+                external_match_id TEXT,
+                winner_team     TEXT,
+                duration        TEXT,
+                match_datetime  TEXT,
+                score_radiant   INTEGER,
+                score_dire      INTEGER,
+                created_at      TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS match_players (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_match_id  INTEGER NOT NULL,
+                slot             INTEGER,
+                player_name      TEXT    NOT NULL,
+                hero_name        TEXT,
+                kda              TEXT,
+                networth         INTEGER,
+                team             TEXT,
+                FOREIGN KEY (league_match_id) REFERENCES matches(league_match_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)
+        """)
         conn.commit()
     logger.info("[DB] Banco de dados inicializado.")
 
@@ -144,6 +177,38 @@ def migrate_db():
                 created_at TEXT    NOT NULL,
                 UNIQUE(audit_id, discord_id)
             )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS matches (
+                league_match_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_hash      TEXT    UNIQUE NOT NULL,
+                external_match_id TEXT,
+                winner_team     TEXT,
+                duration        TEXT,
+                match_datetime  TEXT,
+                score_radiant   INTEGER,
+                score_dire      INTEGER,
+                created_at      TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS match_players (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_match_id  INTEGER NOT NULL,
+                slot             INTEGER,
+                player_name      TEXT    NOT NULL,
+                hero_name        TEXT,
+                kda              TEXT,
+                networth         INTEGER,
+                team             TEXT,
+                FOREIGN KEY (league_match_id) REFERENCES matches(league_match_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)
         """)
         logger.info("[DB] Tabela 'match_history' criada ou já existente.")
 
@@ -339,9 +404,11 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     except json.JSONDecodeError as exc:
         raise ValueError(f"Metadados OCR inválidos: {exc}") from exc
 
-    players = parsed.get("players") or []
+    players = parsed.get("players_data") or parsed.get("players") or []
     if not isinstance(players, list) or len(players) < 2:
         raise ValueError("Metadados OCR não contêm lista válida de jogadores.")
+
+    from core.ocr import _normalize_team
 
     winner = parsed.get("winner")
     if winner is None:
@@ -350,7 +417,7 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
             raise ValueError("Não foi possível determinar o time vencedor nos metadados OCR.")
         winner = "Radiant" if radiant_win else "Dire"
 
-    winner_team = winner.strip().lower()
+    winner_team = _normalize_team(winner)
     if winner_team not in {"radiant", "dire"}:
         raise ValueError("Valor de vencedor desconhecido nos metadados OCR.")
 
@@ -361,8 +428,8 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     for player in players:
         if not isinstance(player, dict):
             continue
-        player_name = (player.get("name") or player.get("player") or "").strip()
-        team = (player.get("team") or player.get("side") or "").strip().lower()
+        player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
+        team = _normalize_team(player.get("team") or player.get("side"))
         if not player_name or not team:
             continue
 
@@ -382,7 +449,13 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     if not winners or not losers:
         raise ValueError("A importação OCR não contém vencedores ou perdedores válidos.")
 
-    details = f"OCR import job {job_id} steam_match_id={parsed.get('steam_match_id')} winner={winner}"
+    from core.ocr import generate_match_hash
+
+    match_hash = generate_match_hash(parsed)
+    external_match_id = parsed.get("steam_match_id") or parsed.get("dota_match_id")
+    league_match_id = insert_league_match(parsed, match_hash, external_match_id)
+
+    details = f"OCR import job {job_id} steam_match_id={parsed.get('steam_match_id')} winner={winner} league_match_id={league_match_id}"
     audit_id = log_action(admin_id, admin_name, "!ocrmatch", details, affected_ids=winners + losers)
     match_id = get_next_match_id()
     created_at = datetime.now().isoformat()
@@ -391,14 +464,14 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
         for player in players:
             if not isinstance(player, dict):
                 continue
-            player_name = (player.get("name") or player.get("player") or "").strip()
+            player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
             team = (player.get("team") or player.get("side") or "").strip().lower()
             entry = player_mapping.get(player_name)
             if entry is None:
                 continue
 
             discord_id = entry["discord_id"]
-            hero = entry.get("hero") or player.get("hero") or None
+            hero = entry.get("hero") or player.get("hero") or player.get("hero_name") or None
             if team == winner_team:
                 add_win(discord_id, player_name)
                 conn.execute(
@@ -430,9 +503,11 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     original_metadata = parsed
     original_metadata["imported_by"] = admin_id
     original_metadata["match_id"] = match_id
+    original_metadata["league_match_id"] = league_match_id
+    original_metadata["match_hash"] = match_hash
     original_metadata["mapping"] = player_mapping
     set_match_screenshot_status(job_id, "imported", metadata=json.dumps(original_metadata, ensure_ascii=False))
-    logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id}")
+    logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id} league_match_id {league_match_id}")
     return audit_id
 
 
@@ -455,6 +530,99 @@ def insert_match_import(
             (match_id, steam_match_id, dota_match_id, match_date, mode, winner, duration, radiant_score, dire_score, raw_metadata, created_at)
         )
         conn.commit()
+
+
+def insert_league_match(parsed: dict[str, Any], match_hash: str, external_match_id: str | None = None) -> int:
+    from core.ocr import _normalize_team
+
+    match_info = parsed.get("match_info") or parsed.get("game_details") or {}
+    winner_team = _normalize_team((match_info.get("winner_team") or match_info.get("winner") or "").strip())
+    duration = match_info.get("duration")
+    match_datetime = match_info.get("datetime")
+    score = match_info.get("score") or {}
+    radiant_score = score.get("radiant")
+    dire_score = score.get("dire")
+    created_at = datetime.now().isoformat()
+
+    players_data = parsed.get("players_data") or parsed.get("players") or []
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO matches (match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (match_hash, external_match_id, winner_team, duration, match_datetime, radiant_score, dire_score, created_at)
+        )
+        if cursor.rowcount == 0:
+            row = conn.execute(
+                "SELECT league_match_id FROM matches WHERE match_hash = ?",
+                (match_hash,)
+            ).fetchone()
+            if row:
+                raise ValueError("Partida Duplicada")
+            raise RuntimeError("Falha ao recuperar league_match_id para partida duplicada.")
+
+        league_match_id = cursor.lastrowid
+
+        for index, player in enumerate(players_data, start=1):
+            if not isinstance(player, dict):
+                continue
+            player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
+            hero_name = (player.get("hero_name") or player.get("hero") or "").strip() or None
+            kda = player.get("kda") or player.get("score") or ""
+            networth = player.get("networth") or player.get("net_worth")
+            try:
+                networth = int(networth) if networth is not None and str(networth).strip() != "" else None
+            except (TypeError, ValueError):
+                networth = None
+            team = _normalize_team(player.get("team") or player.get("side"))
+            conn.execute(
+                "INSERT INTO match_players (league_match_id, slot, player_name, hero_name, kda, networth, team) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (league_match_id, index, player_name, hero_name, kda, networth, team)
+            )
+        conn.commit()
+
+    return league_match_id
+
+
+def get_match_by_league_id(league_match_id: int) -> dict | None:
+    with get_connection() as conn:
+        match_row = conn.execute(
+            "SELECT league_match_id, match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at FROM matches WHERE league_match_id = ?",
+            (league_match_id,)
+        ).fetchone()
+        if not match_row:
+            return None
+
+        player_rows = conn.execute(
+            "SELECT slot, player_name, hero_name, kda, networth, team FROM match_players WHERE league_match_id = ? ORDER BY slot",
+            (league_match_id,)
+        ).fetchall()
+
+    return {
+        "league_match_id": match_row["league_match_id"],
+        "match_hash": match_row["match_hash"],
+        "external_match_id": match_row["external_match_id"],
+        "match_info": {
+            "winner_team": match_row["winner_team"],
+            "duration": match_row["duration"],
+            "datetime": match_row["match_datetime"],
+            "match_id": match_row["external_match_id"],
+            "score": {
+                "radiant": match_row["score_radiant"],
+                "dire": match_row["score_dire"],
+            },
+        },
+        "players_data": [
+            {
+                "slot": row["slot"],
+                "player_name": row["player_name"],
+                "hero_name": row["hero_name"],
+                "kda": row["kda"],
+                "networth": row["networth"],
+                "team": row["team"],
+            }
+            for row in player_rows
+        ],
+        "created_at": match_row["created_at"],
+    }
 
 
 def get_list_channel(guild_id: int):

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import hashlib
 import json
 import logging
 import os
@@ -60,6 +61,54 @@ def _build_ai_client():
         openai.api_base = api_base
 
     return "openai", openai
+
+
+def _normalize_team(team_value: str | None) -> str | None:
+    if team_value is None:
+        return None
+
+    normalized = str(team_value).strip().lower()
+    if not normalized:
+        return None
+
+    if "radiant" in normalized or "esquerda" in normalized or "left" in normalized:
+        return "radiant"
+    if "dire" in normalized or "direita" in normalized or "right" in normalized:
+        return "dire"
+
+    if normalized in {"r", "rad", "radiante", "radiancia", "radiância"}:
+        return "radiant"
+    if normalized in {"d", "dir", "direção", "direccao"}:
+        return "dire"
+
+    return normalized
+
+
+def generate_match_hash(parsed: dict[str, Any]) -> str:
+    match_info = parsed.get("match_info") or parsed.get("game_details") or {}
+    duration = str(match_info.get("duration") or "").strip()
+    score = match_info.get("score") or {}
+    radiant_score = score.get("radiant")
+    dire_score = score.get("dire")
+    players = parsed.get("players_data") or parsed.get("players") or []
+
+    entries: list[str] = []
+    for player in players:
+        if not isinstance(player, dict):
+            continue
+        player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
+        kda = str(player.get("kda") or player.get("score") or "").strip()
+        entries.append(f"{player_name}:{kda}")
+
+    entries = sorted(entries)
+    canonical = {
+        "duration": duration,
+        "radiant_score": radiant_score,
+        "dire_score": dire_score,
+        "players": entries,
+    }
+    payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _extract_text_from_response(response: Any) -> str:
@@ -407,7 +456,44 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             "metadata_payload": payload,
         }
 
-    match_info = payload.get("match_info")
+    match_info = payload.get("match_info") or payload.get("game_details")
+    players_data = payload.get("players_data")
+    if isinstance(match_info, dict) and isinstance(players_data, list):
+        parsed_players: list[dict[str, Any]] = []
+        for entry in players_data:
+            if not isinstance(entry, dict):
+                continue
+            parsed_players.append({
+                "slot": entry.get("slot"),
+                "player_name": entry.get("player_name") or entry.get("name") or entry.get("player"),
+                "hero_name": entry.get("hero_name") or entry.get("hero"),
+                "kda": entry.get("kda") or entry.get("score"),
+                "networth": entry.get("networth") or entry.get("net_worth"),
+                "team": _normalize_team(entry.get("team") or entry.get("side")),
+                "raw_entry": entry,
+            })
+
+        score = match_info.get("score") or {}
+        radiant_score = score.get("radiant")
+        dire_score = score.get("dire")
+
+        return {
+            "raw_text": raw_text,
+            "valid_dota_screenshot": True,
+            "match_info": {
+                "winner_team": match_info.get("winner_team") or match_info.get("winner"),
+                "duration": match_info.get("duration"),
+                "datetime": match_info.get("datetime") or match_info.get("match_date"),
+                "match_id": match_info.get("match_id"),
+                "score": {
+                    "radiant": radiant_score,
+                    "dire": dire_score,
+                },
+            },
+            "players_data": parsed_players,
+            "metadata_payload": payload,
+        }
+
     teams = payload.get("teams")
     if isinstance(match_info, dict) and isinstance(teams, dict):
         radiant_score = None
@@ -422,54 +508,6 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
         parsed_players: list[dict[str, Any]] = []
 
         for team_name in ("radiant", "dire"):
-            team_list = teams.get(team_name)
-            if not isinstance(team_list, list):
-                continue
-            for entry in team_list:
-                if not isinstance(entry, dict):
-                    continue
-                parsed_players.append({
-                    "name": entry.get("player") or entry.get("name"),
-                    "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
-                    "score": entry.get("kda"),
-                    "net_worth": entry.get("net_worth"),
-                    "team": team_name,
-                    "raw_entry": entry,
-                })
-
-        return {
-            "raw_text": raw_text,
-            "steam_match_id": payload.get("steam_match_id"),
-            "dota_match_id": payload.get("dota_match_id"),
-            "match_date": payload.get("match_date") or match_info.get("date"),
-            "mode": match_info.get("game_mode"),
-            "winner": winner,
-            "duration": match_info.get("duration"),
-            "radiant_win": radiant_win,
-            "radiant_score": radiant_score,
-            "dire_score": dire_score,
-            "score": score,
-            "radiant_kills": None,
-            "dire_kills": None,
-            "radiant_gold": None,
-            "dire_gold": None,
-            "players": parsed_players,
-            "metadata_payload": payload,
-        }
-
-    game_details = payload.get("game_details")
-    teams = payload.get("teams")
-    if game_details and teams:
-        radiant_score = None
-        dire_score = None
-        winner = game_details.get("winner")
-        score = game_details.get("score") or {}
-        if isinstance(score, dict):
-            radiant_score = score.get("radiant")
-            dire_score = score.get("dire")
-
-        parsed_players: list[dict[str, Any]] = []
-        for team_name in ("radiant", "dire"):
             team_list = teams.get(team_name) or []
             for entry in team_list:
                 if not isinstance(entry, dict):
@@ -479,7 +517,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                     "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
                     "score": entry.get("kda"),
                     "net_worth": entry.get("net_worth"),
-                    "team": team_name,
+                    "team": _normalize_team(team_name),
                     "raw_entry": entry,
                 })
 
@@ -487,11 +525,11 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             "raw_text": raw_text,
             "steam_match_id": payload.get("steam_match_id"),
             "dota_match_id": payload.get("dota_match_id"),
-            "match_date": payload.get("match_date") or game_details.get("date"),
-            "mode": game_details.get("mode"),
+            "match_date": payload.get("match_date") or match_info.get("date"),
+            "mode": match_info.get("game_mode") or match_info.get("mode"),
             "winner": winner,
-            "duration": game_details.get("duration"),
-            "radiant_win": isinstance(winner, str) and winner.lower() == "radiant",
+            "duration": match_info.get("duration"),
+            "radiant_win": radiant_win,
             "radiant_score": radiant_score,
             "dire_score": dire_score,
             "score": score,
@@ -524,7 +562,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 "hero": entry.get("hero"),
                 "score": entry.get("score"),
                 "net_worth": entry.get("net_worth"),
-                "team": entry.get("team"),
+                "team": _normalize_team(entry.get("team")),
                 "raw_entry": entry,
             })
 
@@ -558,8 +596,8 @@ def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
         "Não responda em markdown ou texto adicional. Retorne um objeto JSON com a estrutura abaixo. "
         "Use null quando algum valor não puder ser extraído. Se o texto não for um placar de Dota 2, "
         "retorne apenas {\"valid_dota_screenshot\": false}.\n\n"
-        "Cada jogador deve conter as chaves `player` e `hero`. A chave `player` deve ser o nome do jogador, "
-        "e a chave `hero` deve ser o nome do herói. Se o herói não aparecer no texto, use null.\n\n"
+        "Cada jogador deve conter as chaves `player_name` e `hero_name`. A chave `player_name` deve ser o nome do jogador, "
+        "e a chave `hero_name` deve ser o nome do herói. Se o herói não aparecer no texto, use null.\n\n"
         "Exemplo de formato desejado:\n"
         "{\n"
         "  \"valid_dota_screenshot\": true,\n"
@@ -569,13 +607,10 @@ def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
         "    \"winner\": \"Dire\",\n"
         "    \"score\": {\"radiant\": 37, \"dire\": 40}\n"
         "  },\n"
-        "  \"teams\": {\n"
-        "    \"radiant\": [\n"
-        "      {\"player\": \"WFz [-pRs-]\", \"hero\": \"Beastmaster\", \"kda\": \"10 / 13 / 18\", \"net_worth\": 25632},\n"
-        "      ...\n"
-        "    ],\n"
-        "    \"dire\": [ ... ]\n"
-        "  }\n"
+        "  \"players_data\": [\n"
+        "    {\"slot\": 1, \"player_name\": \"WFz [-pRs-]\", \"hero_name\": \"Beastmaster\", \"kda\": \"10 / 13 / 18\", \"networth\": 25632, \"team\": \"radiant\"},\n"
+        "    ...\n"
+        "  ]\n"
         "}"
     )
 

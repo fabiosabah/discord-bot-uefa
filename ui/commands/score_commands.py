@@ -13,7 +13,7 @@ from core.database import (
     get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match,
     get_pending_match_screenshots, get_match_screenshot, set_match_screenshot_status,
     enqueue_match_screenshot, is_match_screenshot_enqueued,
-    find_player_by_display_name, resolve_player_names_exact, insert_ocr_match,
+    find_player_by_display_name, resolve_player_names_exact, insert_ocr_match, get_match_by_league_id,
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
     delete_match_screenshots,
@@ -723,7 +723,7 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
             return
 
-        players = parsed.get("players") or []
+        players = parsed.get("players_data") or parsed.get("players") or []
         if not isinstance(players, list) or not players:
             await ctx.send(f"❌ Não foi possível obter a lista de jogadores do job {job_id}.", delete_after=10)
             return
@@ -748,11 +748,24 @@ def setup_score_commands(bot: commands.Bot):
                 if index < 0 or index >= len(players):
                     await ctx.send(f"❌ Índice inválido: {player_key}", delete_after=10)
                     return
-                player_key = players[index].get("name") or players[index].get("player") or f"player_{player_key}"
+                player_key = (
+                    players[index].get("player_name")
+                    or players[index].get("name")
+                    or players[index].get("player")
+                    or f"player_{player_key}"
+                )
 
             player_mapping[player_key] = {"discord_id": discord_id, "hero": hero}
 
-        extracted_names = [ (p.get("name") or p.get("player") or "").strip() for p in players ]
+        extracted_names = [
+            (
+                p.get("player_name")
+                or p.get("name")
+                or p.get("player")
+                or ""
+            ).strip()
+            for p in players
+        ]
         missing_names = [name for name in extracted_names if name and name not in player_mapping]
         if missing_names:
             auto = resolve_player_names_exact(missing_names)
@@ -776,6 +789,43 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Imagem {job_id} importada como partida no banco.")
+
+    @bot.command(name="id")
+    async def cmd_lookup_match(ctx: commands.Context, league_match_id: int):
+        match = get_match_by_league_id(league_match_id)
+        if not match:
+            await ctx.send(f"❌ Partida `{league_match_id}` não encontrada.", delete_after=10)
+            return
+
+        info = match.get("match_info", {})
+        score = info.get("score") or {}
+        radiant_score = score.get("radiant")
+        dire_score = score.get("dire")
+        date = info.get("datetime") or info.get("match_date") or "desconhecida"
+        duration = info.get("duration") or "desconhecida"
+        winner = info.get("winner_team") or info.get("winner") or "desconhecido"
+
+        lines = [
+            f"🏆 Match ID: `{league_match_id}`",
+            f"🧾 Hash: `{match.get('match_hash')}`",
+            f"🔗 External ID: `{match.get('external_match_id') or 'nenhum'}`",
+            f"⏱️ Duração: {duration}",
+            f"📅 Data: {date}",
+            f"🎯 Vencedor: {winner.title() if isinstance(winner, str) else winner}",
+            f"📊 Placar: {radiant_score or 0} x {dire_score or 0}",
+            "",
+            "👥 Jogadores:",
+        ]
+
+        players = match.get("players_data") or []
+        for player in players:
+            lines.append(
+                f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'} "
+                f"({player.get('hero_name') or 'herói desconhecido'}) - {player.get('team') or 'time desconhecido'} "
+                f"- {player.get('kda') or 'KDA não informado'} - networth {player.get('networth') if player.get('networth') is not None else 'N/A'}"
+            )
+
+        await ctx.send(f"```\n{chr(10).join(lines)}\n```")
 
     @bot.command(name="fixhero", aliases=["corrigirhero"])
     async def cmd_fix_hero(ctx: commands.Context, match_id: int, member: discord.Member, *, hero: str):
