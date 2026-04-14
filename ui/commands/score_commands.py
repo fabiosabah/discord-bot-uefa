@@ -17,7 +17,7 @@ from core.database import (
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
     delete_match_screenshots, delete_match_screenshot,
-    update_match_hero
+    update_match_hero, update_league_match_heroes, update_league_match_player_names
 )
 from core.ocr import can_process_ocr, process_match_screenshot
 from core.utils.time import format_brazil_time, relative_time
@@ -905,6 +905,77 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Hero de {member.mention} atualizado para **{hero}** na partida {match_id}.")
+
+    @bot.command(name="definirherois", aliases=["setmatchheroes", "setherois"])
+    async def cmd_set_match_heroes(ctx: commands.Context, league_match_id: int, *, heroes_text: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        match = get_match_by_league_id(league_match_id)
+        if not match:
+            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            return
+
+        heroes = [hero.strip() for hero in heroes_text.split(",") if hero.strip()]
+        players = match.get("players_data") or []
+        if len(heroes) != len(players):
+            await ctx.send(
+                f"❌ Esta partida possui {len(players)} jogadores. Forneça exatamente {len(players)} heróis separados por vírgula.",
+                delete_after=20
+            )
+            return
+
+        updated = update_league_match_heroes(league_match_id, heroes)
+        if updated != len(players):
+            await ctx.send(
+                f"⚠️ Atualizados {updated} de {len(players)} heróis para a partida {league_match_id}. Verifique o match_id e tente novamente.",
+                delete_after=20
+            )
+            return
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Heróis definidos para a partida {league_match_id}.")
+
+    @bot.command(name="definirjogadores", aliases=["setmatchplayers", "setplayers"])
+    async def cmd_set_match_player_names(ctx: commands.Context, league_match_id: int, *members: discord.Member):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        match = get_match_by_league_id(league_match_id)
+        if not match:
+            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            return
+
+        players = match.get("players_data") or []
+        if len(members) != len(players):
+            await ctx.send(
+                f"❌ Esta partida possui {len(players)} jogadores. Forneça exatamente {len(players)} menções de Discord na ordem correta.",
+                delete_after=20
+            )
+            return
+
+        player_names = [member.display_name for member in members]
+        updated = update_league_match_player_names(league_match_id, player_names)
+        if updated != len(players):
+            await ctx.send(
+                f"⚠️ Atualizados {updated} de {len(players)} nomes para a partida {league_match_id}. Verifique o match_id e tente novamente.",
+                delete_after=20
+            )
+            return
+
+        for member in members:
+            existing = get_player(member.id)
+            if existing:
+                upsert_player(member.id, member.display_name, existing["wins"], existing["losses"])
+            else:
+                upsert_player(member.id, member.display_name, 0, 0)
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Nomes dos jogadores definidos para a partida {league_match_id}.")
 
     @bot.command(name="addalias", aliases=["aliasadd", "alias"])
     async def cmd_add_alias(ctx: commands.Context, member: discord.Member, *, alias: str):

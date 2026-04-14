@@ -889,6 +889,36 @@ def update_match_hero(match_id: int, discord_id: int, hero: str) -> bool:
     return updated > 0
 
 
+def update_league_match_heroes(league_match_id: int, hero_names: list[str]) -> int:
+    with get_connection() as conn:
+        updated = 0
+        for slot, hero_name in enumerate(hero_names, start=1):
+            cursor = conn.execute(
+                "UPDATE match_players SET hero_name = ? WHERE league_match_id = ? AND slot = ?",
+                (hero_name.strip() if isinstance(hero_name, str) else None, league_match_id, slot)
+            )
+            updated += cursor.rowcount if hasattr(cursor, "rowcount") else 0
+        conn.commit()
+    if updated:
+        logger.info(f"[DB] Atualizados {updated} heróis para league_match_id {league_match_id}.")
+    return updated
+
+
+def update_league_match_player_names(league_match_id: int, player_names: list[str]) -> int:
+    with get_connection() as conn:
+        updated = 0
+        for slot, player_name in enumerate(player_names, start=1):
+            cursor = conn.execute(
+                "UPDATE match_players SET player_name = ? WHERE league_match_id = ? AND slot = ?",
+                (player_name.strip(), league_match_id, slot)
+            )
+            updated += cursor.rowcount if hasattr(cursor, "rowcount") else 0
+        conn.commit()
+    if updated:
+        logger.info(f"[DB] Atualizados {updated} nomes de jogadores para league_match_id {league_match_id}.")
+    return updated
+
+
 def log_match_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None) -> int:
     created_at = datetime.now().isoformat()
     audit_id = log_action(admin_id, admin_name, command, details, affected_ids, created_at=created_at)
