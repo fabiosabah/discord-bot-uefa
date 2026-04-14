@@ -7,7 +7,7 @@ from discord.ext import commands
 from core.config import ADMIN_IDS, IMAGE_CHANNEL_ID
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
-    get_ranking, log_action, log_match_action, get_last_admin_action, delete_audit_log_entry,
+    get_ranking, log_action, get_last_admin_action, delete_audit_log_entry,
     get_player, get_last_update, get_player_streak, get_player_match_history,
     get_match_summary, get_recent_match_summaries, get_player_top_opponents,
     get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match,
@@ -48,7 +48,7 @@ def parse_player_mapping(mapping_text: str) -> list[dict[str, object]]:
             hero = hero_value.strip('"').strip()
             token = (token[:hero_match.start()] + token[hero_match.end():]).strip()
 
-        match = re.match(r'^(?:"(?P<quoted>[^"]+)"|(?P<plain>[^=]+))\s*=\s*@?(?P<id>\d+)$', token)
+        match = re.match(r'^(?:"(?P<quoted>[^"]+)"|(?P<plain>[^=]+))\s*=\s*@?<?@!?\s*(?P<id>\d+)>?$', token)
         if not match:
             continue
 
@@ -126,8 +126,13 @@ def setup_score_commands(bot: commands.Bot):
             nomes.append(m.display_name)
             ids.append(m.id)
 
-        log_match_action(ctx.author.id, ctx.author.display_name, "!venceu",
-                         f"Vitória para: {', '.join(nomes)}", ids)
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!venceu",
+            f"Vitória para: {', '.join(nomes)}",
+            ids
+        )
 
         await ctx.message.delete()
         await ctx.send(f"🏆 Vitória registrada para {' '.join(m.mention for m in members)}")
@@ -154,8 +159,13 @@ def setup_score_commands(bot: commands.Bot):
             nomes.append(m.display_name)
             ids.append(m.id)
 
-        log_match_action(ctx.author.id, ctx.author.display_name, "!perdeu",
-                         f"Derrota para: {', '.join(nomes)}", ids)
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!perdeu",
+            f"Derrota para: {', '.join(nomes)}",
+            ids
+        )
 
         await ctx.message.delete()
         await ctx.send(f"💀 Derrota registrada para {' '.join(m.mention for m in members)}")
@@ -573,7 +583,7 @@ def setup_score_commands(bot: commands.Bot):
         if job["metadata"]:
             try:
                 metadata = json.loads(job["metadata"])
-                players = metadata.get("players") or []
+                players = metadata.get("players_data") or metadata.get("players") or []
             except json.JSONDecodeError:
                 metadata = None
 
@@ -731,7 +741,7 @@ def setup_score_commands(bot: commands.Bot):
         mappings = parse_player_mapping(mapping_text)
         if not mappings:
             await ctx.send(
-                "❌ Forneça mapeamentos no formato `1=@123456789012345678`, `\"Nome do jogador\"=@123...`, `PlayerName=@123` ou `1=@123 hero=Rubick`.",
+                "❌ Forneça mapeamentos no formato `1=@123456789012345678`, `1=<@123456789012345678>`, `\"Nome do jogador\"=@123...`, `PlayerName=@123` ou `1=@123 hero=Rubick`.",
                 delete_after=15
             )
             return

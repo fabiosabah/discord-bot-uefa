@@ -460,32 +460,6 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     match_id = get_next_match_id()
     created_at = datetime.now().isoformat()
 
-    with get_connection() as conn:
-        for player in players:
-            if not isinstance(player, dict):
-                continue
-            player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
-            team = (player.get("team") or player.get("side") or "").strip().lower()
-            entry = player_mapping.get(player_name)
-            if entry is None:
-                continue
-
-            discord_id = entry["discord_id"]
-            hero = entry.get("hero") or player.get("hero") or player.get("hero_name") or None
-            if team == winner_team:
-                add_win(discord_id, player_name)
-                conn.execute(
-                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, hero, created_at) VALUES (?, ?, ?, 'win', ?, ?, ?)",
-                    (audit_id, match_id, discord_id, details, hero, created_at)
-                )
-            else:
-                add_loss(discord_id, player_name)
-                conn.execute(
-                    "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, hero, created_at) VALUES (?, ?, ?, 'loss', ?, ?, ?)",
-                    (audit_id, match_id, discord_id, details, hero, created_at)
-                )
-        conn.commit()
-
     insert_match_import(
         match_id=match_id,
         steam_match_id=parsed.get("steam_match_id"),
