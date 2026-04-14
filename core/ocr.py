@@ -189,8 +189,8 @@ def extract_text_from_image_url(image_url: str) -> str:
     provider, client = _build_ai_client()
     model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
     instructions = (
-        "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
-        "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
+        "Você é um assistente especializado em Dota 2."
+        "Não adicione explicações, marcações ou comentários. Retorne apenas o texto bruto sem interpretação adicional."
     )
 
     if provider == "gemini":
@@ -595,35 +595,41 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
 
 def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
     prompt = (
-        "Você é um assistente especialista em Dota 2. Recebe texto extraído de uma imagem de placar "
-        "e uma referência à imagem original. Seu trabalho deve ser executado em duas etapas técnicas, em ordem:\n\n"
-        "1) Identificação visual dos heróis (PRIORIDADE):\n"
-        "   - Identifique os 10 heróis pela aparência dos ícones ou modelos na imagem.\n"
-        "   - Os 5 heróis à esquerda pertencem ao time Radiant e os 5 à direita pertencem ao time Dire.\n"
-        "   - Use apenas a informação visual para preencher hero_name; não invente heróis a partir do texto.\n"
-        "   - Se a figura for ambígua, escolha o herói mais provável visualmente.\n"
-        "   - Sob nenhuma circunstância retorne \'null\' para hero_name.\n\n"
-        "2) Extração de dados OCR:\n"
-        "   - A partir do texto OCR, extraia nome do jogador, KDA, networth, time e placar.\n"
-        "   - Mapeie cada jogador ao herói que aparece na mesma coluna.\n"
-        "   - Ignore texto fora da tabela de placar de Dota 2.\n\n"
-        "Retorne apenas JSON válido com a estrutura abaixo. Não use markdown, explicações ou texto adicional. "
-        "Use null apenas quando um valor não puder ser extraído com segurança. Se o texto não for um placar de Dota 2, "
-        "retorne apenas {\"valid_dota_screenshot\": false}.\n\n"
-        "Cada jogador deve conter as chaves `player_name` e `hero_name`. A chave `player_name` deve ser o nome do jogador, "
-        "e a chave `hero_name` deve ser o nome do herói. A chave `hero_name` deve sempre receber um herói identificável; não use null para hero_name.\n\n"
-        "Exemplo de formato desejado:\n"
+        "Você é uma Vision-LLM especialista em Dota 2. Sua tarefa é converter a imagem de um placar de partida em um objeto JSON estruturado para análise estatística.\n\n"
+        "Siga estas etapas rigorosamente:\n\n"
+        "1) IDENTIFICAÇÃO VISUAL DOS HERÓIS (Prioridade):\n"
+        "   - Divida a imagem mentalmente em 10 colunas verticais.\n"
+        "   - Identifique os 10 heróis por suas características visuais (silhueta, cores, rosto), ignorando itens cosméticos (skins).\n"
+        "   - As 5 colunas da esquerda são \"radiant\" e as 5 da direita são \"dire\".\n"
+        "   - Use o nome oficial do herói em INGLÊS (ex: \"Witch Doctor\", não \"Feiticeiro\"). Nunca retorne \"null\" para hero_name.\n\n"
+        "2) EXTRAÇÃO E DECOMPOSIÇÃO DE DADOS (OCR):\n"
+        "   - Mapeie cada coluna de herói aos seus dados: player_name (topo), networth (número amarelo) e KDA (números na base).\n"
+        "   - DECOMPOSIÇÃO DO KDA: Separe o formato \"Abates / Mortes / Assistências\" em três chaves inteiras distintas: \"kills\", \"deaths\" e \"assists\".\n"
+        "   - Ignore o nível de maestria (número dentro do diamante).\n"
+        "   - Capture as informações da partida (vencedor, duração, modo e placar total).\n\n"
+        "3) REGRAS DE SAÍDA:\n"
+        "   - Se a imagem não for um placar de Dota 2, retorne: {\"valid_dota_screenshot\": false}.\n"
+        "   - Retorne APENAS o JSON puro. Não use blocos de código markdown (```json), explicações ou introduções.\n\n"
+        "Estrutura do JSON:\n"
         "{\n"
         "  \"valid_dota_screenshot\": true,\n"
         "  \"match_info\": {\n"
-        "    \"game_mode\": \"Captains Mode\",\n"
-        "    \"duration\": \"51:29\",\n"
-        "    \"winner\": \"Dire\",\n"
-        "    \"score\": {\"radiant\": 37, \"dire\": 40}\n"
+        "    \"game_mode\": \"string\",\n"
+        "    \"duration\": \"string (MM:SS)\",\n"
+        "    \"winner\": \"Radiant ou Dire\",\n"
+        "    \"score\": {\"radiant\": int, \"dire\": int}\n"
         "  },\n"
         "  \"players_data\": [\n"
-        "    {\"slot\": 1, \"player_name\": \"WFz [-pRs-]\", \"hero_name\": \"Beastmaster\", \"kda\": \"10 / 13 / 18\", \"networth\": 25632, \"team\": \"radiant\"},\n"
-        "    ...\n"
+        "    {\n"
+        "      \"slot\": int (1-10),\n"
+        "      \"team\": \"radiant ou dire\",\n"
+        "      \"hero_name\": \"string\",\n"
+        "      \"player_name\": \"string\",\n"
+        "      \"networth\": int,\n"
+        "      \"kills\": int,\n"
+        "      \"deaths\": int,\n"
+        "      \"assists\": int\n"
+        "    }\n"
         "  ]\n"
         "}"
     )
@@ -672,7 +678,7 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
                 "format": {
                     "type": "json_schema",
                     "name": "dota_match_data",
-                    "description": "Estrutura JSON com match_info e teams para partida Dota 2",
+                    "description": "Estrutura JSON com match_info e teams para partida ",
                     "schema": {
                         "type": "object",
                         "properties": {

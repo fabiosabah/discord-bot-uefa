@@ -61,6 +61,44 @@ def parse_player_mapping(mapping_text: str) -> list[dict[str, object]]:
     return mappings
 
 
+def _resolve_command_members(ctx: commands.Context, tokens: tuple[str, ...]) -> tuple[list[discord.User], str | None]:
+    if not tokens:
+        return [], "⚠️ Mencione 5 jogadores ou passe 5 IDs de usuário."
+
+    if len(tokens) != 5:
+        return [], "⚠️ O comando exige exatamente 5 jogadores. Use menções de usuário ou IDs numéricos."
+
+    members: list[discord.User] = []
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            return [], "⚠️ Foi fornecido um argumento vazio."
+
+        if re.match(r"^<@&\d+>$", token):
+            return [], "⚠️ Menção de cargo detectada. Use menção de usuário ou ID de usuário."
+
+        discord_id = None
+        mention_match = re.match(r"^<@!?(?P<id>\d+)>$", token)
+        if mention_match:
+            discord_id = int(mention_match.group("id"))
+        elif token.isdigit():
+            discord_id = int(token)
+        else:
+            return [], f"⚠️ Não foi possível resolver o jogador '{token}'. Use menção de usuário ou ID numérico."
+
+        user = None
+        if ctx.guild:
+            user = ctx.guild.get_member(discord_id)
+        if user is None:
+            user = bot.get_user(discord_id)
+        if user is None:
+            return [], f"⚠️ Usuário com ID {discord_id} não encontrado. Certifique-se de usar um ID válido ou uma menção de um usuário presente no servidor."
+
+        members.append(user)
+
+    return members, None
+
+
 def build_footer(include_rules=True):
     last_update = get_last_update()
 
@@ -106,19 +144,16 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(f"✅ **{member.display_name}** atualizado: `{wins}V / {losses}D` → **{pts} pts**")
 
 
-    @bot.command(name="venceu")
-    async def cmd_venceu(ctx: commands.Context, *members: discord.Member):
+    @bot.command(name="venceu", aliases=["venceu_id", "venceuid"])
+    async def cmd_venceu(ctx: commands.Context, *member_tokens: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        if not members:
-            await ctx.send("⚠️ Mencione jogadores.", delete_after=5)
-            return
-
-        if len(members) != 5:
-            await ctx.send("⚠️ O comando `!venceu` exige exatamente 5 jogadores.", delete_after=10)
+        members, error = _resolve_command_members(ctx, member_tokens)
+        if error:
+            await ctx.send(error, delete_after=15)
             return
 
         nomes, ids = [], []
@@ -136,22 +171,19 @@ def setup_score_commands(bot: commands.Bot):
         )
 
         await ctx.message.delete()
-        await ctx.send(f"🏆 Vitória registrada para {' '.join(m.mention for m in members)}")
+        await ctx.send(f"🏆 Vitória registrada para {' '.join(getattr(m, 'mention', str(m.id)) for m in members)}")
 
 
-    @bot.command(name="perdeu")
-    async def cmd_perdeu(ctx: commands.Context, *members: discord.Member):
+    @bot.command(name="perdeu", aliases=["perdeu_id", "perdeuid"])
+    async def cmd_perdeu(ctx: commands.Context, *member_tokens: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        if not members:
-            await ctx.send("⚠️ Mencione jogadores.", delete_after=5)
-            return
-
-        if len(members) != 5:
-            await ctx.send("⚠️ O comando `!perdeu` exige exatamente 5 jogadores.", delete_after=10)
+        members, error = _resolve_command_members(ctx, member_tokens)
+        if error:
+            await ctx.send(error, delete_after=15)
             return
 
         nomes, ids = [], []
@@ -169,7 +201,7 @@ def setup_score_commands(bot: commands.Bot):
         )
 
         await ctx.message.delete()
-        await ctx.send(f"💀 Derrota registrada para {' '.join(m.mention for m in members)}")
+        await ctx.send(f"💀 Derrota registrada para {' '.join(getattr(m, 'mention', str(m.id)) for m in members)}")
 
 
     @bot.command(name="desfazer", aliases=["undo", "z"])

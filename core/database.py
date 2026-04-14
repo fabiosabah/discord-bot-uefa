@@ -283,6 +283,13 @@ def upsert_player(discord_id: int, display_name: str, wins: int, losses: int):
     logger.info(f"[DB] Upsert: {display_name} ({discord_id}) → W:{wins} L:{losses}")
 
 
+def _get_player_display_name(discord_id: int) -> str:
+    player = get_player(discord_id)
+    if player and player.get("display_name"):
+        return player["display_name"]
+    return "Desconhecido"
+
+
 def add_win(discord_id: int, display_name: str):
     now = datetime.now().isoformat()
     with get_connection() as conn:
@@ -308,7 +315,8 @@ def remove_win(discord_id: int):
             WHERE discord_id = ?
         """, (now, discord_id))
         conn.commit()
-    logger.info(f"[DB] Removida vitória para jogador {discord_id}.")
+    display_name = _get_player_display_name(discord_id)
+    logger.info(f"[DB] Removida vitória para {display_name} ({discord_id}).")
 
 
 def add_loss(discord_id: int, display_name: str):
@@ -336,7 +344,8 @@ def remove_loss(discord_id: int):
             WHERE discord_id = ?
         """, (now, discord_id))
         conn.commit()
-    logger.info(f"[DB] Removida derrota para jogador {discord_id}.")
+    display_name = _get_player_display_name(discord_id)
+    logger.info(f"[DB] Removida derrota para {display_name} ({discord_id}).")
 
 
 def get_player(discord_id: int):
@@ -958,10 +967,20 @@ def get_last_admin_action(admin_id: int):
 
 def delete_audit_log_entry(entry_id: int):
     with get_connection() as conn:
+        row = conn.execute(
+            "SELECT command, details, affected_ids FROM audit_log WHERE id = ?",
+            (entry_id,)
+        ).fetchone()
         conn.execute("DELETE FROM match_history WHERE audit_id = ?", (entry_id,))
         conn.execute("DELETE FROM audit_log WHERE id = ?", (entry_id,))
         conn.commit()
-    logger.info(f"[DB] Ação de auditoria {entry_id} desfeita e histórico de partidas correspondente removido.")
+
+    if row:
+        logger.info(
+            f"[DB] Ação de auditoria {entry_id} desfeita: {row['command']} | {row['details']} | afetados: {row['affected_ids']}"
+        )
+    else:
+        logger.info(f"[DB] Ação de auditoria {entry_id} desfeita e histórico de partidas correspondente removido.")
 
 
 def delete_match_history() -> None:
