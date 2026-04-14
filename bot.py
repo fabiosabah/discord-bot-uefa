@@ -196,7 +196,7 @@ async def ocr_background_worker():
         for job in jobs:
             try:
                 set_match_screenshot_status(job["id"], "processing")
-                result = process_match_screenshot(job["id"], job=job)
+                result = await asyncio.to_thread(process_match_screenshot, job["id"], job)
                 parsed = result.get("parsed", {})
                 logger.info(f"OCR concluído para job {job['id']}: {parsed.get('duration', 'sem duração')}.")
                 channel = bot.get_channel(job["channel_id"])
