@@ -123,7 +123,7 @@ def extract_text_from_image_url(image_url: str) -> str:
                     role="user",
                     parts=[
                         types.Part.from_text(text=instructions),
-                        types.Part.from_url(url=image_url, mime_type="image/jpeg")
+                        types.Part.from_uri(uri=image_url, mime_type="image/jpeg")
                     ],
                 ),
             ],
