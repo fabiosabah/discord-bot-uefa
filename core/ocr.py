@@ -141,6 +141,15 @@ def extract_text_from_image_url(image_url: str) -> str:
                     image_data = urllib.request.urlopen(image_url).read()
                     return types.Part.from_bytes(data=image_data, mime_type=mime_type)
 
+        from google.genai.errors import ClientError
+
+        def _is_model_not_found_error(exc: Exception) -> bool:
+            if isinstance(exc, ClientError):
+                if exc.status_code == 404:
+                    return True
+            message = str(exc).lower()
+            return "not found" in message or "not supported for generatecontent" in message
+
         image_part = build_image_part(image_url)
 
         @retry(
@@ -149,9 +158,9 @@ def extract_text_from_image_url(image_url: str) -> str:
             stop=stop_after_attempt(4),
             reraise=True,
         )
-        def generate_content_with_retry():
+        def generate_content_with_retry(model_name: str):
             return client.models.generate_content(
-                model=model,
+                model=model_name,
                 contents=[
                     types.Content(
                         role="user",
@@ -164,7 +173,47 @@ def extract_text_from_image_url(image_url: str) -> str:
                 config=generate_content_config
             )
 
-        response = generate_content_with_retry()
+        candidate_models = [model]
+        if model == "gemini-1.5-flash":
+            candidate_models.extend([
+                "gemini-1.5-flash-preview",
+                "gemini-1.5-flash-002",
+                "gemini-1.5-pro",
+            ])
+        elif model == "gemini-1.5-flash-preview":
+            candidate_models.extend([
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-002",
+                "gemini-1.5-pro",
+            ])
+
+        response = None
+        last_error: Exception | None = None
+        for candidate in candidate_models:
+            try:
+                if candidate != model:
+                    logger.warning(f"Modelo {model} não disponível, tentando fallback {candidate}.")
+                response = generate_content_with_retry(candidate)
+                if hasattr(response, "to_dict"):
+                    try:
+                        raw_response = response.to_dict()
+                        logger.info("OCR AI raw response: %s", json.dumps(raw_response, ensure_ascii=False))
+                    except Exception:
+                        logger.info("OCR AI raw response: %s", str(response))
+                else:
+                    logger.info("OCR AI raw response: %s", str(response))
+                break
+            except Exception as exc:
+                last_error = exc
+                if _is_model_not_found_error(exc) and candidate != candidate_models[-1]:
+                    continue
+                raise
+
+        if response is None:
+            raise RuntimeError(
+                "Falha ao encontrar um modelo Gemini disponível para OCR."
+            ) from last_error
+
         text = response.text
     else:
         # Fallback para OpenAI se configurado
