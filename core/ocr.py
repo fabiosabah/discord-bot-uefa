@@ -95,6 +95,32 @@ def _extract_text_from_response(response: Any) -> str:
                                 text = part.get("text")
                                 if isinstance(text, str) and text:
                                     return text
+                candidates = data.get("candidates")
+                if isinstance(candidates, list):
+                    for candidate in candidates:
+                        if not isinstance(candidate, dict):
+                            continue
+                        content = candidate.get("content")
+                        if isinstance(content, dict):
+                            content = [content]
+                        if isinstance(content, list):
+                            candidate_texts = []
+                            for part in content:
+                                if not isinstance(part, dict):
+                                    continue
+                                if part.get("role") == "model":
+                                    text = part.get("text")
+                                    if isinstance(text, str) and text:
+                                        candidate_texts.append(text)
+                                elif not part.get("thought", False):
+                                    text = part.get("text")
+                                    if isinstance(text, str) and text:
+                                        candidate_texts.append(text)
+                            if candidate_texts:
+                                return "\n".join(candidate_texts).strip()
+                        text = candidate.get("text")
+                        if isinstance(text, str) and text:
+                            return text
         except Exception:
             pass
 
@@ -123,7 +149,7 @@ def extract_text_from_image_url(image_url: str) -> str:
         # Configuração de Thinking conforme o Google AI Studio
         generate_content_config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
+                include_thoughts=False,
             ),
         )
         
@@ -209,6 +235,11 @@ def extract_text_from_image_url(image_url: str) -> str:
                         logger.info("OCR AI raw response: %s", str(response))
                 else:
                     logger.info("OCR AI raw response: %s", str(response))
+
+                text = _extract_text_from_response(response)
+                if not text:
+                    text = getattr(response, "text", "")
+
                 break
             except Exception as exc:
                 last_error = exc
@@ -220,8 +251,6 @@ def extract_text_from_image_url(image_url: str) -> str:
             raise RuntimeError(
                 "Falha ao encontrar um modelo Gemini disponível para OCR."
             ) from last_error
-
-        text = response.text
     else:
         # Fallback para OpenAI se configurado
         response = client.chat.completions.create(
@@ -400,8 +429,8 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 if not isinstance(entry, dict):
                     continue
                 parsed_players.append({
-                    "name": entry.get("player"),
-                    "hero": entry.get("hero"),
+                    "name": entry.get("player") or entry.get("name"),
+                    "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
                     "score": entry.get("kda"),
                     "net_worth": entry.get("net_worth"),
                     "team": team_name,
@@ -446,8 +475,8 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 if not isinstance(entry, dict):
                     continue
                 parsed_players.append({
-                    "name": entry.get("player"),
-                    "hero": entry.get("hero"),
+                    "name": entry.get("player") or entry.get("name"),
+                    "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
                     "score": entry.get("kda"),
                     "net_worth": entry.get("net_worth"),
                     "team": team_name,
@@ -529,6 +558,8 @@ def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
         "Não responda em markdown ou texto adicional. Retorne um objeto JSON com a estrutura abaixo. "
         "Use null quando algum valor não puder ser extraído. Se o texto não for um placar de Dota 2, "
         "retorne apenas {\"valid_dota_screenshot\": false}.\n\n"
+        "Cada jogador deve conter as chaves `player` e `hero`. A chave `player` deve ser o nome do jogador, "
+        "e a chave `hero` deve ser o nome do herói. Se o herói não aparecer no texto, use null.\n\n"
         "Exemplo de formato desejado:\n"
         "{\n"
         "  \"valid_dota_screenshot\": true,\n"
@@ -568,7 +599,7 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
         # Configuração de Thinking conforme o Google AI Studio
         generate_content_config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
+                include_thoughts=False,
             ),
         )
         
