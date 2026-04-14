@@ -112,7 +112,7 @@ def _is_rate_limit_exception(exc: Exception) -> bool:
 
 def extract_text_from_image_url(image_url: str) -> str:
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-1.5-flash"
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
     instructions = (
         "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
         "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
@@ -174,17 +174,24 @@ def extract_text_from_image_url(image_url: str) -> str:
             )
 
         candidate_models = [model]
-        if model == "gemini-1.5-flash":
+        if model in {"gemini-1.5-flash", "gemini-1.5-flash-preview", "gemini-1.5-flash-002", "gemini-1.5-pro"}:
             candidate_models.extend([
-                "gemini-1.5-flash-preview",
-                "gemini-1.5-flash-002",
-                "gemini-1.5-pro",
+                "gemini-3-flash-preview",
+                "gemini-3-flash",
+                "gemini-3-flash-002",
             ])
-        elif model == "gemini-1.5-flash-preview":
+        elif model in {"gemini-3-flash-preview", "gemini-3-flash", "gemini-3-flash-002"}:
             candidate_models.extend([
+                "gemini-3-flash-preview",
+                "gemini-3-flash",
+                "gemini-3-flash-002",
                 "gemini-1.5-flash",
-                "gemini-1.5-flash-002",
-                "gemini-1.5-pro",
+            ])
+        else:
+            candidate_models.extend([
+                "gemini-3-flash-preview",
+                "gemini-3-flash",
+                "gemini-3-flash-002",
             ])
 
         response = None
