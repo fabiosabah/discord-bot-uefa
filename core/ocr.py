@@ -5,6 +5,8 @@ import os
 import re
 from typing import Any
 
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
 logger = logging.getLogger("OCR")
 
 
@@ -99,9 +101,18 @@ def _extract_text_from_response(response: Any) -> str:
     return ""
 
 
+def _is_rate_limit_exception(exc: Exception) -> bool:
+    if exc is None:
+        return False
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    message = str(exc).lower()
+    return any(keyword in message for keyword in ("429", "too many requests", "resource_exhausted", "rate limit"))
+
+
 def extract_text_from_image_url(image_url: str) -> str:
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-1.5-flash"
     instructions = (
         "Você é um assistente especializado em Dota 2. Leia a imagem e retorne apenas o texto visível contido nela. "
         "Não adicione explicações, marcações ou comentários. Retorne o texto bruto."
@@ -131,19 +142,29 @@ def extract_text_from_image_url(image_url: str) -> str:
                     return types.Part.from_bytes(data=image_data, mime_type=mime_type)
 
         image_part = build_image_part(image_url)
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=instructions),
-                        image_part
-                    ],
-                ),
-            ],
-            config=generate_content_config
+
+        @retry(
+            retry=retry_if_exception(_is_rate_limit_exception),
+            wait=wait_exponential(multiplier=5, min=5, max=30),
+            stop=stop_after_attempt(4),
+            reraise=True,
         )
+        def generate_content_with_retry():
+            return client.models.generate_content(
+                model=model,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(text=instructions),
+                            image_part
+                        ],
+                    ),
+                ],
+                config=generate_content_config
+            )
+
+        response = generate_content_with_retry()
         text = response.text
     else:
         # Fallback para OpenAI se configurado

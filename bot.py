@@ -188,7 +188,7 @@ async def ocr_background_worker():
             await asyncio.sleep(60)
             continue
 
-        jobs = get_pending_match_screenshots(limit=3)
+        jobs = get_pending_match_screenshots(limit=1)
         if not jobs:
             await asyncio.sleep(20)
             continue
@@ -212,6 +212,8 @@ async def ocr_background_worker():
             except Exception as exc:
                 logger.exception(f"Erro ao processar imagem OCR para job {job['id']}")
                 set_match_screenshot_status(job["id"], "failed", metadata=str(exc))
+
+            await asyncio.sleep(5)
 
         await asyncio.sleep(10)
 
