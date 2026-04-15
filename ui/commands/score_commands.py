@@ -18,8 +18,8 @@ from core.database import (
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
     delete_match_screenshots, delete_match_screenshot,
-    update_match_hero, update_league_match_heroes, update_league_match_player_names,
-    update_league_match_player_name_by_slot
+    update_match_hero, update_league_match_heroes, update_league_match_player_name_by_slot,
+    update_league_match_hero_by_slot, update_league_match_player_names
 )
 from core.ocr import can_process_ocr, process_match_screenshot
 from core.utils.time import format_brazil_time, relative_time
@@ -1003,22 +1003,35 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(f"```\n{chr(10).join(lines)}\n```")
 
     @bot.command(name="fixhero", aliases=["corrigirhero"])
-    async def cmd_fix_hero(ctx: commands.Context, match_id: int, member: discord.Member, *, hero: str):
+    async def cmd_fix_hero(ctx: commands.Context, league_match_id: int, slot: int, *, hero: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        hero = hero.strip()
-        if not hero:
-            await ctx.send("❌ Informe o herói após o jogador.", delete_after=10)
+        match = get_match_by_league_id(league_match_id)
+        if not match:
+            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
             return
 
-        updated = update_match_hero(match_id, member.id, hero)
+        players = match.get("players_data") or []
+        player_entry = next((p for p in players if p.get("slot") == slot), None)
+        if not player_entry:
+            await ctx.send(
+                f"❌ Slot {slot} não encontrado para a partida {league_match_id}. Use o slot correto.",
+                delete_after=20
+            )
+            return
+
+        hero = hero.strip()
+        if not hero:
+            await ctx.send("❌ Informe o herói após o slot.", delete_after=10)
+            return
+
+        updated = update_league_match_hero_by_slot(league_match_id, slot, hero)
         if not updated:
             await ctx.send(
-                f"❌ Não foi possível encontrar o jogador {member.mention} na partida {match_id}."
-                " Verifique se o match_id está correto e se o jogador pertence à partida.",
+                f"❌ Não foi possível atualizar o herói do slot {slot} na partida {league_match_id}.",
                 delete_after=20
             )
             return
@@ -1027,12 +1040,13 @@ def setup_score_commands(bot: commands.Bot):
             ctx.author.id,
             ctx.author.display_name,
             "!fixhero",
-            f"match_id={match_id} discord_id={member.id} hero={hero}",
-            affected_ids=[member.id]
+            f"league_match_id={league_match_id} slot={slot} hero={hero}",
         )
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Hero de {member.mention} atualizado para **{hero}** na partida {match_id}.")
+        await ctx.send(
+            f"✅ Herói do slot {slot} na partida {league_match_id} atualizado para **{hero}**."
+        )
 
     @bot.command(name="definirherois", aliases=["setmatchheroes", "setherois"])
     async def cmd_set_match_heroes(ctx: commands.Context, league_match_id: int, *, heroes_text: str):

@@ -913,6 +913,19 @@ def update_league_match_heroes(league_match_id: int, hero_names: list[str]) -> i
     return updated
 
 
+def update_league_match_hero_by_slot(league_match_id: int, slot: int, hero_name: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE match_players SET hero_name = ? WHERE league_match_id = ? AND slot = ?",
+            (hero_name.strip() if isinstance(hero_name, str) else None, league_match_id, slot)
+        )
+        conn.commit()
+    updated = cursor.rowcount if hasattr(cursor, "rowcount") else 0
+    if updated:
+        logger.info(f"[DB] Hero do slot {slot} atualizado para league_match_id {league_match_id}: {hero_name}")
+    return updated > 0
+
+
 def update_league_match_player_names(league_match_id: int, player_names: list[str]) -> int:
     with get_connection() as conn:
         updated = 0
