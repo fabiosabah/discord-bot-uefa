@@ -139,7 +139,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 content="⚠️ Lista anterior removida. Criando nova lista...",
                 view=self
             )
-            await _create_list(self.ctx)
+            await _create_list(self.ctx, self.old_session)
 
         @discord.ui.button(label="Manter lista atual", style=discord.ButtonStyle.secondary, custom_id="cancel_new_list")
         async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -150,9 +150,16 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 view=self
             )
 
-    async def _create_list(ctx: commands.Context):
+    async def _create_list(ctx: commands.Context, previous_session: LobbySession | None = None):
         session_id = get_next_id()
         session = LobbySession(host=ctx.author, session_id=session_id)
+
+        if previous_session is not None:
+            for player in previous_session.players:
+                session.add_player(player)
+            for waiting in previous_session.waitlist:
+                session.add_to_waitlist(waiting)
+
         logger.info(f"[Comando] 🆕 NOVA LISTA CRIADA | ID: #{session.id} | Host: {ctx.author.name}#{ctx.author.id}")
         view = LobbyView(session, active_lobbies)
         msg = await ctx.send(embed=session.build_embed(), view=view)
