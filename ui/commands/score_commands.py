@@ -704,7 +704,14 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
             return
 
-        # Converter para JSON formatado para exibição
+        def strip_raw_text(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {k: strip_raw_text(v) for k, v in value.items() if k != "raw_text"}
+            if isinstance(value, list):
+                return [strip_raw_text(item) for item in value]
+            return value
+
+        metadata = strip_raw_text(metadata)
         metadata_text = json.dumps(metadata, indent=2, ensure_ascii=False)
 
         def sanitize_code_block(text: str) -> str:
