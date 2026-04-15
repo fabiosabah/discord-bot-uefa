@@ -123,6 +123,31 @@ class UndoConfirmView(discord.ui.View):
             return False
         return True
 
+    async def _resolve_user_name(self, interaction: discord.Interaction, discord_id: int) -> str:
+        if interaction.guild:
+            member = interaction.guild.get_member(discord_id)
+            if member is not None:
+                return member.display_name
+
+        user = interaction.client.get_user(discord_id)
+        if user is not None:
+            return user.name
+
+        try:
+            user = await interaction.client.fetch_user(discord_id)
+            return user.name
+        except discord.NotFound:
+            return str(discord_id)
+
+    async def _format_affected_users(self, interaction: discord.Interaction) -> str:
+        if not self.affected_ids:
+            return "nenhum"
+
+        names = []
+        for discord_id in self.affected_ids:
+            names.append(await self._resolve_user_name(interaction, discord_id))
+        return ", ".join(names)
+
     @discord.ui.button(label="Confirmar desfazer", style=discord.ButtonStyle.danger, custom_id="undo_confirm")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.command == "!venceu":
@@ -135,10 +160,12 @@ class UndoConfirmView(discord.ui.View):
         delete_audit_log_entry(self.action_id)
         for child in self.children:
             child.disabled = True
+
+        affected_users = await self._format_affected_users(interaction)
         await interaction.response.edit_message(
             content=(
                 f"✅ Ação `{self.command}` confirmada e desfeita."
-                f"\nIDs afetados: {', '.join(str(_id) for _id in self.affected_ids) if self.affected_ids else 'nenhum'}"
+                f"\nUsuários afetados: {affected_users}"
             ),
             view=self
         )

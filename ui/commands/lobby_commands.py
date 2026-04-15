@@ -116,7 +116,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 return False
             return True
 
-        @discord.ui.button(label="Criar nova lista", style=discord.ButtonStyle.danger, custom_id="confirm_new_list")
+        @discord.ui.button(label="Criar nova lista vazia", style=discord.ButtonStyle.danger, custom_id="confirm_new_list")
         async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
             guild_id = self.ctx.guild.id if self.ctx.guild else None
             if guild_id is not None:
@@ -136,19 +136,35 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 child.disabled = True
 
             await interaction.response.edit_message(
-                content="⚠️ Lista anterior removida. Criando nova lista...",
+                content="⚠️ Lista anterior removida. Criando nova lista vazia...",
+                view=self
+            )
+            await _create_list(self.ctx)
+
+        @discord.ui.button(label="Recriar lista atual", style=discord.ButtonStyle.secondary, custom_id="cancel_new_list")
+        async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+            guild_id = self.ctx.guild.id if self.ctx.guild else None
+            if guild_id is not None:
+                delete_lobby_session(guild_id)
+
+            if self.old_session.message:
+                try:
+                    await self.old_session.message.delete()
+                except discord.HTTPException:
+                    pass
+
+            for msg_id, session in list(active_lobbies.items()):
+                if session.message and session.message.guild and self.ctx.guild and session.message.guild.id == self.ctx.guild.id:
+                    active_lobbies.pop(msg_id, None)
+
+            for child in self.children:
+                child.disabled = True
+
+            await interaction.response.edit_message(
+                content="🔄 Recriando a lista anterior com os mesmos jogadores...",
                 view=self
             )
             await _create_list(self.ctx, self.old_session)
-
-        @discord.ui.button(label="Manter lista atual", style=discord.ButtonStyle.secondary, custom_id="cancel_new_list")
-        async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-            for child in self.children:
-                child.disabled = True
-            await interaction.response.edit_message(
-                content="❌ Operação cancelada. A lista atual foi mantida.",
-                view=self
-            )
 
     async def _create_list(ctx: commands.Context, previous_session: LobbySession | None = None):
         session_id = get_next_id()
@@ -193,7 +209,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             if is_admin(ctx.author.id):
                 prompt_text = (
                     f"⚠️ Já existe uma lista aberta{channel_mention}. "
-                    "Deseja apagar a lista atual e abrir uma nova?"
+                    "Escolha se deseja criar uma nova lista vazia ou recriar a lista atual com os mesmos jogadores."
                 )
                 view = ConfirmNewListView(ctx, existing_session)
                 if existing_message and existing_message.channel.id == ctx.channel.id:
