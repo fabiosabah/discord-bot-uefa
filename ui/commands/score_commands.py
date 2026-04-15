@@ -90,13 +90,67 @@ def _resolve_command_members(ctx: commands.Context, tokens: tuple[str, ...]) -> 
         if ctx.guild:
             user = ctx.guild.get_member(discord_id)
         if user is None:
-            user = bot.get_user(discord_id)
+            user = ctx.bot.get_user(discord_id)
         if user is None:
             return [], f"⚠️ Usuário com ID {discord_id} não encontrado. Certifique-se de usar um ID válido ou uma menção de um usuário presente no servidor."
 
         members.append(user)
 
     return members, None
+
+
+class UndoConfirmView(discord.ui.View):
+    def __init__(self, author_id: int, action_id: int, command: str, affected_ids: list[int]):
+        super().__init__(timeout=60)
+        self.author_id = author_id
+        self.action_id = action_id
+        self.command = command
+        self.affected_ids = affected_ids
+
+        action_name = "remover vitória" if command == "!venceu" else "remover derrota"
+        label = f"Confirmar {action_name} ({len(affected_ids)} IDs)"
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.custom_id == "undo_confirm":
+                child.label = label
+                break
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message(
+                "❌ Apenas quem solicitou o desfazer pode confirmar esta ação.",
+                ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Confirmar desfazer", style=discord.ButtonStyle.danger, custom_id="undo_confirm")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.command == "!venceu":
+            for discord_id in self.affected_ids:
+                remove_win(discord_id)
+        elif self.command == "!perdeu":
+            for discord_id in self.affected_ids:
+                remove_loss(discord_id)
+
+        delete_audit_log_entry(self.action_id)
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content=(
+                f"✅ Ação `{self.command}` confirmada e desfeita."
+                f"\nIDs afetados: {', '.join(str(_id) for _id in self.affected_ids) if self.affected_ids else 'nenhum'}"
+            ),
+            view=self
+        )
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, custom_id="undo_cancel")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content="❌ Operação de desfazer cancelada.",
+            view=self
+        )
 
 
 def build_footer(include_rules=True):
@@ -216,18 +270,20 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send("⚠️ Nada para desfazer.", delete_after=5)
             return
 
-        ids = json.loads(action["affected_ids"]) if action["affected_ids"] else []
+        affected_ids = json.loads(action["affected_ids"]) if action["affected_ids"] else []
+        if action["command"] not in {"!venceu", "!perdeu"}:
+            await ctx.send("⚠️ A última ação não pode ser desfeita com este comando.", delete_after=10)
+            return
 
-        for pid in ids:
-            if action["command"] == "!venceu":
-                remove_win(pid)
-            elif action["command"] == "!perdeu":
-                remove_loss(pid)
-
-        delete_audit_log_entry(action["id"])
+        action_type = "remover vitória" if action["command"] == "!venceu" else "remover derrota"
+        affected_text = ", ".join(str(_id) for _id in affected_ids) if affected_ids else "nenhum"
 
         await ctx.message.delete()
-        await ctx.send(f"↩️ Ação `{action['command']}` desfeita!")
+        await ctx.send(
+            f"⚠️ Confirme o desfazer da ação `{action['command']}`.\n"
+            f"A ação irá {action_type} para os IDs: {affected_text}.",
+            view=UndoConfirmView(ctx.author.id, action["id"], action["command"], affected_ids)
+        )
 
     @bot.command(name="deletar")
     async def cmd_deletar(ctx: commands.Context, member: discord.User):
