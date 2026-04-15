@@ -471,7 +471,9 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 "slot": entry.get("slot"),
                 "player_name": entry.get("player_name") or entry.get("name") or entry.get("player"),
                 "hero_name": entry.get("hero_name") or entry.get("hero") or entry.get("heroi"),
-                "kda": entry.get("kda") or entry.get("score"),
+                "kills": entry.get("kills"),
+                "deaths": entry.get("deaths"),
+                "assists": entry.get("assists"),
                 "networth": entry.get("networth") or entry.get("net_worth"),
                 "team": _normalize_team(entry.get("team") or entry.get("side")),
                 "raw_entry": entry,
@@ -519,7 +521,9 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 parsed_players.append({
                     "name": entry.get("player") or entry.get("name"),
                     "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
-                    "score": entry.get("kda"),
+                    "kills": entry.get("kills"),
+                    "deaths": entry.get("deaths"),
+                    "assists": entry.get("assists"),
                     "net_worth": entry.get("net_worth"),
                     "team": _normalize_team(team_name),
                     "raw_entry": entry,
@@ -713,10 +717,9 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
                                             "properties": {
                                                 "player": {"type": ["string", "null"]},
                                                 "hero": {"type": ["string", "null"]},
-                                                "kda": {"type": ["string", "null"]},
                                                 "net_worth": {"type": ["integer", "null"]}
                                             },
-                                            "required": ["player", "hero", "kda", "net_worth"],
+                                            "required": ["player", "hero", "net_worth"],
                                             "additionalProperties": False
                                         }
                                     },
@@ -727,10 +730,9 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
                                             "properties": {
                                                 "player": {"type": ["string", "null"]},
                                                 "hero": {"type": ["string", "null"]},
-                                                "kda": {"type": ["string", "null"]},
                                                 "net_worth": {"type": ["integer", "null"]}
                                             },
-                                            "required": ["player", "hero", "kda", "net_worth"],
+                                            "required": ["player", "hero", "net_worth"],
                                             "additionalProperties": False
                                         }
                                     }
@@ -756,11 +758,20 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
 
 
 def parse_dota_match_text(raw_text: str, image_url: str | None = None) -> dict[str, Any]:
+    def _remove_kda_fields(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                k: _remove_kda_fields(v)
+                for k, v in value.items()
+                if k != "kda"
+            }
+        if isinstance(value, list):
+            return [_remove_kda_fields(item) for item in value]
+        return value
+
     parsed = _parse_json_payload(raw_text)
     if parsed is not None:
-        if parsed.get("valid_dota_screenshot") is False:
-            return parsed
-        return parsed
+        return _remove_kda_fields(parsed)
 
     if not _is_probably_dota_score_text(raw_text):
         return {
@@ -771,7 +782,7 @@ def parse_dota_match_text(raw_text: str, image_url: str | None = None) -> dict[s
 
     parsed = _parse_text_with_llm(raw_text, image_url)
     if parsed is not None:
-        return parsed
+        return _remove_kda_fields(parsed)
 
     meta: dict[str, Any] = {
         "raw_text": raw_text,

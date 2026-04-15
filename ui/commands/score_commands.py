@@ -710,7 +710,7 @@ def setup_score_commands(bot: commands.Bot):
                 return {
                     k: strip_debug_fields(v)
                     for k, v in value.items()
-                    if k not in {"raw_text", "metadata_payload"}
+                    if k not in {"raw_text", "metadata_payload", "kda"}
                 }
             if isinstance(value, list):
                 return [strip_debug_fields(item) for item in value]
