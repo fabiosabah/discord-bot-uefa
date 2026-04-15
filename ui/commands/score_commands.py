@@ -3,6 +3,7 @@ import discord
 import logging
 import json
 import re
+from typing import Any
 from discord.ext import commands
 from core.config import ADMIN_IDS, IMAGE_CHANNEL_ID
 from core.database import (
