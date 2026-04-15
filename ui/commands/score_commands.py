@@ -705,14 +705,18 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
             return
 
-        def strip_raw_text(value: Any) -> Any:
+        def strip_debug_fields(value: Any) -> Any:
             if isinstance(value, dict):
-                return {k: strip_raw_text(v) for k, v in value.items() if k != "raw_text"}
+                return {
+                    k: strip_debug_fields(v)
+                    for k, v in value.items()
+                    if k not in {"raw_text", "metadata_payload"}
+                }
             if isinstance(value, list):
-                return [strip_raw_text(item) for item in value]
+                return [strip_debug_fields(item) for item in value]
             return value
 
-        metadata = strip_raw_text(metadata)
+        metadata = strip_debug_fields(metadata)
         metadata_text = json.dumps(metadata, indent=2, ensure_ascii=False)
 
         def sanitize_code_block(text: str) -> str:
