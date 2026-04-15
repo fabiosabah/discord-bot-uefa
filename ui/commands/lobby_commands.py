@@ -1,14 +1,25 @@
 # -*- coding: utf-8 -*-
 import discord
 import logging
+from datetime import datetime
 from discord.ext import commands
 from domain.models import LobbySession
 from ui.views.lobby_view import LobbyView
 from services.state import get_next_id
 from core.config import ADMIN_IDS, is_admin
-from core.database import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session
+from core.database import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session, get_lobby_sessions
 
 logger = logging.getLogger("LobbyCommands")
+
+class PartialMember:
+    def __init__(self, id: int, display_name: str):
+        self.id = id
+        self.display_name = display_name
+        self.name = display_name
+
+    @property
+    def mention(self):
+        return f"<@{self.id}>"
 
 def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
     async def _cleanup_stale_lobbies():
@@ -28,6 +39,117 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             if session and session.message and session.message.guild:
                 delete_lobby_session(session.message.guild.id)
 
+    async def _resolve_member(guild: discord.Guild, member_id: int):
+        member = guild.get_member(member_id)
+        if member:
+            return member
+        try:
+            return await guild.fetch_member(member_id)
+        except discord.NotFound:
+            return PartialMember(member_id, f"Usuário {member_id}")
+
+    async def _try_restore_saved_guild_lobby(ctx: commands.Context):
+        if not ctx.guild:
+            return None
+
+        saved_sessions = get_lobby_sessions()
+        row = next((r for r in saved_sessions if r["guild_id"] == ctx.guild.id), None)
+        if not row:
+            return None
+
+        if any(
+            session.message and session.message.guild and session.message.guild.id == ctx.guild.id
+            for session in active_lobbies.values()
+        ):
+            return None
+
+        try:
+            channel = bot.get_channel(row["channel_id"]) or await bot.fetch_channel(row["channel_id"])
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            delete_lobby_session(ctx.guild.id)
+            return None
+
+        if channel is None:
+            delete_lobby_session(ctx.guild.id)
+            return None
+
+        try:
+            message = await channel.fetch_message(row["message_id"])
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            delete_lobby_session(ctx.guild.id)
+            return None
+
+        host = await _resolve_member(ctx.guild, row["host_id"])
+        session = LobbySession(host=host, session_id=row["session_id"])
+        session.message = message
+        session.players = [await _resolve_member(ctx.guild, pid) for pid in row["player_ids"]]
+        session.player_ids = set(row["player_ids"])
+        session.waitlist = [await _resolve_member(ctx.guild, wid) for wid in row["waitlist_ids"]]
+        session.waitlist_ids = set(row["waitlist_ids"])
+        session.closed = bool(row["closed"])
+        session.auto_close_at = datetime.fromisoformat(row["auto_close_at"]) if row["auto_close_at"] else None
+
+        if session.closed:
+            delete_lobby_session(ctx.guild.id)
+            return None
+
+        active_lobbies[message.id] = session
+        await message.edit(view=LobbyView(session, active_lobbies))
+
+        if session.auto_close_at or session.is_full():
+            session.schedule_auto_close(active_lobbies)
+
+        return session
+
+    class ConfirmNewListView(discord.ui.View):
+        def __init__(self, ctx: commands.Context, old_session: LobbySession):
+            super().__init__(timeout=60)
+            self.ctx = ctx
+            self.old_session = old_session
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            if interaction.user.id != self.ctx.author.id:
+                await interaction.response.send_message(
+                    "❌ Apenas quem executou o comando pode confirmar a criação da nova lista.",
+                    ephemeral=True
+                )
+                return False
+            return True
+
+        @discord.ui.button(label="Criar nova lista", style=discord.ButtonStyle.danger, custom_id="confirm_new_list")
+        async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+            guild_id = self.ctx.guild.id if self.ctx.guild else None
+            if guild_id is not None:
+                delete_lobby_session(guild_id)
+
+            if self.old_session.message:
+                try:
+                    await self.old_session.message.delete()
+                except discord.HTTPException:
+                    pass
+
+            for msg_id, session in list(active_lobbies.items()):
+                if session.message and session.message.guild and self.ctx.guild and session.message.guild.id == self.ctx.guild.id:
+                    active_lobbies.pop(msg_id, None)
+
+            for child in self.children:
+                child.disabled = True
+
+            await interaction.response.edit_message(
+                content="⚠️ Lista anterior removida. Criando nova lista...",
+                view=self
+            )
+            await _create_list(self.ctx)
+
+        @discord.ui.button(label="Manter lista atual", style=discord.ButtonStyle.secondary, custom_id="cancel_new_list")
+        async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(
+                content="❌ Operação cancelada. A lista atual foi mantida.",
+                view=self
+            )
+
     async def _create_list(ctx: commands.Context):
         session_id = get_next_id()
         session = LobbySession(host=ctx.author, session_id=session_id)
@@ -43,11 +165,42 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
     async def open_list(ctx: commands.Context):
         await _cleanup_stale_lobbies()
 
-        if active_lobbies:
-            existing_session = next(iter(active_lobbies.values()))
+        restored_session = await _try_restore_saved_guild_lobby(ctx)
+        if restored_session:
+            existing_session = restored_session
+        else:
+            existing_session = next(
+                (session for session in active_lobbies.values()
+                 if session.message and session.message.guild and ctx.guild and session.message.guild.id == ctx.guild.id),
+                None
+            )
+
+        if existing_session and existing_session.closed:
+            existing_session = None
+
+        if existing_session:
             existing_message = existing_session.message
             channel_mention = f" no canal <#{existing_message.channel.id}>" if existing_message else ""
             reply_text = f"⚠️ Já existe uma lista aberta{channel_mention}. Veja a lista atual abaixo."
+
+            if is_admin(ctx.author.id):
+                prompt_text = (
+                    f"⚠️ Já existe uma lista aberta{channel_mention}. "
+                    "Deseja apagar a lista atual e abrir uma nova?"
+                )
+                view = ConfirmNewListView(ctx, existing_session)
+                if existing_message and existing_message.channel.id == ctx.channel.id:
+                    try:
+                        await ctx.send(prompt_text, reference=existing_message.to_reference(), view=view)
+                    except discord.HTTPException:
+                        await ctx.send(prompt_text, view=view)
+                elif existing_message:
+                    await ctx.send(f"{prompt_text}\nAcesse: {existing_message.jump_url}", view=view)
+                else:
+                    await ctx.send(prompt_text, view=view)
+                await ctx.message.delete()
+                return
+
             if existing_message and existing_message.channel.id == ctx.channel.id:
                 try:
                     await ctx.send(reply_text, reference=existing_message.to_reference())
@@ -73,31 +226,6 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 )
                 await ctx.message.delete()
                 return
-
-        await _create_list(ctx)
-
-    @bot.command(name="forcelista", aliases=["forcelobby", "forceopen"])
-    async def force_list(ctx: commands.Context):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores podem forçar a abertura de uma nova lista.", delete_after=8)
-            return
-
-        await _cleanup_stale_lobbies()
-        if ctx.guild:
-            delete_lobby_session(ctx.guild.id)
-
-        if active_lobbies:
-            for session in list(active_lobbies.values()):
-                try:
-                    if session.message:
-                        await session.message.delete()
-                except discord.HTTPException:
-                    pass
-            active_lobbies.clear()
-            await ctx.send("⚠️ Lista anterior removida e nova lista sendo criada.", delete_after=8)
-        else:
-            await ctx.send("✅ Nenhuma lista ativa encontrada. Abrindo nova lista.", delete_after=8)
 
         await _create_list(ctx)
 
@@ -128,7 +256,6 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             value=(
                 "`!registrarcanal`: Registra o canal atual como canal exclusivo para abrir listas.\n"
                 "`!limparcanal`: Remove a configuração e permite abrir listas em qualquer canal.\n"
-                "`!forcelista`: Força a abertura de uma nova lista mesmo que uma antiga esteja registrada.\n"
                 "`!registrarcanalimagem`: Registra o canal atual para leitura de imagens OCR.\n"
                 "`!limparcanalimagem`: Remove a imagem OCR registrada e volta a usar apenas o ENV ou nenhum canal.\n"
                 "`!canalimagem`: Mostra o canal de imagem OCR atualmente configurado."
