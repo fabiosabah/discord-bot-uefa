@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any
 
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential, wait_random_exponential
 from core.dota_heroes import resolve_hero_name
 
 logger = logging.getLogger("OCR")
@@ -230,8 +230,8 @@ def extract_text_from_image_url(image_url: str) -> str:
 
         @retry(
             retry=retry_if_exception(_is_rate_limit_exception),
-            wait=wait_exponential(multiplier=10, min=10, max=60),
-            stop=stop_after_attempt(5),
+            wait=wait_random_exponential(multiplier=8, min=15, max=180),
+            stop=stop_after_attempt(8),
             reraise=True,
         )
         def generate_content_with_retry(model_name: str):
