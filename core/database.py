@@ -221,6 +221,19 @@ def migrate_db():
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)
         """)
+
+        mp_columns = conn.execute("PRAGMA table_info(match_players)").fetchall()
+        mp_column_names = [col["name"] for col in mp_columns]
+        if "kills" not in mp_column_names:
+            conn.execute("ALTER TABLE match_players ADD COLUMN kills INTEGER")
+            logger.info("[DB] Coluna 'kills' adicionada via migration ao match_players.")
+        if "deaths" not in mp_column_names:
+            conn.execute("ALTER TABLE match_players ADD COLUMN deaths INTEGER")
+            logger.info("[DB] Coluna 'deaths' adicionada via migration ao match_players.")
+        if "assists" not in mp_column_names:
+            conn.execute("ALTER TABLE match_players ADD COLUMN assists INTEGER")
+            logger.info("[DB] Coluna 'assists' adicionada via migration ao match_players.")
+
         logger.info("[DB] Tabela 'match_history' criada ou já existente.")
 
         mh_columns = conn.execute("PRAGMA table_info(match_history)").fetchall()
@@ -564,12 +577,34 @@ def insert_league_match(parsed: dict[str, Any], match_hash: str, external_match_
 
         league_match_id = cursor.lastrowid
 
+        def parse_int_value(value: Any) -> int | None:
+            if value is None:
+                return None
+            try:
+                return int(str(value).strip())
+            except (TypeError, ValueError):
+                return None
+
         for index, player in enumerate(players_data, start=1):
             if not isinstance(player, dict):
                 continue
             player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
             hero_name = _sanitize_hero_name((player.get("hero_name") or player.get("hero") or "") if player.get("hero_name") or player.get("hero") else None)
-            kda = player.get("kda") or player.get("score") or ""
+            raw_kda = player.get("kda") or player.get("score")
+            kills = deaths = assists = None
+            if isinstance(raw_kda, dict):
+                kills = parse_int_value(raw_kda.get("kills") or raw_kda.get("kill"))
+                deaths = parse_int_value(raw_kda.get("deaths") or raw_kda.get("death"))
+                assists = parse_int_value(raw_kda.get("assists") or raw_kda.get("assist"))
+                kda = f"{kills if kills is not None else '?'}/{deaths if deaths is not None else '?'}/{assists if assists is not None else '?'}"
+            else:
+                raw_kda_text = str(raw_kda).strip() if raw_kda is not None else ""
+                if "/" in raw_kda_text:
+                    parts = raw_kda_text.split("/")
+                    kills = parse_int_value(parts[0] if len(parts) > 0 else None)
+                    deaths = parse_int_value(parts[1] if len(parts) > 1 else None)
+                    assists = parse_int_value(parts[2] if len(parts) > 2 else None)
+                kda = raw_kda_text
             networth = player.get("networth") or player.get("net_worth")
             try:
                 networth = int(networth) if networth is not None and str(networth).strip() != "" else None
@@ -577,8 +612,8 @@ def insert_league_match(parsed: dict[str, Any], match_hash: str, external_match_
                 networth = None
             team = _normalize_team(player.get("team") or player.get("side"))
             conn.execute(
-                "INSERT INTO match_players (league_match_id, slot, player_name, hero_name, kda, networth, team) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (league_match_id, index, player_name, hero_name, kda, networth, team)
+                "INSERT INTO match_players (league_match_id, slot, player_name, hero_name, kills, deaths, assists, kda, networth, team) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (league_match_id, index, player_name, hero_name, kills, deaths, assists, kda, networth, team)
             )
         conn.commit()
 
@@ -595,7 +630,7 @@ def get_match_by_league_id(league_match_id: int) -> dict | None:
             return None
 
         player_rows = conn.execute(
-            "SELECT slot, player_name, hero_name, kda, networth, team FROM match_players WHERE league_match_id = ? ORDER BY slot",
+            "SELECT slot, player_name, hero_name, kills, deaths, assists, kda, networth, team FROM match_players WHERE league_match_id = ? ORDER BY slot",
             (league_match_id,)
         ).fetchall()
 
@@ -618,6 +653,9 @@ def get_match_by_league_id(league_match_id: int) -> dict | None:
                 "slot": row["slot"],
                 "player_name": row["player_name"],
                 "hero_name": row["hero_name"],
+                "kills": row["kills"],
+                "deaths": row["deaths"],
+                "assists": row["assists"],
                 "kda": row["kda"],
                 "networth": row["networth"],
                 "team": row["team"],

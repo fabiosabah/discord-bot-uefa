@@ -1599,10 +1599,18 @@ def setup_score_commands(bot: commands.Bot):
 
         players = match.get("players_data") or []
         for player in players:
+            kills = player.get("kills")
+            deaths = player.get("deaths")
+            assists = player.get("assists")
+            if kills is not None or deaths is not None or assists is not None:
+                kda_text = f"K/D/A {kills if kills is not None else '?'} / {deaths if deaths is not None else '?'} / {assists if assists is not None else '?'}"
+            else:
+                kda_text = f"KDA {player.get('kda') or 'não informado'}"
+
             lines.append(
                 f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'} "
                 f"({player.get('hero_name') or 'herói desconhecido'}) - {player.get('team') or 'time desconhecido'} "
-                f"- {player.get('kda') or 'KDA não informado'} - networth {player.get('networth') if player.get('networth') is not None else 'N/A'}"
+                f"- {kda_text} - networth {player.get('networth') if player.get('networth') is not None else 'N/A'}"
             )
 
         await ctx.send(f"```\n{chr(10).join(lines)}\n```")
