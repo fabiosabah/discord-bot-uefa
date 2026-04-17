@@ -1339,6 +1339,7 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(error, delete_after=20)
             return
 
+        aliases_added = 0
         if slot is not None:
             entry, _ = _find_ocr_job_player_entry(parsed, slot)
             if entry is None:
@@ -1346,6 +1347,10 @@ def setup_score_commands(bot: commands.Bot):
                 return
 
             entry["discord_id"] = members[0].id
+            player_name = _get_ocr_player_name(entry)
+            if player_name:
+                add_player_alias(members[0].id, player_name)
+                aliases_added += 1
             mapped_count = 1
         else:
             for index, member in enumerate(members, start=1):
@@ -1353,6 +1358,10 @@ def setup_score_commands(bot: commands.Bot):
                 if entry is None:
                     continue
                 entry["discord_id"] = member.id
+                player_name = _get_ocr_player_name(entry)
+                if player_name:
+                    add_player_alias(member.id, player_name)
+                    aliases_added += 1
             mapped_count = len(members)
 
         try:
@@ -1361,16 +1370,20 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Erro ao atualizar o job {job_id}: {exc}", delete_after=20)
             return
 
+        audit_logger.info(
+            f"[OCRUSER] job={job_id} slot={slot if slot is not None else 'all'} mapped={mapped_count} aliases_added={aliases_added}"
+        )
+
         await ctx.message.delete()
         if slot is not None:
             await ctx.send(
                 f"✅ Slot {slot} do job {job_id} mapeado para {members[0].mention}. "
-                f"Use `!ocrok {job_id}` para importar e ele avisará se ainda faltar algum mapeamento."
+                f"O apelido foi salvo para futuras importações. Use `!ocrok {job_id}` para importar."
             )
         else:
             await ctx.send(
                 f"✅ IDs do Discord mapeados para {mapped_count} slot(s) no job {job_id}. "
-                f"Use `!ocrok {job_id}` para importar e ele avisará se ainda faltar algum mapeamento."
+                f"Os apelidos foram salvos para futuras importações. Use `!ocrok {job_id}` para importar."
             )
 
     @bot.command(name="confirmarimagem", aliases=["confirmimage", "editarimagem", "editimage"])
@@ -1416,18 +1429,43 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Não foi possível obter a lista de jogadores do job {job_id}.", delete_after=10)
             return
 
-        player_names = [name for name in (_get_ocr_player_name(player) for player in players) if name]
-        resolved = resolve_player_names_exact(player_names)
-        missing = [name for name in player_names if name and name not in resolved]
+        player_mapping: dict[str, dict[str, object]] = {}
+        unresolved_names: list[str] = []
+        for player in players:
+            if not isinstance(player, dict):
+                continue
+            player_name = _get_ocr_player_name(player)
+            if not player_name:
+                continue
+
+            discord_id = player.get("discord_id")
+            if discord_id is not None:
+                try:
+                    discord_id = int(discord_id)
+                    player_mapping[player_name] = {"discord_id": discord_id}
+                    continue
+                except (TypeError, ValueError):
+                    pass
+
+            unresolved_names.append(player_name)
+
+        existing_count = len(player_mapping)
+        resolved = resolve_player_names_exact(unresolved_names)
+        resolved_count = len(resolved)
+        missing = [name for name in unresolved_names if name not in resolved]
+        audit_logger.info(
+            f"[OCROK] job={job_id} existing_ids={existing_count} resolved_by_name={resolved_count} missing={missing}"
+        )
         if missing:
             await ctx.send(
                 f"❌ Não foi possível mapear automaticamente os seguintes jogadores para IDs do Discord: {', '.join(missing)}. "
-                "Use `!addalias @Usuario NomeOCR` para registrar esses nicks ou importe com `!importarimagem {job_id} <mapeamento>`.",
+                f"Use `!addalias @Usuario NomeOCR` para registrar esses nicks ou importe com `!importarimagem {job_id} <mapeamento>`.",
                 delete_after=30
             )
             return
 
-        player_mapping = {name: {"discord_id": resolved[name]} for name in resolved}
+        for name, discord_id in resolved.items():
+            player_mapping[name] = {"discord_id": discord_id}
 
         try:
             league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
@@ -1606,7 +1644,7 @@ def setup_score_commands(bot: commands.Bot):
             if kills is not None or deaths is not None or assists is not None:
                 kda_text = f"K/D/A {kills if kills is not None else '?'} / {deaths if deaths is not None else '?'} / {assists if assists is not None else '?'}"
             else:
-                kda_text = f"KDA {player.get('kda') or 'não informado'}"
+                kda_text = "K/D/A não informado"
 
             lines.append(
                 f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'} "
