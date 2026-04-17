@@ -453,15 +453,24 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
         if not player_name or not team:
             continue
 
-        entry = player_mapping.get(player_name)
-        if entry is None:
-            missing.append(player_name)
-            continue
+        discord_id = player.get("discord_id")
+        if discord_id is None:
+            entry = player_mapping.get(player_name)
+            if entry is None:
+                missing.append(player_name)
+                continue
+            discord_id = entry["discord_id"]
+        else:
+            try:
+                discord_id = int(discord_id)
+            except (TypeError, ValueError):
+                missing.append(player_name)
+                continue
 
         if team == winner_team:
-            winners.append(entry["discord_id"])
+            winners.append(discord_id)
         else:
-            losers.append(entry["discord_id"])
+            losers.append(discord_id)
 
     if missing:
         raise ValueError(f"Mapeamento incompleto. Falta mapear os jogadores: {', '.join(missing)}")
