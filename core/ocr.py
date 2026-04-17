@@ -221,7 +221,7 @@ def extract_text_from_image_url(image_url: str) -> str:
 
         def _is_model_not_found_error(exc: Exception) -> bool:
             if isinstance(exc, ClientError):
-                if exc.status_code == 404:
+                if getattr(exc, "status_code", None) == 404:
                     return True
             message = str(exc).lower()
             return "not found" in message or "not supported for generatecontent" in message
@@ -230,8 +230,8 @@ def extract_text_from_image_url(image_url: str) -> str:
 
         @retry(
             retry=retry_if_exception(_is_rate_limit_exception),
-            wait=wait_exponential(multiplier=5, min=5, max=30),
-            stop=stop_after_attempt(4),
+            wait=wait_exponential(multiplier=10, min=10, max=60),
+            stop=stop_after_attempt(5),
             reraise=True,
         )
         def generate_content_with_retry(model_name: str):
