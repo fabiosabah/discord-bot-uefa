@@ -20,7 +20,7 @@ from core.database import (
 from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
 from domain.models import LobbySession
 from ui.commands.lobby_commands import setup_lobby_commands
-from ui.commands.score_commands import setup_score_commands
+from ui.commands.score_commands import setup_score_commands, build_ocr_job_summary_text
 
 # ─────────────────────────────────────────────
 # Configuração de Logging (Railway stdout)
@@ -179,6 +179,26 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(
+            f"❌ Argumento obrigatório faltando: `{error.param.name}`. Use `!{ctx.command}` com todos os parâmetros.",
+            delete_after=20
+        )
+        return
+
+    if isinstance(error, commands.BadArgument):
+        await ctx.send(f"❌ Argumento inválido: {error}", delete_after=20)
+        return
+
+    if isinstance(error, commands.CommandNotFound):
+        return
+
+    logger.exception(f"Erro no comando {ctx.command}: {error}")
+    await ctx.send("❌ Ocorreu um erro ao processar o comando.", delete_after=20)
+
+
 async def ocr_background_worker():
     await bot.wait_until_ready()
     logger.info("🔎 Iniciando worker OCR de imagens de partida.")
@@ -206,9 +226,8 @@ async def ocr_background_worker():
                             f"⚠️ O job {job['id']} não parece ser um placar de Dota válido e foi marcado como não processado."
                         )
                     else:
-                        await channel.send(
-                            f"✅ OCR concluído para a imagem do job {job['id']}. JSON processado e disponível. Use `!detalhesimagem {job['id']}` para revisar ou `!importarimagem {job['id']} <mapeamento>` para importar."
-                        )
+                        summary = build_ocr_job_summary_text(job["id"], parsed)
+                        await channel.send(summary)
             except Exception as exc:
                 logger.exception(f"Erro ao processar imagem OCR para job {job['id']}")
                 set_match_screenshot_status(job["id"], "failed", metadata=str(exc))

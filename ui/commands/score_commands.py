@@ -6,6 +6,7 @@ import re
 from typing import Any
 from discord.ext import commands
 from core.config import ADMIN_IDS, IMAGE_CHANNEL_ID
+from core.dota_heroes import resolve_hero_name, format_hero_suggestions
 from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
     get_ranking, log_action, get_last_admin_action, delete_audit_log_entry,
@@ -31,6 +32,119 @@ def is_admin(user_id: int) -> bool:
 
 def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
+
+
+def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
+    slot = player.get("slot")
+    if isinstance(slot, str) and slot.isdigit():
+        slot = int(slot)
+    if not isinstance(slot, int):
+        slot = index
+
+    player_name = (
+        player.get("player_name")
+        or player.get("name")
+        or player.get("player")
+        or "desconhecido"
+    )
+    player_name = str(player_name).strip() or "desconhecido"
+
+    hero_name = (
+        player.get("hero_name")
+        or player.get("hero")
+        or player.get("heroi")
+        or "herói desconhecido"
+    )
+    hero_name = str(hero_name).strip() or "herói desconhecido"
+
+    team = player.get("team") or player.get("side") or ""
+    if isinstance(team, str):
+        team = team.strip().lower()
+    team_label = None
+    if team in {"radiant", "dire"}:
+        team_label = team.title()
+    elif team in {"r", "rad", "radiante"}:
+        team_label = "Radiant"
+    elif team in {"d", "dir", "dire"}:
+        team_label = "Dire"
+
+    kda_value = player.get("kda")
+    if isinstance(kda_value, dict):
+        kills = kda_value.get("kills") or "?"
+        deaths = kda_value.get("deaths") or "?"
+        assists = kda_value.get("assists") or "?"
+        kda = f"{kills}/{deaths}/{assists}"
+    else:
+        kda = str(kda_value).strip() if kda_value is not None else ""
+
+    networth = player.get("networth") or player.get("net_worth")
+    networth_text = f"NW {networth}" if networth is not None and str(networth).strip() else ""
+
+    parts = [f"`{slot}`", f"**{player_name}**", hero_name]
+    if team_label:
+        parts.append(team_label)
+    if kda:
+        parts.append(f"KDA {kda}")
+    if networth_text:
+        parts.append(networth_text)
+
+    return " · ".join(parts)
+
+
+def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
+    if parsed.get("valid_dota_screenshot") is False:
+        return (
+            f"⚠️ Job {job_id} processado, mas não parece ser um placar válido de Dota 2. "
+            f"Use `!detalhesimagem {job_id}` para revisar o JSON ou `!rawtextimagem {job_id}` para o texto OCR bruto."
+        )
+
+    match_info = parsed.get("match_info") or parsed.get("game_details") or {}
+    score = match_info.get("score") or {}
+    radiant_score = score.get("radiant") or parsed.get("radiant_score")
+    dire_score = score.get("dire") or parsed.get("dire_score")
+    winner = match_info.get("winner") or parsed.get("winner") or parsed.get("radiant_win")
+    if winner is True:
+        winner = "Radiant"
+    elif winner is False:
+        winner = "Dire"
+    winner_text = str(winner).title() if winner else "desconhecido"
+    duration = match_info.get("duration") or parsed.get("duration") or parsed.get("match_date")
+    mode = match_info.get("game_mode") or match_info.get("mode") or parsed.get("mode")
+
+    players = parsed.get("players_data") or parsed.get("players") or []
+    lines = [
+        f"✅ OCR completo para o job {job_id}",
+        "",
+        f"📊 Placar: `{radiant_score or 0}` x `{dire_score or 0}`",
+        f"🏆 Vencedor: {winner_text}",
+    ]
+
+    if duration:
+        lines.append(f"⏱️ Duração/data: {duration}")
+    if mode:
+        lines.append(f"🎮 Modo: {mode}")
+
+    if not players:
+        lines.append("")
+        lines.append("⚠️ Não foi possível extrair a lista de jogadores do OCR.")
+        lines.append(f"Use `!detalhesimagem {job_id}` para ver o JSON completo.")
+        return "\n".join(lines)
+
+    lines.extend(["", "👥 Jogadores detectados:"])
+    for index, player in enumerate(players, start=1):
+        lines.append(_format_ocr_player_line(player, index))
+
+    lines.extend([
+        "",
+        "🛠️ Correções e próximos passos:",
+        f"• `!importarimagem {job_id} <mapeamento>` para salvar a partida no banco.",
+        f"• `!detalhesimagem {job_id}` para ver o JSON processado.",
+        f"• `!rawtextimagem {job_id}` para ver o texto OCR bruto.",
+        "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
+        "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot> <herói>` e `!nick <league_match_id> <slot> <novo nick> @Usuario>`.",
+    ])
+
+    return "\n".join(lines)
 
 
 def parse_player_mapping(mapping_text: str) -> list[dict[str, object]]:
@@ -838,6 +952,31 @@ def setup_score_commands(bot: commands.Bot):
         for chunk in chunks:
             await ctx.send(f"```json\n{chunk}\n```")
 
+    @bot.command(name="imagemresumo", aliases=["resumoimagem", "matchsummary", "jobsummary"])
+    async def cmd_image_summary(ctx: commands.Context, job_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR.", delete_after=10)
+            return
+
+        try:
+            metadata = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        summary = build_ocr_job_summary_text(job_id, metadata)
+        await ctx.send(summary)
+
     @bot.command(name="removerimagem", aliases=["deleteimage", "deleteimagem", "removeimage"])
     async def cmd_remove_image(ctx: commands.Context, job_id: int, confirm: str = None):
         if not is_admin(ctx.author.id):
@@ -877,7 +1016,15 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(f"✅ Imagem {job_id} confirmada. Use o texto para registrar o histórico: {text}")
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
-    async def cmd_import_image(ctx: commands.Context, job_id: int, *, mapping_text: str):
+    async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):
+        if job_id is None or not mapping_text:
+            await ctx.send(
+                "❌ Uso incorreto. Exemplo: `!importarimagem 123 1=@123456789012345678`\n" \
+                "ou `!importarimagem 123 \"Nome do jogador\"=@123456789012345678 hero=Rubick`",
+                delete_after=20
+            )
+            return
+
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
@@ -951,19 +1098,24 @@ def setup_score_commands(bot: commands.Bot):
 
         if missing_names:
             await ctx.send(
-                f"❌ Ainda faltam mapear os seguintes jogadores: {', '.join(missing_names)}",
-                delete_after=20
+                f"❌ Ainda faltam mapear os seguintes jogadores: {', '.join(missing_names)}\n"
+                "Use `!addalias @Usuario NomeOCR` para registrar o nick quando ele aparecer pela primeira vez, "
+                "ou use o slot numérico no mapeamento: `1=@123456789012345678`.",
+                delete_after=30
             )
             return
 
         try:
-            insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
+            league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
         except Exception as exc:
             await ctx.send(f"❌ Falha ao importar imagem: {exc}", delete_after=20)
             return
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Imagem {job_id} importada como partida no banco.")
+        await ctx.send(
+            f"✅ Imagem {job_id} importada como partida `#{league_match_id}` no banco. "
+            f"Use `!id {league_match_id}` para revisar e `!fixhero` / `!nick` para ajustes." 
+        )
 
     @bot.command(name="id")
     async def cmd_lookup_match(ctx: commands.Context, league_match_id: int):
@@ -1018,17 +1170,29 @@ def setup_score_commands(bot: commands.Bot):
         player_entry = next((p for p in players if p.get("slot") == slot), None)
         if not player_entry:
             await ctx.send(
-                f"❌ Slot {slot} não encontrado para a partida {league_match_id}. Use o slot correto.",
+                f"❌ Slot {slot} não foi encontrado para a partida {league_match_id}. Use o slot correto.",
                 delete_after=20
             )
             return
 
-        hero = hero.strip()
-        if not hero:
-            await ctx.send("❌ Informe o herói após o slot.", delete_after=10)
+        resolved_hero, suggestions, status = resolve_hero_name(hero)
+        if status == "empty":
+            await ctx.send("❌ Informe o nome do herói após o slot.", delete_after=10)
+            return
+        if status == "ambiguous":
+            await ctx.send(
+                f"❌ Nome ambíguo: '{hero}'. Tente digitar um pouco mais ou escolha um destes: {format_hero_suggestions(suggestions)}",
+                delete_after=30
+            )
+            return
+        if resolved_hero is None:
+            await ctx.send(
+                f"❌ Não foi possível encontrar um herói parecido com '{hero}'. Sugestões: {format_hero_suggestions(suggestions)}",
+                delete_after=30
+            )
             return
 
-        updated = update_league_match_hero_by_slot(league_match_id, slot, hero)
+        updated = update_league_match_hero_by_slot(league_match_id, slot, resolved_hero)
         if not updated:
             await ctx.send(
                 f"❌ Não foi possível atualizar o herói do slot {slot} na partida {league_match_id}.",
@@ -1040,12 +1204,12 @@ def setup_score_commands(bot: commands.Bot):
             ctx.author.id,
             ctx.author.display_name,
             "!fixhero",
-            f"league_match_id={league_match_id} slot={slot} hero={hero}",
+            f"league_match_id={league_match_id} slot={slot} hero={resolved_hero}",
         )
 
         await ctx.message.delete()
         await ctx.send(
-            f"✅ Herói do slot {slot} na partida {league_match_id} atualizado para **{hero}**."
+            f"✅ Herói do slot {slot} na partida {league_match_id} atualizado para **{resolved_hero}**."
         )
 
     @bot.command(name="definirherois", aliases=["setmatchheroes", "setherois"])
@@ -1069,7 +1233,27 @@ def setup_score_commands(bot: commands.Bot):
             )
             return
 
-        updated = update_league_match_heroes(league_match_id, heroes)
+        resolved_heroes: list[str] = []
+        for hero in heroes:
+            resolved_hero, suggestions, status = resolve_hero_name(hero)
+            if status == "empty":
+                await ctx.send("❌ Um dos heróis está vazio. Use nomes ou abreviações válidas.", delete_after=20)
+                return
+            if status == "ambiguous":
+                await ctx.send(
+                    f"❌ Nome ambíguo: '{hero}'. Sugestões: {format_hero_suggestions(suggestions)}",
+                    delete_after=30
+                )
+                return
+            if resolved_hero is None:
+                await ctx.send(
+                    f"❌ Não foi possível encontrar um herói parecido com '{hero}'. Sugestões: {format_hero_suggestions(suggestions)}",
+                    delete_after=30
+                )
+                return
+            resolved_heroes.append(resolved_hero)
+
+        updated = update_league_match_heroes(league_match_id, resolved_heroes)
         if updated != len(players):
             await ctx.send(
                 f"⚠️ Atualizados {updated} de {len(players)} heróis para a partida {league_match_id}. Verifique o match_id e tente novamente.",
@@ -1186,7 +1370,6 @@ def setup_score_commands(bot: commands.Bot):
             affected_ids=[discord_id]
         )
 
-        await ctx.message.delete()
         await ctx.send(
             f"✅ Nick do slot {slot} na partida {league_match_id} atualizado para **{new_nick}** (<@{discord_id}>)."
         )

@@ -373,6 +373,12 @@ def _parse_gold(text: str) -> dict[str, Any]:
     return result
 
 
+def _normalize_player_name(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return value
+    return re.sub(r"\s*\[[^\]]+\]\s*$", "", value).strip()
+
+
 def _parse_players(text: str) -> list[dict[str, Any]]:
     players: list[dict[str, Any]] = []
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -383,7 +389,7 @@ def _parse_players(text: str) -> list[dict[str, Any]]:
     for line in lines:
         match = pattern.search(line)
         if match:
-            name = match.group("name")
+            name = _normalize_player_name(match.group("name"))
             score = match.group("score")
             gold_text = match.group("gold")
             hero = match.group("hero")
@@ -469,7 +475,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 continue
             parsed_players.append({
                 "slot": entry.get("slot"),
-                "player_name": entry.get("player_name") or entry.get("name") or entry.get("player"),
+                "player_name": _normalize_player_name(entry.get("player_name") or entry.get("name") or entry.get("player")),
                 "hero_name": entry.get("hero_name") or entry.get("hero") or entry.get("heroi"),
                 "kills": entry.get("kills"),
                 "deaths": entry.get("deaths"),
@@ -519,7 +525,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
                 if not isinstance(entry, dict):
                     continue
                 parsed_players.append({
-                    "name": entry.get("player") or entry.get("name"),
+                    "name": _normalize_player_name(entry.get("player") or entry.get("name")),
                     "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
                     "kills": entry.get("kills"),
                     "deaths": entry.get("deaths"),
@@ -566,7 +572,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             if not isinstance(entry, dict):
                 continue
             parsed_players.append({
-                "name": entry.get("name"),
+                "name": _normalize_player_name(entry.get("name")),
                 "hero": entry.get("hero"),
                 "score": entry.get("score"),
                 "net_worth": entry.get("net_worth"),

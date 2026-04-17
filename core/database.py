@@ -491,7 +491,7 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     original_metadata["mapping"] = player_mapping
     set_match_screenshot_status(job_id, "imported", metadata=json.dumps(original_metadata, ensure_ascii=False))
     logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id} league_match_id {league_match_id}")
-    return audit_id
+    return league_match_id
 
 
 def insert_match_import(
