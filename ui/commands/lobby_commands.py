@@ -296,7 +296,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 "`!rawtextimagem <job_id>`: Exibe o texto bruto extraído para diagnóstico.\n"
                 "`!importarimagem <job_id> <mapeamento>`: Registra a imagem como partida usando o mapeamento de nomes para IDs.\n"
                 "`!confirmarimagem <job_id> <texto>`: Corrige manualmente os metadados OCR.\n"
-                "`!fixhero <match_id> @usuario <herói>`: Ajusta o herói de um jogador em uma partida importada.\n"
+                "`!fixhero <match_id>, <slot>, <herói>`: Ajusta o herói de um jogador em uma partida importada.\n"
                 "`!devhelp`: Obtenha documentação técnica de fluxo e esquema do banco."
             ),
             inline=False

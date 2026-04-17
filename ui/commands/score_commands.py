@@ -200,7 +200,7 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
         f"• Depois de corrigir a imagem, use `!ocrok {job_id}` para importar o job diretamente se todos os nicks estiverem mapeados.",
         f"• Use `!confirmarimagem {job_id} <texto>` ou `!editarimagem {job_id} <texto>` para corrigir metadados diretamente.",
         "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
-        "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot> <herói>` e `!nick <league_match_id> <slot> <novo nick> @Usuario>`",
+        "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot>, <herói>` e `!nick <league_match_id> <slot>, <novo nick> @Usuario>`",
     ])
     if winner_team:
         lines.append(
@@ -1675,6 +1675,7 @@ def setup_score_commands(bot: commands.Bot):
             )
             return
 
+        hero = hero.lstrip(", ")
         resolved_hero, suggestions, status = resolve_hero_name(hero)
         if status == "empty":
             await ctx.send("❌ Informe o nome do herói após o slot.", delete_after=10)
@@ -1827,13 +1828,14 @@ def setup_score_commands(bot: commands.Bot):
         mention_match = re.search(r"<@!?(?P<id>\d+)>", rest)
         if not mention_match:
             await ctx.send(
-                "❌ Mencione o jogador do Discord com @ e informe o novo nick. Ex: `!nick 123 3 ShadowBlade @Player`",
+                "❌ Mencione o jogador do Discord com @ e informe o novo nick. Ex: `!nick 123 3, Shadow Blade @Player`",
                 delete_after=20
             )
             return
 
         discord_id = int(mention_match.group("id"))
         new_nick = (rest[:mention_match.start()] + rest[mention_match.end():]).strip()
+        new_nick = new_nick.lstrip(", ")
         if not new_nick:
             await ctx.send(
                 "❌ Informe o novo nick juntamente com a menção do jogador.",
