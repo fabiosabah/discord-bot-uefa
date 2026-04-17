@@ -195,7 +195,7 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     lines.extend([
         f"• `!detalhesimagem {job_id}` para ver o JSON processado.",
         f"• `!rawtextimagem {job_id}` para ver o texto OCR bruto.",
-        f"• Use `!ocrhero {job_id} <slot> <novo herói>` ou `!ocrnick {job_id} <slot> <novo nick>` para corrigir antes de importar.",
+        f"• Use `!ocrhero {job_id} <slot> <novo herói>`, `!ocrnick {job_id} <slot> <novo nick>` ou `!ocruser {job_id} <@u1> <@u2> ...` / `!ocruser {job_id} <slot> @u1` para corrigir antes de importar.",
         f"• Depois de corrigir a imagem, use `!ocrok {job_id}` para importar o job diretamente se todos os nicks estiverem mapeados.",
         f"• Use `!confirmarimagem {job_id} <texto>` ou `!editarimagem {job_id} <texto>` para corrigir metadados diretamente.",
         "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
@@ -1222,6 +1222,115 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Nick `{old_nick}` alterado para `{new_nick}` no job {job_id}.")
+
+    @bot.command(name="ocruser", aliases=["editocruser"])
+    async def cmd_ocr_user(ctx: commands.Context, job_id: int, *args: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if not args:
+            await ctx.send(
+                "❌ Uso incorreto. Exemplo: `!ocruser 1 @Usuario1 @Usuario2 ...` para mapear todos os slots, ou `!ocruser 1 2 @Usuario` para mapear apenas o slot 2.",
+                delete_after=20
+            )
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR processados.", delete_after=10)
+            return
+
+        try:
+            parsed = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        players = parsed.get("players_data") or parsed.get("players") or []
+        if not isinstance(players, list) or not players:
+            await ctx.send(f"❌ Não foi possível obter a lista de jogadores do job {job_id}.", delete_after=10)
+            return
+
+        first_arg = args[0]
+        slot: int | None = None
+        user_tokens: tuple[str, ...]
+
+        if first_arg.isdigit():
+            if len(args) < 2:
+                await ctx.send(
+                    "❌ Uso incorreto. Quando informar slot, também passe um usuário: `!ocruser 1 2 @Usuario`.",
+                    delete_after=20
+                )
+                return
+
+            slot = int(first_arg)
+            user_tokens = args[1:]
+            if len(user_tokens) != 1:
+                await ctx.send(
+                    "❌ Quando informar slot, passe exatamente um usuário: `!ocruser 1 2 @Usuario`.",
+                    delete_after=20
+                )
+                return
+
+            if slot < 1 or slot > len(players):
+                await ctx.send(
+                    f"❌ Slot inválido. O job {job_id} tem {len(players)} slots.",
+                    delete_after=20
+                )
+                return
+        else:
+            user_tokens = args
+            if len(user_tokens) > len(players):
+                await ctx.send(
+                    f"❌ Você forneceu mais usuários do que slots existem no job ({len(players)}).",
+                    delete_after=20
+                )
+                return
+
+        members, error = await _resolve_command_user_mentions(ctx, user_tokens)
+        if error:
+            await ctx.send(error, delete_after=20)
+            return
+
+        if slot is not None:
+            entry, _ = _find_ocr_job_player_entry(parsed, slot)
+            if entry is None:
+                await ctx.send(f"❌ Slot {slot} não encontrado no job {job_id}.", delete_after=10)
+                return
+
+            entry["discord_id"] = members[0].id
+            mapped_count = 1
+        else:
+            for index, member in enumerate(members, start=1):
+                entry, _ = _find_ocr_job_player_entry(parsed, index)
+                if entry is None:
+                    continue
+                entry["discord_id"] = member.id
+            mapped_count = len(members)
+
+        try:
+            _set_ocr_job_metadata(job_id, parsed)
+        except ValueError as exc:
+            await ctx.send(f"❌ Erro ao atualizar o job {job_id}: {exc}", delete_after=20)
+            return
+
+        await ctx.message.delete()
+        if slot is not None:
+            await ctx.send(
+                f"✅ Slot {slot} do job {job_id} mapeado para {members[0].mention}. "
+                f"Use `!ocrok {job_id}` para importar e ele avisará se ainda faltar algum mapeamento."
+            )
+        else:
+            await ctx.send(
+                f"✅ IDs do Discord mapeados para {mapped_count} slot(s) no job {job_id}. "
+                f"Use `!ocrok {job_id}` para importar e ele avisará se ainda faltar algum mapeamento."
+            )
 
     @bot.command(name="confirmarimagem", aliases=["confirmimage", "editarimagem", "editimage"])
     async def cmd_confirm_image(ctx: commands.Context, job_id: int, *, text: str):
