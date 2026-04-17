@@ -1059,9 +1059,30 @@ def delete_audit_log_entry(entry_id: int):
 def delete_match_history() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM match_history")
+        conn.execute("DELETE FROM matches")
+        conn.execute("DELETE FROM match_players")
+        conn.execute("DELETE FROM match_imports")
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_history'")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'matches'")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_players'")
         conn.commit()
-    logger.info("[DB] Histórico de partidas apagado.")
+    logger.info("[DB] Histórico de partidas e partidas importadas apagados.")
+
+
+def delete_league_match(league_match_id: int) -> bool:
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM matches WHERE league_match_id = ? LIMIT 1",
+            (league_match_id,)
+        ).fetchone()
+        if not exists:
+            return False
+
+        conn.execute("DELETE FROM match_players WHERE league_match_id = ?", (league_match_id,))
+        conn.execute("DELETE FROM matches WHERE league_match_id = ?", (league_match_id,))
+        conn.commit()
+    logger.info(f"[DB] Partida importada league_match_id {league_match_id} removida.")
+    return True
 
 
 def delete_match_screenshots() -> None:

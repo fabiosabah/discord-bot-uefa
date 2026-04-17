@@ -18,7 +18,8 @@ from core.database import (
     find_player_by_display_name, resolve_player_names_exact, insert_ocr_match, get_match_by_league_id,
     add_player_alias, remove_player_alias, get_player_aliases,
     get_image_channel, set_image_channel, clear_image_channel,
-    delete_match_screenshots, delete_match_screenshot,
+    delete_match_screenshots, delete_match_screenshot, delete_match_history,
+    delete_league_match,
     update_match_hero, update_league_match_heroes, update_league_match_player_name_by_slot,
     update_league_match_hero_by_slot, update_league_match_player_names
 )
@@ -1933,14 +1934,14 @@ def setup_score_commands(bot: commands.Bot):
 
         if confirm != "confirmar":
             await ctx.send(
-                "⚠️ Para apagar o histórico de partidas, use `!limparhistorico confirmar`.",
+                "⚠️ Para apagar o histórico de partidas e as partidas importadas, use `!limparhistorico confirmar`.",
                 delete_after=15
             )
             return
 
         delete_match_history()
         await ctx.message.delete()
-        await ctx.send("🗑️ Histórico de partidas apagado com sucesso.")
+        await ctx.send("🗑️ Histórico de partidas e partidas importadas apagados com sucesso.")
 
     @bot.command(name="limparhistoricodeimagens", aliases=["clearimagehistory", "apagarhistoricodeimagens", "limparimagens"])
     async def cmd_clear_image_history(ctx: commands.Context, confirm: str = None):
@@ -1959,6 +1960,21 @@ def setup_score_commands(bot: commands.Bot):
         delete_match_screenshots()
         await ctx.message.delete()
         await ctx.send("🗑️ Histórico de imagens OCR apagado com sucesso.")
+
+    @bot.command(name="apagarid", aliases=["deleteid", "delmatch", "apagarmatch"])
+    async def cmd_delete_match_by_id(ctx: commands.Context, league_match_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        deleted = delete_league_match(league_match_id)
+        if not deleted:
+            await ctx.send(f"❌ Partida com id `{league_match_id}` não encontrada.", delete_after=10)
+            return
+
+        await ctx.message.delete()
+        await ctx.send(f"🗑️ Partida importada `#{league_match_id}` apagada com sucesso.")
 
     @bot.command(name="tabela")
     async def cmd_tabela(ctx: commands.Context):
