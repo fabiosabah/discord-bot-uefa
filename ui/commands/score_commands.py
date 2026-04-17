@@ -109,6 +109,43 @@ def _get_winner_team(parsed: dict[str, Any]) -> str | None:
     return None
 
 
+def _find_ocr_job_player_entry(parsed: dict[str, Any], slot: int) -> tuple[dict[str, Any] | None, str | None]:
+    for key in ("players_data", "players"):
+        players = parsed.get(key)
+        if not isinstance(players, list):
+            continue
+
+        for entry in players:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("slot") is not None:
+                try:
+                    if int(entry.get("slot")) == slot:
+                        return entry, key
+                except (TypeError, ValueError):
+                    continue
+
+        if 1 <= slot <= len(players):
+            entry = players[slot - 1]
+            if isinstance(entry, dict):
+                return entry, key
+
+    return None, None
+
+
+def _set_ocr_job_metadata(job_id: int, parsed: dict[str, Any]) -> None:
+    job = get_match_screenshot(job_id)
+    if job is None:
+        raise ValueError(f"Job de imagem {job_id} não encontrado")
+    set_match_screenshot_status(job_id, job["status"] or "processed", metadata=json.dumps(parsed, ensure_ascii=False))
+
+
+def _get_ocr_player_name(player: dict[str, Any]) -> str:
+    return (
+        str(player.get("player_name") or player.get("name") or player.get("player") or "").strip()
+    )
+
+
 def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     if parsed.get("valid_dota_screenshot") is False:
         return (
@@ -158,7 +195,9 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     lines.extend([
         f"• `!detalhesimagem {job_id}` para ver o JSON processado.",
         f"• `!rawtextimagem {job_id}` para ver o texto OCR bruto.",
-        f"• Use `!confirmarimagem {job_id} <texto>` ou `!editarimagem {job_id} <texto>` para corrigir os metadados OCR antes de importar.",
+        f"• Use `!ocrhero {job_id} <slot> <novo herói>` ou `!ocrnick {job_id} <slot> <novo nick>` para corrigir antes de importar.",
+        f"• Depois de corrigir a imagem, use `!ocrok {job_id}` para importar o job diretamente se todos os nicks estiverem mapeados.",
+        f"• Use `!confirmarimagem {job_id} <texto>` ou `!editarimagem {job_id} <texto>` para corrigir metadados diretamente.",
         "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
         "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot> <herói>` e `!nick <league_match_id> <slot> <novo nick> @Usuario>`",
     ])
@@ -1075,6 +1114,115 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"🗑️ Job de imagem {job_id} removido com sucesso.")
 
+    @bot.command(name="ocrhero", aliases=["editocrhero"])
+    async def cmd_ocr_hero(ctx: commands.Context, job_id: int, slot: int, *, hero: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR processados.", delete_after=10)
+            return
+
+        try:
+            parsed = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        entry, _ = _find_ocr_job_player_entry(parsed, slot)
+        if entry is None:
+            await ctx.send(f"❌ Slot {slot} não encontrado no job {job_id}.", delete_after=10)
+            return
+
+        resolved_hero, suggestions, status = resolve_hero_name(hero)
+        if status == "empty":
+            await ctx.send("❌ Informe o nome do herói após o slot.", delete_after=10)
+            return
+        if status == "ambiguous":
+            await ctx.send(
+                f"❌ Nome ambíguo: '{hero}'. Tente digitar um pouco mais ou escolha um destes: {format_hero_suggestions(suggestions)}",
+                delete_after=30
+            )
+            return
+        if resolved_hero is None:
+            await ctx.send(
+                f"❌ Não foi possível encontrar um herói parecido com '{hero}'. Sugestões: {format_hero_suggestions(suggestions)}",
+                delete_after=30
+            )
+            return
+
+        old_hero = entry.get("hero_name") or entry.get("hero") or entry.get("heroi") or "desconhecido"
+        if "hero_name" in entry:
+            entry["hero_name"] = resolved_hero
+        elif "hero" in entry:
+            entry["hero"] = resolved_hero
+        elif "heroi" in entry:
+            entry["heroi"] = resolved_hero
+        else:
+            entry["hero_name"] = resolved_hero
+
+        try:
+            _set_ocr_job_metadata(job_id, parsed)
+        except ValueError as exc:
+            await ctx.send(f"❌ Erro ao atualizar o job {job_id}: {exc}", delete_after=20)
+            return
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Herói `{old_hero}` alterado para `{resolved_hero}` no job {job_id}.")
+
+    @bot.command(name="ocrnick", aliases=["editocrnick"])
+    async def cmd_ocr_nick(ctx: commands.Context, job_id: int, slot: int, *, new_nick: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR processados.", delete_after=10)
+            return
+
+        try:
+            parsed = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        entry, _ = _find_ocr_job_player_entry(parsed, slot)
+        if entry is None:
+            await ctx.send(f"❌ Slot {slot} não encontrado no job {job_id}.", delete_after=10)
+            return
+
+        old_nick = entry.get("player_name") or entry.get("name") or entry.get("player") or "desconhecido"
+        if "player_name" in entry:
+            entry["player_name"] = new_nick
+        elif "name" in entry:
+            entry["name"] = new_nick
+        elif "player" in entry:
+            entry["player"] = new_nick
+        else:
+            entry["player_name"] = new_nick
+
+        try:
+            _set_ocr_job_metadata(job_id, parsed)
+        except ValueError as exc:
+            await ctx.send(f"❌ Erro ao atualizar o job {job_id}: {exc}", delete_after=20)
+            return
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Nick `{old_nick}` alterado para `{new_nick}` no job {job_id}.")
+
     @bot.command(name="confirmarimagem", aliases=["confirmimage", "editarimagem", "editimage"])
     async def cmd_confirm_image(ctx: commands.Context, job_id: int, *, text: str):
         if not is_admin(ctx.author.id):
@@ -1090,6 +1238,59 @@ def setup_score_commands(bot: commands.Bot):
         set_match_screenshot_status(job_id, "confirmed", metadata=text)
         await ctx.message.delete()
         await ctx.send(f"✅ Imagem {job_id} confirmada. Use o texto para registrar o histórico: {text}")
+
+    @bot.command(name="ocrok")
+    async def cmd_ocrok(ctx: commands.Context, job_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR processados.", delete_after=10)
+            return
+
+        try:
+            parsed = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        players = parsed.get("players_data") or parsed.get("players") or []
+        if not isinstance(players, list) or not players:
+            await ctx.send(f"❌ Não foi possível obter a lista de jogadores do job {job_id}.", delete_after=10)
+            return
+
+        player_names = [name for name in (_get_ocr_player_name(player) for player in players) if name]
+        resolved = resolve_player_names_exact(player_names)
+        missing = [name for name in player_names if name and name not in resolved]
+        if missing:
+            await ctx.send(
+                f"❌ Não foi possível mapear automaticamente os seguintes jogadores para IDs do Discord: {', '.join(missing)}. "
+                "Use `!addalias @Usuario NomeOCR` para registrar esses nicks ou importe com `!importarimagem {job_id} <mapeamento>`.",
+                delete_after=30
+            )
+            return
+
+        player_mapping = {name: {"discord_id": resolved[name]} for name in resolved}
+
+        try:
+            league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
+            delete_match_screenshot(job_id)
+        except Exception as exc:
+            await ctx.send(f"❌ Falha ao importar job {job_id}: {exc}", delete_after=20)
+            return
+
+        await ctx.message.delete()
+        await ctx.send(
+            f"✅ Job {job_id} importado como partida `#{league_match_id}` no banco e removido da fila de OCR. "
+            f"Use `!id {league_match_id}` para revisar e `!fixhero` / `!nick` para ajustes."
+        )
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
     async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):
