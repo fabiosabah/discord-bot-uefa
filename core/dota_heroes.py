@@ -27,6 +27,7 @@ HERO_NAMES = [
     "Dark Seer",
     "Dark Willow",
     "Dazzle",
+    "Dawnbreaker",
     "Death Prophet",
     "Disruptor",
     "Doom",
