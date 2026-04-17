@@ -276,6 +276,46 @@ def _resolve_command_members(ctx: commands.Context, tokens: tuple[str, ...]) -> 
     return members, None
 
 
+async def _resolve_command_user_mentions(ctx: commands.Context, tokens: tuple[str, ...]) -> tuple[list[discord.User], str | None]:
+    if not tokens:
+        return [], "⚠️ Forneça pelo menos um usuário. Use menções de usuário ou IDs numéricos."
+
+    members: list[discord.User] = []
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            return [], "⚠️ Foi fornecido um argumento vazio."
+
+        if re.match(r"^<@&\d+>$", token):
+            return [], "⚠️ Menção de cargo detectada. Use menção de usuário ou ID de usuário."
+
+        discord_id = None
+        mention_match = re.match(r"^<@!?(?P<id>\d+)>$", token)
+        if mention_match:
+            discord_id = int(mention_match.group("id"))
+        elif token.isdigit():
+            discord_id = int(token)
+        else:
+            return [], f"⚠️ Não foi possível resolver o jogador '{token}'. Use menção de usuário ou ID numérico."
+
+        user = None
+        if ctx.guild:
+            user = ctx.guild.get_member(discord_id)
+        if user is None:
+            user = ctx.bot.get_user(discord_id)
+        if user is None:
+            try:
+                user = await ctx.bot.fetch_user(discord_id)
+            except discord.NotFound:
+                user = None
+        if user is None:
+            return [], f"⚠️ Usuário com ID {discord_id} não encontrado. Certifique-se de usar um ID válido ou uma menção de um usuário presente no servidor."
+
+        members.append(user)
+
+    return members, None
+
+
 class UndoConfirmView(discord.ui.View):
     def __init__(self, author_id: int, action_id: int, command: str, affected_ids: list[int]):
         super().__init__(timeout=60)
