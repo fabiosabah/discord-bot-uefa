@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Any
 from core.config import DB_PATH
+from core.dota_heroes import resolve_hero_name
 
 logger = logging.getLogger("Database")
 
@@ -18,6 +19,16 @@ def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _sanitize_hero_name(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    resolved_hero, _, _ = resolve_hero_name(value)
+    return resolved_hero
 
 
 def init_db():
@@ -548,7 +559,7 @@ def insert_league_match(parsed: dict[str, Any], match_hash: str, external_match_
             if not isinstance(player, dict):
                 continue
             player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
-            hero_name = (player.get("hero_name") or player.get("hero") or "").strip() or None
+            hero_name = _sanitize_hero_name((player.get("hero_name") or player.get("hero") or "") if player.get("hero_name") or player.get("hero") else None)
             kda = player.get("kda") or player.get("score") or ""
             networth = player.get("networth") or player.get("net_worth")
             try:
@@ -902,9 +913,10 @@ def update_league_match_heroes(league_match_id: int, hero_names: list[str]) -> i
     with get_connection() as conn:
         updated = 0
         for slot, hero_name in enumerate(hero_names, start=1):
+            sanitized_hero = _sanitize_hero_name(hero_name) if hero_name is not None else None
             cursor = conn.execute(
                 "UPDATE match_players SET hero_name = ? WHERE league_match_id = ? AND slot = ?",
-                (hero_name.strip() if isinstance(hero_name, str) else None, league_match_id, slot)
+                (sanitized_hero, league_match_id, slot)
             )
             updated += cursor.rowcount if hasattr(cursor, "rowcount") else 0
         conn.commit()
@@ -914,15 +926,16 @@ def update_league_match_heroes(league_match_id: int, hero_names: list[str]) -> i
 
 
 def update_league_match_hero_by_slot(league_match_id: int, slot: int, hero_name: str) -> bool:
+    sanitized_hero = _sanitize_hero_name(hero_name)
     with get_connection() as conn:
         cursor = conn.execute(
             "UPDATE match_players SET hero_name = ? WHERE league_match_id = ? AND slot = ?",
-            (hero_name.strip() if isinstance(hero_name, str) else None, league_match_id, slot)
+            (sanitized_hero, league_match_id, slot)
         )
         conn.commit()
     updated = cursor.rowcount if hasattr(cursor, "rowcount") else 0
     if updated:
-        logger.info(f"[DB] Hero do slot {slot} atualizado para league_match_id {league_match_id}: {hero_name}")
+        logger.info(f"[DB] Hero do slot {slot} atualizado para league_match_id {league_match_id}: {sanitized_hero}")
     return updated > 0
 
 

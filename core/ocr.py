@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from core.dota_heroes import resolve_hero_name
 
 logger = logging.getLogger("OCR")
 
@@ -397,11 +398,15 @@ def _parse_players(text: str) -> list[dict[str, Any]]:
                 gold = int(gold_text.replace(".", "").replace(",", ""))
             except ValueError:
                 gold = None
+            hero_value = hero.strip() if isinstance(hero, str) and hero.strip() else None
+            if hero_value:
+                resolved_hero, _, _ = resolve_hero_name(hero_value)
+                hero_value = resolved_hero
             players.append({
                 "name": name,
                 "score": score,
                 "gold": gold,
-                "hero": hero.strip() if isinstance(hero, str) and hero.strip() else None,
+                "hero": hero_value,
                 "raw_line": line
             })
     return players
@@ -473,10 +478,17 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
         for entry in players_data:
             if not isinstance(entry, dict):
                 continue
+            hero_name = entry.get("hero_name") or entry.get("hero") or entry.get("heroi")
+            if isinstance(hero_name, str):
+                resolved_hero, _, _ = resolve_hero_name(hero_name)
+                hero_name = resolved_hero
+            else:
+                hero_name = None
+
             parsed_players.append({
                 "slot": entry.get("slot"),
                 "player_name": _normalize_player_name(entry.get("player_name") or entry.get("name") or entry.get("player")),
-                "hero_name": entry.get("hero_name") or entry.get("hero") or entry.get("heroi"),
+                "hero_name": hero_name,
                 "kills": entry.get("kills"),
                 "deaths": entry.get("deaths"),
                 "assists": entry.get("assists"),
@@ -493,7 +505,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             "raw_text": raw_text,
             "valid_dota_screenshot": True,
             "match_info": {
-                "winner_team": match_info.get("winner_team") or match_info.get("winner"),
+                "winner_team": _normalize_team(match_info.get("winner_team") or match_info.get("winner")),
                 "duration": match_info.get("duration"),
                 "datetime": match_info.get("datetime") or match_info.get("match_date"),
                 "match_id": match_info.get("match_id"),
@@ -524,9 +536,16 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             for entry in team_list:
                 if not isinstance(entry, dict):
                     continue
+                hero_name = entry.get("hero") or entry.get("hero_name") or entry.get("heroi")
+                if isinstance(hero_name, str):
+                    resolved_hero, _, _ = resolve_hero_name(hero_name)
+                    hero_name = resolved_hero
+                else:
+                    hero_name = None
+
                 parsed_players.append({
                     "name": _normalize_player_name(entry.get("player") or entry.get("name")),
-                    "hero": entry.get("hero") or entry.get("hero_name") or entry.get("heroi"),
+                    "hero": hero_name,
                     "kills": entry.get("kills"),
                     "deaths": entry.get("deaths"),
                     "assists": entry.get("assists"),
@@ -542,6 +561,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
             "match_date": payload.get("match_date") or match_info.get("date"),
             "mode": match_info.get("game_mode") or match_info.get("mode"),
             "winner": winner,
+            "winner_team": _normalize_team(winner) if winner is not None else ("radiant" if radiant_win else "dire") if isinstance(radiant_win, bool) else None,
             "duration": match_info.get("duration"),
             "radiant_win": radiant_win,
             "radiant_score": radiant_score,
@@ -571,9 +591,15 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
         for entry in payload.get("players", []):
             if not isinstance(entry, dict):
                 continue
+            hero_name = entry.get("hero")
+            if isinstance(hero_name, str):
+                resolved_hero, _, _ = resolve_hero_name(hero_name)
+                hero_name = resolved_hero
+            else:
+                hero_name = None
             parsed_players.append({
                 "name": _normalize_player_name(entry.get("name")),
-                "hero": entry.get("hero"),
+                "hero": hero_name,
                 "score": entry.get("score"),
                 "net_worth": entry.get("net_worth"),
                 "team": _normalize_team(entry.get("team")),
@@ -611,7 +637,16 @@ def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
         "   - Divida a imagem mentalmente em 10 colunas verticais.\n"
         "   - Identifique os 10 heróis por suas características visuais (silhueta, cores, rosto), ignorando itens cosméticos (skins).\n"
         "   - As 5 colunas da esquerda são \"radiant\" e as 5 da direita são \"dire\".\n"
-        "   - Use o nome oficial do herói em INGLÊS (ex: \"Witch Doctor\", não \"Feiticeiro\"). Nunca retorne \"null\" para hero_name.\n\n"
+        "   - Use o nome oficial do herói em INGLÊS (ex: \"Witch Doctor\", não \"Feiticeiro\"). Nunca retorne \"null\" para hero_name.\n"
+        "   - DIFERENCIAÇÃO POR ATRIBUTOS FIXOS:\n"
+        "       * GYROCOPTER: personagem operando um veículo mecânico voador.\n"
+        "       * LION: mão esquerda deformada (garra demoníaca) e rosto parecido com um felino.\n"
+        "       * PANGOLIER: silhueta de tatu/pangolim, uso de chapéu de mosqueteiro e florete.\n"
+        "       * SLARDAR: anatomia de criatura marinha/serpente. Não confundir com Naga Siren.\n"
+        "       * VENOMANCER: criatura insetoide/serpentina.\n"
+        "       * WITCH DOCTOR: postura muito curvada, aparência baseada na cultura africana, geralmente cor roxa. Não confundir com Shadow Shaman.\n"
+        "   - Se um herói for visualmente ambíguo devido a uma skin, procure por sua arma principal ou anatomia básica.\n"
+        "   - Skins podem alterar cores, mas não devem mudar a identificação do herói.\n\n"
         "2) EXTRAÇÃO E DECOMPOSIÇÃO DE DADOS (OCR):\n"
         "   - Mapeie cada coluna de herói aos seus dados: player_name (topo), networth (número amarelo) e KDA (números na base).\n"
         "   - DECOMPOSIÇÃO DO KDA: Separe o formato \"Abates / Mortes / Assistências\" em três chaves inteiras distintas: \"kills\", \"deaths\" e \"assists\".\n"

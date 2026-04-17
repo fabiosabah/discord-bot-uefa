@@ -19,6 +19,49 @@ A Discord bot written in Python that manages **interactive signup lists** for Do
 
 ---
 
+## 🖼️ OCR de placar Dota 2
+
+Este bot agora suporta o fluxo de captura e importação de partidas a partir de imagens de placar.
+
+### Como funciona
+
+1. Envie uma imagem de placar no canal configurado para OCR.
+2. O bot adiciona o job em `match_screenshots` com status `pending`.
+3. O worker background processa a imagem usando o modelo Gemini/OpenAI.
+4. O bot responde no canal com um resumo do OCR e orientações de próximos comandos.
+5. O administrador usa `!importarimagem <job_id> <mapeamento>` para registrar a partida no banco.
+6. Se necessário, corrija heróis ou nomes com `!fixhero` e `!nick`.
+
+### Comandos principais de OCR
+
+- `!registrarcanalimagem` / `!registrarcanalocr`
+  - Registra o canal atual como canal de imagem para processamento OCR.
+- `!pendenciaimagem` / `!pendingimages`
+  - Lista os jobs de imagem que ainda não foram processados.
+- `!imagemresumo <job_id>` / `!resumoimagem`
+  - Mostra um resumo legível do resultado OCR para o job.
+- `!detalhesimagem <job_id>` / `!imagemjson`
+  - Exibe o JSON processado pelo OCR.
+- `!rawtextimagem <job_id>` / `!rawtext`
+  - Exibe o texto OCR bruto extraído da imagem.
+- `!importarimagem <job_id> <mapeamento>` / `!ocrimport`
+  - Importa a imagem como partida no banco. O mapeamento pode usar slots ou nomes extraídos:
+    - `1=@123456789012345678`
+    - `"NomeOCR"=@123456789012345678`
+    - `1=@123456789012345678 hero=Rubick`
+- `!fixhero <league_match_id> <slot> <herói>`
+  - Corrige o herói de um slot específico após a importação.
+- `!nick <league_match_id> <slot> <novo nick> @Usuario`
+  - Atualiza o nick de jogador no slot e vincula ao Discord.
+
+### Dicas de uso
+
+- Use `!addalias @Usuario NomeOCR` quando um nick novo aparecer pela primeira vez e o bot não souber o usuário.
+- O job de OCR mostra slots, jogadores e heróis, então você pode mapear rapidamente cada slot para o usuário certo.
+- Após `!importarimagem`, consulte `!id <league_match_id>` para revisar os dados da partida.
+
+---
+
 ## 🖼️ How it works
 
 When the `!lista` command is run, the bot creates an embed message with the following buttons:

@@ -22,7 +22,7 @@ from core.database import (
     update_match_hero, update_league_match_heroes, update_league_match_player_name_by_slot,
     update_league_match_hero_by_slot, update_league_match_player_names
 )
-from core.ocr import can_process_ocr, process_match_screenshot
+from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
 
 audit_logger = logging.getLogger("Audit")
@@ -91,6 +91,24 @@ def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
     return " · ".join(parts)
 
 
+def _get_winner_team(parsed: dict[str, Any]) -> str | None:
+    match_info = parsed.get("match_info") or parsed.get("game_details") or {}
+    winner = (
+        match_info.get("winner_team")
+        or match_info.get("winner")
+        or parsed.get("winner")
+    )
+    normalized = _normalize_team(winner) if winner is not None else None
+    if normalized in {"radiant", "dire"}:
+        return normalized
+
+    radiant_win = parsed.get("radiant_win")
+    if isinstance(radiant_win, bool):
+        return "radiant" if radiant_win else "dire"
+
+    return None
+
+
 def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     if parsed.get("valid_dota_screenshot") is False:
         return (
@@ -102,12 +120,8 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     score = match_info.get("score") or {}
     radiant_score = score.get("radiant") or parsed.get("radiant_score")
     dire_score = score.get("dire") or parsed.get("dire_score")
-    winner = match_info.get("winner") or parsed.get("winner") or parsed.get("radiant_win")
-    if winner is True:
-        winner = "Radiant"
-    elif winner is False:
-        winner = "Dire"
-    winner_text = str(winner).title() if winner else "desconhecido"
+    winner_team = _get_winner_team(parsed)
+    winner_text = winner_team.title() if winner_team else "não identificado"
     duration = match_info.get("duration") or parsed.get("duration") or parsed.get("match_date")
     mode = match_info.get("game_mode") or match_info.get("mode") or parsed.get("mode")
 
@@ -134,15 +148,23 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     for index, player in enumerate(players, start=1):
         lines.append(_format_ocr_player_line(player, index))
 
+    lines.extend(["", "🛠️ Correções e próximos passos:"])
+    lines.append(f"• `!importarimagem {job_id} <mapeamento>` para salvar a partida no banco.")
+    if not winner_team:
+        lines.append(
+            f"• O vencedor não foi extraído. Defina manualmente com `!setjobwinner {job_id} radiant|dire` "
+            f"ou cancele com `!removerimagem {job_id} confirmar`."
+        )
     lines.extend([
-        "",
-        "🛠️ Correções e próximos passos:",
-        f"• `!importarimagem {job_id} <mapeamento>` para salvar a partida no banco.",
         f"• `!detalhesimagem {job_id}` para ver o JSON processado.",
         f"• `!rawtextimagem {job_id}` para ver o texto OCR bruto.",
         "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
-        "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot> <herói>` e `!nick <league_match_id> <slot> <novo nick> @Usuario>`.",
+        "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot> <herói>` e `!nick <league_match_id> <slot> <novo nick> @Usuario>`",
     ])
+    if winner_team:
+        lines.append(
+            "• Se o vencedor estiver incorreto, use `!setjobwinner {job_id} radiant|dire` antes de importar."
+        )
 
     return "\n".join(lines)
 
@@ -977,6 +999,59 @@ def setup_score_commands(bot: commands.Bot):
         summary = build_ocr_job_summary_text(job_id, metadata)
         await ctx.send(summary)
 
+    @bot.command(name="setjobwinner", aliases=["definirvencedorjob", "setwinnerjob"])
+    async def cmd_set_job_winner(ctx: commands.Context, job_id: int, team: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        job = get_match_screenshot(job_id)
+        if not job:
+            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            return
+
+        if not job["metadata"]:
+            await ctx.send(f"❌ Job {job_id} não possui metadados OCR.", delete_after=10)
+            return
+
+        try:
+            parsed = json.loads(job["metadata"])
+        except json.JSONDecodeError:
+            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            return
+
+        normalized = _normalize_team(team)
+        if normalized not in {"radiant", "dire"}:
+            await ctx.send(
+                "❌ Time inválido. Use `radiant` ou `dire`.",
+                delete_after=15
+            )
+            return
+
+        match_info = parsed.get("match_info") or parsed.get("game_details")
+        if not isinstance(match_info, dict):
+            match_info = {}
+            parsed["match_info"] = match_info
+
+        match_info["winner_team"] = normalized
+        match_info["winner"] = normalized.title()
+        parsed["winner_team"] = normalized
+        parsed["winner"] = normalized.title()
+        parsed["radiant_win"] = normalized == "radiant"
+
+        set_match_screenshot_status(
+            job_id,
+            job["status"] or "processed",
+            metadata=json.dumps(parsed, ensure_ascii=False)
+        )
+
+        await ctx.message.delete()
+        await ctx.send(
+            f"✅ Vencedor do job {job_id} definido como **{normalized.title()}**. "
+            f"Use `!importarimagem {job_id} <mapeamento>` para importar a partida."
+        )
+
     @bot.command(name="removerimagem", aliases=["deleteimage", "deleteimagem", "removeimage"])
     async def cmd_remove_image(ctx: commands.Context, job_id: int, confirm: str = None):
         if not is_admin(ctx.author.id):
@@ -1059,7 +1134,7 @@ def setup_score_commands(bot: commands.Bot):
             return
 
         player_mapping: dict[str, dict[str, object]] = {}
-        unresolved = []
+        hero_errors: list[str] = []
         for mapping in mappings:
             player_key = mapping["player_key"]
             discord_id = mapping["discord_id"]
@@ -1077,7 +1152,34 @@ def setup_score_commands(bot: commands.Bot):
                     or f"player_{player_key}"
                 )
 
+            if hero is not None:
+                resolved_hero, suggestions, status = resolve_hero_name(str(hero))
+                if status == "exact":
+                    hero = resolved_hero
+                elif status == "ambiguous":
+                    hero_errors.append(
+                        f"Herói ambíguo para '{hero}': {format_hero_suggestions(suggestions)}"
+                    )
+                else:
+                    if suggestions:
+                        hero_errors.append(
+                            f"Herói desconhecido para '{hero}'. Sugestões: {format_hero_suggestions(suggestions)}"
+                        )
+                    else:
+                        hero_errors.append(
+                            f"Herói desconhecido para '{hero}'. Use um nome oficial de Dota 2."
+                        )
+
             player_mapping[player_key] = {"discord_id": discord_id, "hero": hero}
+
+        if hero_errors:
+            await ctx.send(
+                "❌ Alguns nomes de herói não estão na lista oficial:\n" +
+                "\n".join(f"• {error}" for error in hero_errors) +
+                "\nUse `!importarimagem {job_id} <mapeamento>` com nomes oficiais, por exemplo `hero=Rubick`.",
+                delete_after=30
+            )
+            return
 
         extracted_names = [
             (
