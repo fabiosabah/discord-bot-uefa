@@ -158,6 +158,7 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     lines.extend([
         f"• `!detalhesimagem {job_id}` para ver o JSON processado.",
         f"• `!rawtextimagem {job_id}` para ver o texto OCR bruto.",
+        f"• Use `!confirmarimagem {job_id} <texto>` ou `!editarimagem {job_id} <texto>` para corrigir os metadados OCR antes de importar.",
         "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
         "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot> <herói>` e `!nick <league_match_id> <slot> <novo nick> @Usuario>`",
     ])
@@ -1074,7 +1075,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"🗑️ Job de imagem {job_id} removido com sucesso.")
 
-    @bot.command(name="confirmarimagem", aliases=["confirmimage"])
+    @bot.command(name="confirmarimagem", aliases=["confirmimage", "editarimagem", "editimage"])
     async def cmd_confirm_image(ctx: commands.Context, job_id: int, *, text: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
