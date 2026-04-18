@@ -237,16 +237,30 @@ class LobbyView(discord.ui.View):
     @discord.ui.button(label="🔒 Encerrar lista", style=discord.ButtonStyle.primary, custom_id="encerrar")
     async def encerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
         from services.lobby_service import close_session
+        from datetime import datetime
         session = self.session
 
-        if not is_authorized(interaction.user.id, session):
+        # Verificar autorização: host/admin OU tempo de espera suficiente
+        is_host_or_admin = is_authorized(interaction.user.id, session)
+        can_close_by_timeout = session.can_any_user_close()
+
+        if not is_host_or_admin and not can_close_by_timeout:
+            elapsed = (datetime.now() - session.created_at).total_seconds() / 60
+            remaining = session.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES - elapsed
             await interaction.response.send_message(
-                "❌ Apenas quem criou a lista ou um administrador pode encerrar.", ephemeral=True
+                f"❌ Apenas quem criou a lista ou um administrador pode encerrar agora.\n"
+                f"⏱️ Qualquer um poderá encerrar em {remaining:.0f} minuto(s).",
+                ephemeral=True
             )
             return
 
         await interaction.response.defer()
-        audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) SOLICITOU ENCERRAMENTO da Lista #{session.id}")
+        
+        # Log de auditoria
+        if can_close_by_timeout and not is_host_or_admin:
+            audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) ENCERROU a Lista #{session.id} (timeout de 10 minutos expirado)")
+        else:
+            audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) SOLICITOU ENCERRAMENTO da Lista #{session.id}")
 
         for item in self.children:
             item.disabled = True

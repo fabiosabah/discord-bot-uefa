@@ -7,6 +7,7 @@ from core.database import get_captains_from_list
 
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0
+    TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES = 10
 
     def __init__(self, host: discord.Member, session_id: int):
         self.id = session_id
@@ -19,6 +20,13 @@ class LobbySession:
         self.closed = False
         self.close_task: asyncio.Task | None = None
         self.auto_close_at: datetime | None = None
+        self.created_at: datetime = datetime.now()
+
+    def can_any_user_close(self) -> bool:
+        """Verifica se já passaram os minutos necessários para qualquer um encerrar a lista."""
+        elapsed = datetime.now() - self.created_at
+        elapsed_minutes = elapsed.total_seconds() / 60
+        return elapsed_minutes >= self.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES
 
     def cancel_auto_close(self):
         if self.close_task and not self.close_task.done():

@@ -736,7 +736,8 @@ def save_lobby_session(session, created_at: str | None = None):
         return
 
     if created_at is None:
-        created_at = datetime.now().isoformat()
+        # Usa o created_at da sessão se disponível, caso contrário usa agora
+        created_at = session.created_at.isoformat() if hasattr(session, 'created_at') and session.created_at else datetime.now().isoformat()
 
     player_ids = json.dumps(list(session.player_ids), ensure_ascii=False)
     waitlist_ids = json.dumps(list(session.waitlist_ids), ensure_ascii=False)
