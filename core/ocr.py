@@ -629,7 +629,7 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
     return None
 
 
-def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
+def _build_llm_prompt(raw_text: str | None = None, image_url: str | None = None) -> str:
     prompt = (
         "Você é uma Vision-LLM especialista em Dota 2. Sua tarefa é converter a imagem de um placar de partida em um objeto JSON estruturado para análise estatística.\n\n"
         "Siga estas etapas rigorosamente:\n\n"
@@ -684,8 +684,75 @@ def _build_llm_prompt(raw_text: str, image_url: str | None = None) -> str:
     if image_url:
         prompt += f"\nImagem de origem: {image_url}."
 
-    prompt += f"\nTexto OCR:\n{raw_text}"
+    if raw_text:
+        prompt += f"\nTexto OCR:\n{raw_text}"
     return prompt
+
+
+def _build_image_llm_prompt(image_url: str) -> str:
+    prompt = _build_llm_prompt(None, image_url)
+    prompt += (
+        "\n\nUse apenas a imagem para extrair os dados da partida e retorne APENAS JSON válido com a estrutura esperada. "
+        "Não inclua explicações, nem texto adicional."
+    )
+    return prompt
+
+
+def _parse_image_with_llm(image_url: str) -> dict[str, Any] | None:
+    if not can_process_llm():
+        return None
+
+    provider, client = _build_ai_client()
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    prompt = _build_image_llm_prompt(image_url)
+
+    if provider == "gemini":
+        from google.genai import types
+
+        generate_content_config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=False,
+            ),
+        )
+
+        mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
+
+        def build_image_part(image_url: str):
+            try:
+                return types.Part.from_uri(uri=image_url, mime_type=mime_type)
+            except TypeError:
+                try:
+                    return types.Part.from_uri(file_uri=image_url, mime_type=mime_type)
+                except TypeError:
+                    import urllib.request
+
+                    image_data = urllib.request.urlopen(image_url).read()
+                    return types.Part.from_bytes(data=image_data, mime_type=mime_type)
+
+        image_part = build_image_part(image_url)
+
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=prompt),
+                        image_part,
+                    ],
+                ),
+            ],
+            config=generate_content_config
+        )
+        content = response.text
+    else:
+        return None
+
+    parsed = _parse_json_payload(content)
+    if parsed is not None:
+        return parsed
+
+    return None
 
 
 def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[str, Any] | None:
@@ -855,8 +922,10 @@ def process_match_screenshot(job_id: int, job: dict | None = None) -> dict[str, 
     if job is None:
         raise ValueError(f"Job de screenshot {job_id} não encontrado")
 
-    raw_text = extract_text_from_image_url(job["image_url"])
-    parsed = parse_dota_match_text(raw_text, job["image_url"])
+    parsed = _parse_image_with_llm(job["image_url"])
+    if parsed is None:
+        raw_text = extract_text_from_image_url(job["image_url"])
+        parsed = parse_dota_match_text(raw_text, job["image_url"])
     metadata = json.dumps(parsed, ensure_ascii=False)
 
     if parsed.get("valid_dota_screenshot") is False:
