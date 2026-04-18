@@ -6,7 +6,11 @@ import os
 import re
 from typing import Any
 
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential, wait_random_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential, wait_random_exponential, retry_if_exception_type
+from google.genai import errors
+import urllib.request
+from PIL import Image
+import io
 from core.dota_heroes import resolve_hero_name
 
 logger = logging.getLogger("OCR")
@@ -698,6 +702,12 @@ def _build_image_llm_prompt(image_url: str) -> str:
     return prompt
 
 
+@retry(
+    wait=wait_random_exponential(multiplier=1, min=4, max=60),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception_type(errors.ClientError) | retry_if_exception_type(errors.ServerError),
+    reraise=True
+)
 def _parse_image_with_llm(image_url: str) -> dict[str, Any] | None:
     if not can_process_llm():
         return None
@@ -718,16 +728,27 @@ def _parse_image_with_llm(image_url: str) -> dict[str, Any] | None:
         mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
 
         def build_image_part(image_url: str):
-            try:
-                return types.Part.from_uri(uri=image_url, mime_type=mime_type)
-            except TypeError:
-                try:
-                    return types.Part.from_uri(file_uri=image_url, mime_type=mime_type)
-                except TypeError:
-                    import urllib.request
+            import urllib.request
+            from PIL import Image
+            import io
 
-                    image_data = urllib.request.urlopen(image_url).read()
-                    return types.Part.from_bytes(data=image_data, mime_type=mime_type)
+            # Download image
+            image_data = urllib.request.urlopen(image_url).read()
+            
+            # Resize if too large
+            image = Image.open(io.BytesIO(image_data))
+            max_width = 1280
+            if image.width > max_width:
+                aspect_ratio = image.height / image.width
+                new_height = int(max_width * aspect_ratio)
+                image = image.resize((max_width, new_height), Image.Resampling.LANCZOS)
+                
+                # Save to bytes
+                output = io.BytesIO()
+                image.save(output, format=image.format or 'PNG')
+                image_data = output.getvalue()
+            
+            return types.Part.from_bytes(data=image_data, mime_type=mime_type)
 
         image_part = build_image_part(image_url)
 
