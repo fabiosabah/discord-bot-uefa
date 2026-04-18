@@ -702,6 +702,57 @@ def _build_image_llm_prompt(image_url: str) -> str:
     return prompt
 
 
+def _call_gemini_with_image(client, model: str, prompt: str, image_url: str, resize: bool = False) -> str:
+    """Internal function to call Gemini API with image. Decorated with retry logic."""
+    from google.genai import types
+    import urllib.request
+    from PIL import Image
+    import io
+
+    generate_content_config = types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(
+            include_thoughts=False,
+        ),
+    )
+
+    mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
+
+    # Download image
+    image_data = urllib.request.urlopen(image_url).read()
+    
+    # Resize if needed (only on retry after server error)
+    if resize:
+        image = Image.open(io.BytesIO(image_data))
+        max_width = 1280
+        if image.width > max_width:
+            aspect_ratio = image.height / image.width
+            new_height = int(max_width * aspect_ratio)
+            image = image.resize((max_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Save to bytes
+            output = io.BytesIO()
+            image.save(output, format=image.format or 'PNG')
+            image_data = output.getvalue()
+            logger.info(f"Image resized from {image.width}px to 1280px to handle high server load")
+
+    image_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
+
+    response = client.models.generate_content(
+        model=model,
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=prompt),
+                    image_part,
+                ],
+            ),
+        ],
+        config=generate_content_config
+    )
+    return response.text
+
+
 @retry(
     wait=wait_random_exponential(multiplier=1, min=4, max=60),
     stop=stop_after_attempt(5),
@@ -717,55 +768,20 @@ def _parse_image_with_llm(image_url: str) -> dict[str, Any] | None:
     prompt = _build_image_llm_prompt(image_url)
 
     if provider == "gemini":
-        from google.genai import types
-
-        generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=False,
-            ),
-        )
-
-        mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
-
-        def build_image_part(image_url: str):
-            import urllib.request
-            from PIL import Image
-            import io
-
-            # Download image
-            image_data = urllib.request.urlopen(image_url).read()
-            
-            # Resize if too large
-            image = Image.open(io.BytesIO(image_data))
-            max_width = 1280
-            if image.width > max_width:
-                aspect_ratio = image.height / image.width
-                new_height = int(max_width * aspect_ratio)
-                image = image.resize((max_width, new_height), Image.Resampling.LANCZOS)
-                
-                # Save to bytes
-                output = io.BytesIO()
-                image.save(output, format=image.format or 'PNG')
-                image_data = output.getvalue()
-            
-            return types.Part.from_bytes(data=image_data, mime_type=mime_type)
-
-        image_part = build_image_part(image_url)
-
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=prompt),
-                        image_part,
-                    ],
-                ),
-            ],
-            config=generate_content_config
-        )
-        content = response.text
+        try:
+            # First attempt with original image (no resizing)
+            content = _call_gemini_with_image(client, model, prompt, image_url, resize=False)
+        except errors.ServerError as e:
+            # On 503 Service Unavailable, retry with resized image
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                logger.info(f"503 Server error detected, retrying with resized image for {image_url}")
+                try:
+                    content = _call_gemini_with_image(client, model, prompt, image_url, resize=True)
+                except Exception as retry_error:
+                    logger.error(f"Failed even with resized image: {retry_error}")
+                    raise
+            else:
+                raise
     else:
         return None
 
