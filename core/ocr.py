@@ -8,7 +8,6 @@ from typing import Any
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential, wait_random_exponential, retry_if_exception_type
 from google.genai import errors
-import urllib.request
 from PIL import Image
 import io
 from core.dota_heroes import resolve_hero_name
@@ -210,16 +209,29 @@ def extract_text_from_image_url(image_url: str) -> str:
         mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
 
         def build_image_part(image_url: str):
+            # Estratégia 1: Tentar passar a URL direto (sem baixar)
             try:
                 return types.Part.from_uri(uri=image_url, mime_type=mime_type)
             except TypeError:
-                try:
-                    return types.Part.from_uri(file_uri=image_url, mime_type=mime_type)
-                except TypeError:
-                    import urllib.request
+                pass
+            
+            # Estratégia 2: Tentar file_uri
+            try:
+                return types.Part.from_uri(file_uri=image_url, mime_type=mime_type)
+            except TypeError:
+                pass
+            
+            # Fallback 3: Se falhar, baixar a imagem com headers corretos
+            logger.info(f"Recaindo para download da imagem: {image_url}")
+            import requests
 
-                    image_data = urllib.request.urlopen(image_url).read()
-                    return types.Part.from_bytes(data=image_data, mime_type=mime_type)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            response = requests.get(image_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            image_data = response.content
+            return types.Part.from_bytes(data=image_data, mime_type=mime_type)
 
         from google.genai.errors import ClientError
 
