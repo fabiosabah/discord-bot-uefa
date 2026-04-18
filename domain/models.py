@@ -6,7 +6,7 @@ from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 from core.database import get_captains_from_list
 
 class LobbySession:
-    CLOSE_DELAY_SECONDS = 180
+    CLOSE_DELAY_SECONDS = 0
 
     def __init__(self, host: discord.Member, session_id: int):
         self.id = session_id
@@ -42,6 +42,9 @@ class LobbySession:
                 self.auto_close_at = now + timedelta(seconds=delay)
         else:
             self.auto_close_at = now + timedelta(seconds=delay)
+
+        if delay == 0:
+            return
 
         loop = asyncio.get_running_loop()
         self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies, delay))
