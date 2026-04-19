@@ -1655,10 +1655,8 @@ def _build_player_membership_clause(discord_id: int) -> tuple[str, tuple]:
         alias = alias.strip()
         if not alias:
             continue
-        clauses.append("LOWER(mp.player_name) = LOWER(?)")
-        params.append(alias)
         clauses.append("LOWER(mp.player_name) LIKE LOWER(?)")
-        params.append(f"{alias}%")
+        params.append(f"%{alias}%")
 
     return f"({' OR '.join(clauses)})", tuple(params)
 
