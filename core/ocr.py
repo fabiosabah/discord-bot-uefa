@@ -85,7 +85,8 @@ def _normalize_team(team_value: str | None) -> str | None:
     if normalized in {"d", "dir", "direção", "direccao"}:
         return "dire"
 
-    return normalized
+    # Só aceitar "radiant" ou "dire" - rejeitar qualquer outro valor
+    return None
 
 
 def generate_match_hash(parsed: dict[str, Any]) -> str:
