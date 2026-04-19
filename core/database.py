@@ -70,6 +70,10 @@ def init_db():
                 discord_id INTEGER NOT NULL,
                 result     TEXT    NOT NULL,
                 details    TEXT,
+                hero       TEXT,
+                kills      INTEGER,
+                deaths     INTEGER,
+                assists    INTEGER,
                 created_at TEXT    NOT NULL,
                 UNIQUE(audit_id, discord_id)
             )
@@ -256,6 +260,15 @@ def migrate_db():
         if "hero" not in mh_column_names:
             conn.execute("ALTER TABLE match_history ADD COLUMN hero TEXT")
             logger.info("[DB] Coluna 'hero' adicionada via migration ao match_history.")
+        if "kills" not in mh_column_names:
+            conn.execute("ALTER TABLE match_history ADD COLUMN kills INTEGER")
+            logger.info("[DB] Coluna 'kills' adicionada via migration ao match_history.")
+        if "deaths" not in mh_column_names:
+            conn.execute("ALTER TABLE match_history ADD COLUMN deaths INTEGER")
+            logger.info("[DB] Coluna 'deaths' adicionada via migration ao match_history.")
+        if "assists" not in mh_column_names:
+            conn.execute("ALTER TABLE match_history ADD COLUMN assists INTEGER")
+            logger.info("[DB] Coluna 'assists' adicionada via migration ao match_history.")
 
         lobby_columns = conn.execute("PRAGMA table_info(lobby_sessions)").fetchall()
         lobby_column_names = [col["name"] for col in lobby_columns]
@@ -528,6 +541,8 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
         created_at=created_at
     )
 
+    insert_match_history_from_ocr_import(audit_id, match_id, league_match_id, details, created_at)
+
     original_metadata = parsed
     original_metadata["imported_by"] = admin_id
     original_metadata["match_id"] = match_id
@@ -558,6 +573,54 @@ def insert_match_import(
             (match_id, steam_match_id, dota_match_id, match_date, mode, winner, duration, radiant_score, dire_score, raw_metadata, created_at)
         )
         conn.commit()
+
+
+def insert_match_history_from_ocr_import(audit_id: int, match_id: int, league_match_id: int, details: str, created_at: str) -> int:
+    with get_connection() as conn:
+        match_row = conn.execute(
+            "SELECT winner_team FROM matches WHERE league_match_id = ?",
+            (league_match_id,)
+        ).fetchone()
+        if not match_row:
+            return 0
+
+        winner_team = match_row["winner_team"]
+        inserted = 0
+
+        player_rows = conn.execute(
+            "SELECT discord_id, hero_name, kills, deaths, assists, team FROM match_players WHERE league_match_id = ?",
+            (league_match_id,)
+        ).fetchall()
+
+        for player in player_rows:
+            discord_id = player["discord_id"]
+            if discord_id is None:
+                continue
+
+            team = player["team"]
+            if team is None or winner_team is None:
+                continue
+
+            result = "win" if team == winner_team else "loss"
+            conn.execute(
+                "INSERT OR IGNORE INTO match_history (audit_id, match_id, discord_id, result, details, hero, kills, deaths, assists, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    audit_id,
+                    match_id,
+                    discord_id,
+                    result,
+                    details,
+                    player["hero_name"],
+                    player["kills"],
+                    player["deaths"],
+                    player["assists"],
+                    created_at,
+                )
+            )
+            inserted += 1
+        conn.commit()
+    logger.info(f"[DB] Gravado match_history OCR para league_match_id {league_match_id} com {inserted} registros.")
+    return inserted
 
 
 def insert_league_match(parsed: dict[str, Any], match_hash: str, external_match_id: str | None = None) -> int:
@@ -602,19 +665,25 @@ def insert_league_match(parsed: dict[str, Any], match_hash: str, external_match_
                 continue
             player_name = (player.get("player_name") or player.get("name") or player.get("player") or "").strip()
             hero_name = _sanitize_hero_name((player.get("hero_name") or player.get("hero") or "") if player.get("hero_name") or player.get("hero") else None)
-            raw_kda = player.get("kda") or player.get("score")
             kills = deaths = assists = None
-            if isinstance(raw_kda, dict):
-                kills = parse_int_value(raw_kda.get("kills") or raw_kda.get("kill"))
-                deaths = parse_int_value(raw_kda.get("deaths") or raw_kda.get("death"))
-                assists = parse_int_value(raw_kda.get("assists") or raw_kda.get("assist"))
+
+            if player.get("kills") is not None or player.get("deaths") is not None or player.get("assists") is not None:
+                kills = parse_int_value(player.get("kills"))
+                deaths = parse_int_value(player.get("deaths"))
+                assists = parse_int_value(player.get("assists"))
             else:
-                raw_kda_text = str(raw_kda).strip() if raw_kda is not None else ""
-                if "/" in raw_kda_text:
-                    parts = raw_kda_text.split("/")
-                    kills = parse_int_value(parts[0] if len(parts) > 0 else None)
-                    deaths = parse_int_value(parts[1] if len(parts) > 1 else None)
-                    assists = parse_int_value(parts[2] if len(parts) > 2 else None)
+                raw_kda = player.get("kda") or player.get("score")
+                if isinstance(raw_kda, dict):
+                    kills = parse_int_value(raw_kda.get("kills") or raw_kda.get("kill"))
+                    deaths = parse_int_value(raw_kda.get("deaths") or raw_kda.get("death"))
+                    assists = parse_int_value(raw_kda.get("assists") or raw_kda.get("assist"))
+                else:
+                    raw_kda_text = str(raw_kda).strip() if raw_kda is not None else ""
+                    if "/" in raw_kda_text:
+                        parts = raw_kda_text.split("/")
+                        kills = parse_int_value(parts[0] if len(parts) > 0 else None)
+                        deaths = parse_int_value(parts[1] if len(parts) > 1 else None)
+                        assists = parse_int_value(parts[2] if len(parts) > 2 else None)
             networth = player.get("networth") or player.get("net_worth")
             try:
                 networth = int(networth) if networth is not None and str(networth).strip() != "" else None
@@ -902,7 +971,10 @@ def log_action(admin_id: int, admin_name: str, command: str, details: str, affec
 
 def get_next_match_id() -> int:
     with get_connection() as conn:
-        row = conn.execute("SELECT MAX(match_id) AS max_match_id FROM match_history").fetchone()
+        row = conn.execute(
+            "SELECT MAX(match_id) AS max_match_id FROM ("
+            "SELECT match_id FROM match_history UNION ALL SELECT match_id FROM match_imports)"
+        ).fetchone()
     return (row["max_match_id"] or 0) + 1
 
 
@@ -942,7 +1014,7 @@ def get_pending_match_id_for_same_side(result: str) -> int | None:
     return _find_open_match_id(result, same_side=True)
 
 
-def record_match_history(audit_id: int, affected_ids: list[int], result: str, details: str, created_at: str, match_id: int, hero: str | None = None):
+def record_match_history(audit_id: int, affected_ids: list[int], result: str, details: str, created_at: str, match_id: int, hero: str | None = None, kills: int | None = None, deaths: int | None = None, assists: int | None = None):
     if not affected_ids:
         logger.info(f"[DB] Sem IDs afetados para gravar match_history do audit {audit_id}.")
         return
@@ -952,9 +1024,9 @@ def record_match_history(audit_id: int, affected_ids: list[int], result: str, de
         for discord_id in affected_ids:
             conn.execute("""
                 INSERT OR IGNORE INTO match_history
-                (audit_id, match_id, discord_id, result, details, hero, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (audit_id, match_id, discord_id, result, details, hero, created_at))
+                (audit_id, match_id, discord_id, result, details, hero, kills, deaths, assists, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (audit_id, match_id, discord_id, result, details, hero, kills, deaths, assists, created_at))
             inserted += 1
         conn.commit()
     logger.info(f"[DB] Gravado match_history do audit {audit_id} com match_id {match_id}: {inserted} registros.")
@@ -1033,16 +1105,7 @@ def update_league_match_player_name_by_slot(league_match_id: int, slot: int, pla
 
 def log_match_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None) -> int:
     created_at = datetime.now().isoformat()
-    audit_id = log_action(admin_id, admin_name, command, details, affected_ids, created_at=created_at)
-    result = "win" if command == "!venceu" else "loss"
-    pending_match_id = get_pending_match_id_for_opposite_result(result)
-    if pending_match_id is None:
-        pending_match_id = get_pending_match_id_for_same_side(result)
-    match_id = pending_match_id if pending_match_id is not None else get_next_match_id()
-    if pending_match_id is not None:
-        logger.info(f"[DB] Agrupando comando {command} ao match existente {match_id}.")
-    record_match_history(audit_id, affected_ids or [], result, details, created_at, match_id)
-    return audit_id
+    return log_action(admin_id, admin_name, command, details, affected_ids, created_at=created_at)
 
 
 def get_last_admin_action(admin_id: int):
@@ -1439,7 +1502,7 @@ def _parse_kda_from_details(details: str) -> tuple[int | None, int | None, int |
 def get_player_history_stats(discord_id: int) -> dict:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT result, details FROM match_history WHERE discord_id = ?",
+            "SELECT result, details, kills, deaths, assists FROM match_history WHERE discord_id = ?",
             (discord_id,)
         ).fetchall()
 
@@ -1450,7 +1513,69 @@ def get_player_history_stats(discord_id: int) -> dict:
     kda_rows = 0
 
     for row in rows:
-        kills, deaths, assists = _parse_kda_from_details(row["details"] or "")
+        kills = row["kills"]
+        deaths = row["deaths"]
+        assists = row["assists"]
+        if kills is not None and deaths is not None and assists is not None:
+            total_kills += kills
+            total_deaths += deaths
+            total_assists += assists
+            kda_rows += 1
+        else:
+            parsed_kills, parsed_deaths, parsed_assists = _parse_kda_from_details(row["details"] or "")
+            if parsed_kills is not None and parsed_deaths is not None and parsed_assists is not None:
+                total_kills += parsed_kills
+                total_deaths += parsed_deaths
+                total_assists += parsed_assists
+                kda_rows += 1
+
+    winrate = (wins / total_matches * 100) if total_matches else 0
+    return {
+        "matches": total_matches,
+        "wins": wins,
+        "losses": losses,
+        "winrate": winrate,
+        "total_kills": total_kills,
+        "total_deaths": total_deaths,
+        "total_assists": total_assists,
+        "kda_rows": kda_rows,
+    }
+
+
+def get_player_match_stats_from_matches(discord_id: int) -> dict:
+    """Calcula estatísticas de partidas de um jogador usando matches + match_players."""
+    with get_connection() as conn:
+        # Buscar todas as partidas do jogador
+        rows = conn.execute("""
+            SELECT mp.kills, mp.deaths, mp.assists, m.winner_team, mp.team
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.discord_id = ?
+        """, (discord_id,)).fetchall()
+
+    total_matches = len(rows)
+    wins = 0
+    losses = 0
+    total_kills = 0
+    total_deaths = 0
+    total_assists = 0
+    kda_rows = 0
+
+    for row in rows:
+        kills = row["kills"]
+        deaths = row["deaths"]
+        assists = row["assists"]
+        winner_team = row["winner_team"]
+        player_team = row["team"]
+
+        # Contar vitórias/derrotas
+        if winner_team and player_team:
+            if player_team == winner_team:
+                wins += 1
+            else:
+                losses += 1
+
+        # Somar KDA se disponível
         if kills is not None and deaths is not None and assists is not None:
             total_kills += kills
             total_deaths += deaths
@@ -1470,11 +1595,156 @@ def get_player_history_stats(discord_id: int) -> dict:
     }
 
 
+def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[dict]:
+    """Retorna os heróis mais jogados por um jogador usando matches + match_players."""
+    query = """
+        SELECT mp.hero_name AS hero, COUNT(*) AS plays
+        FROM match_players mp
+        WHERE mp.discord_id = ?
+          AND mp.hero_name IS NOT NULL
+          AND mp.hero_name != ''
+        GROUP BY mp.hero_name
+        ORDER BY plays DESC, mp.hero_name ASC
+        LIMIT ?
+    """
+    params = (discord_id, limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "hero": row["hero"],
+            "plays": row["plays"]
+        }
+        for row in rows
+    ]
+
+
+def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> list[dict]:
+    """Retorna os jogadores com quem mais jogou junto usando matches + match_players."""
+    query = """
+        SELECT
+            mp2.discord_id,
+            COALESCE(p.display_name, mp2.discord_id) AS display_name,
+            COUNT(DISTINCT mp.league_match_id) AS matches
+        FROM match_players mp
+        JOIN match_players mp2
+            ON mp2.league_match_id = mp.league_match_id
+            AND mp2.discord_id != mp.discord_id
+            AND mp2.discord_id IS NOT NULL
+        LEFT JOIN players p ON p.discord_id = mp2.discord_id
+        WHERE mp.discord_id = ?
+        GROUP BY mp2.discord_id
+        ORDER BY matches DESC, display_name ASC
+        LIMIT ?
+    """
+    params = (discord_id, limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "discord_id": row["discord_id"],
+            "display_name": row["display_name"],
+            "count": row["matches"]
+        }
+        for row in rows
+    ]
+
+
+def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: int = 3) -> list[dict]:
+    """Retorna os jogadores contra quem mais jogou com determinado resultado usando matches + match_players."""
+    query = """
+        SELECT
+            mp2.discord_id,
+            COALESCE(p.display_name, mp2.discord_id) AS display_name,
+            COUNT(DISTINCT mp.league_match_id) AS matches
+        FROM match_players mp
+        JOIN match_players mp2
+            ON mp2.league_match_id = mp.league_match_id
+            AND mp2.discord_id != mp.discord_id
+            AND mp2.discord_id IS NOT NULL
+        JOIN matches m ON m.league_match_id = mp.league_match_id
+        LEFT JOIN players p ON p.discord_id = mp2.discord_id
+        WHERE mp.discord_id = ?
+          AND mp.team != mp2.team
+          AND (
+              (? = 'win' AND mp.team = m.winner_team)
+              OR (? = 'loss' AND mp.team != m.winner_team)
+          )
+        GROUP BY mp2.discord_id
+        ORDER BY matches DESC, display_name ASC
+        LIMIT ?
+    """
+    params = (discord_id, result, result, limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "discord_id": row["discord_id"],
+            "display_name": row["display_name"],
+            "count": row["matches"]
+        }
+        for row in rows
+    ]
+
+
+def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
+    """Retorna o histórico de partidas de um jogador usando matches + match_players."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT m.league_match_id, mp.hero_name, mp.kills, mp.deaths, mp.assists,
+                   m.winner_team, mp.team, m.created_at
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.discord_id = ?
+            ORDER BY m.created_at DESC
+            LIMIT ?
+        """, (discord_id, limit)).fetchall()
+
+    return [
+        {
+            "league_match_id": row["league_match_id"],
+            "result": "win" if row["team"] == row["winner_team"] else "loss",
+            "hero": row["hero_name"],
+            "kills": row["kills"],
+            "deaths": row["deaths"],
+            "assists": row["assists"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def get_player_streak_from_matches(discord_id: int, max_events: int = 50) -> dict:
+    """Calcula a sequência atual de vitórias ou derrotas usando matches + match_players."""
+    history = get_player_match_history_from_matches(discord_id, max_events)
+    if not history:
+        return {"streak_type": None, "streak_count": 0, "recent": []}
+
+    streak_type = history[0]["result"]
+    streak_count = 0
+    for event in history:
+        if event["result"] != streak_type:
+            break
+        streak_count += 1
+
+    return {
+        "streak_type": streak_type,
+        "streak_count": streak_count,
+        "recent": history[:5],
+    }
+
+
 def get_player_match_history(discord_id: int, limit: int = 20) -> list[dict]:
     """Retorna os últimos eventos de partida de um jogador, do mais recente para o mais antigo."""
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT match_id, result, details, created_at
+            SELECT match_id, result, details, hero, kills, deaths, assists, created_at
             FROM match_history
             WHERE discord_id = ?
             ORDER BY match_id DESC
@@ -1486,6 +1756,10 @@ def get_player_match_history(discord_id: int, limit: int = 20) -> list[dict]:
             "match_id": row["match_id"],
             "result": row["result"],
             "details": row["details"],
+            "hero": row["hero"],
+            "kills": row["kills"],
+            "deaths": row["deaths"],
+            "assists": row["assists"],
             "created_at": row["created_at"],
         }
         for row in rows

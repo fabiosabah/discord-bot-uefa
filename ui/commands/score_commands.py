@@ -22,7 +22,10 @@ from core.database import (
     delete_match_screenshots, delete_match_screenshot, delete_match_history,
     delete_league_match,
     update_match_hero, update_league_match_heroes, update_league_match_player_name_by_slot,
-    update_league_match_hero_by_slot, update_league_match_player_names
+    update_league_match_hero_by_slot, update_league_match_player_names,
+    get_player_match_stats_from_matches, get_player_top_heroes_from_matches,
+    get_player_top_teammates_from_matches, get_player_top_opponents_from_matches,
+    get_player_match_history_from_matches, get_player_streak_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -655,17 +658,17 @@ def setup_score_commands(bot: commands.Bot):
     @bot.command(name="perfil2")
     async def cmd_perfil2(ctx, target: discord.Member = None):
         target = target or ctx.author
-        stats = get_player_history_stats(target.id)
+        stats = get_player_match_stats_from_matches(target.id)
 
         if stats["matches"] == 0:
             await ctx.send(f"❌ Nenhum histórico de partidas encontrado para {target.display_name}.")
             return
 
-        top_heroes = get_player_top_heroes(target.id, limit=5)
-        teammates = get_player_top_teammates(target.id, limit=3)
-        opponents_against = get_player_top_opponents(target.id, "loss", limit=3)
-        opponents_favor = get_player_top_opponents(target.id, "win", limit=3)
-        recent_matches = get_player_match_history(target.id, limit=5)
+        top_heroes = get_player_top_heroes_from_matches(target.id, limit=5)
+        teammates = get_player_top_teammates_from_matches(target.id, limit=3)
+        opponents_against = get_player_top_opponents_from_matches(target.id, "loss", limit=3)
+        opponents_favor = get_player_top_opponents_from_matches(target.id, "win", limit=3)
+        recent_matches = get_player_match_history_from_matches(target.id, limit=5)
 
         title = f"📊 Perfil 2 de {target.display_name}"
         embed = discord.Embed(title=title, color=discord.Color.blurple())
@@ -704,10 +707,10 @@ def setup_score_commands(bot: commands.Bot):
         if recent_matches:
             recent_text = []
             for item in recent_matches:
-                recent_text.append(f"#{item['match_id']} — {item['result']} — {item['details'] or 'sem detalhes'}")
+                recent_text.append(f"#{item['league_match_id']} — {item['result']} — {item['hero'] or 'sem herói'}")
             embed.add_field(name="🕒 Últimas partidas", value="\n".join(recent_text), inline=False)
 
-        embed.set_footer(text="Perfil gerado a partir de match_history")
+        embed.set_footer(text="Perfil gerado a partir de matches + match_players")
         await ctx.send(embed=embed)
 
     @bot.command(name="historico", aliases=["history"])
