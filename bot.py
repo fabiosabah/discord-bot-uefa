@@ -241,10 +241,7 @@ async def ocr_background_worker():
                 channel = bot.get_channel(job["channel_id"])
                 if channel:
                     if parsed.get("valid_dota_screenshot") is False:
-                        logger.warning(f"⚠️ Job {job_id} marked as invalid Dota screenshot")
-                        await channel.send(
-                            f"⚠️ O job {job['id']} não parece ser um placar de Dota válido e foi marcado como não processado."
-                        )
+                        logger.warning(f"⚠️ Job {job_id} marked as invalid Dota screenshot; no message will be sent to channel")
                     else:
                         logger.debug(f"📤 Sending OCR results to channel {job['channel_id']}")
                         summary = build_ocr_job_summary_text(job["id"], parsed)
