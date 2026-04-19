@@ -25,7 +25,8 @@ from core.database import (
     update_league_match_hero_by_slot, update_league_match_player_names,
     get_player_match_stats_from_matches, get_player_top_heroes_from_matches,
     get_player_top_teammates_from_matches, get_player_top_opponents_from_matches,
-    get_player_match_history_from_matches, get_player_streak_from_matches
+    get_player_match_history_from_matches, get_player_streak_from_matches,
+    get_ranking_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -2098,6 +2099,30 @@ def setup_score_commands(bot: commands.Bot):
 
         embed.description = "\n".join(linhas)
         embed.set_footer(text=build_footer())
+
+        await ctx.send(embed=embed)
+
+    @bot.command(name="tabela2")
+    async def cmd_tabela2(ctx: commands.Context):
+        ranking = get_ranking_from_matches()
+
+        if not ranking:
+            await ctx.send("📋 Nenhum jogador registrado ainda nas partidas importadas.")
+            return
+
+        embed = discord.Embed(title="🏆 Tabela 2 (partidas OCR/importadas)", color=discord.Color.dark_gold())
+
+        linhas = []
+        for i, p in enumerate(ranking):
+            prefix = "👑" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+            linhas.append(
+                f"{prefix} **{p['display_name']}** — "
+                f"{p['points']} pts "
+                f"(`{p['wins']}V / {p['losses']}D` — {p['games']} jogos)"
+            )
+
+        embed.description = "\n".join(linhas)
+        embed.set_footer(text="Tabela gerada a partir de partidas importadas via OCR")
 
         await ctx.send(embed=embed)
 

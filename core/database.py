@@ -901,6 +901,39 @@ def get_ranking() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_ranking_from_matches() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT mp.discord_id AS discord_id,
+                   COALESCE(p.display_name, mp.discord_id) AS display_name
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+            UNION
+            SELECT discord_id, display_name FROM players
+        """).fetchall()
+
+    ranking = []
+    for row in rows:
+        discord_id = row["discord_id"]
+        display_name = row["display_name"]
+        stats = get_player_match_stats_from_matches(discord_id)
+        if stats["matches"] == 0:
+            continue
+
+        ranking.append({
+            "discord_id": discord_id,
+            "display_name": display_name,
+            "wins": stats["wins"],
+            "losses": stats["losses"],
+            "points": stats["wins"] * 3 - stats["losses"],
+            "games": stats["matches"],
+        })
+
+    ranking.sort(key=lambda item: (-item["points"], -item["wins"], item["display_name"]))
+    return ranking
+
+
 def get_captains_from_list(player_ids: list[int]) -> list[dict]:
     if not player_ids:
         return []
@@ -1600,19 +1633,50 @@ def get_player_match_stats_from_matches(discord_id: int) -> dict:
     }
 
 
+def _get_player_alias_names(discord_id: int) -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT display_name AS name FROM players WHERE discord_id = ?
+            UNION
+            SELECT alias AS name FROM player_aliases WHERE discord_id = ?
+            """,
+            (discord_id, discord_id)
+        ).fetchall()
+    return [row["name"] for row in rows if row["name"]]
+
+
+def _build_player_membership_clause(discord_id: int) -> tuple[str, tuple]:
+    aliases = _get_player_alias_names(discord_id)
+    clauses = ["mp.discord_id = ?"]
+    params: list[object] = [discord_id]
+
+    for alias in aliases:
+        alias = alias.strip()
+        if not alias:
+            continue
+        clauses.append("LOWER(mp.player_name) = LOWER(?)")
+        params.append(alias)
+        clauses.append("LOWER(mp.player_name) LIKE LOWER(?)")
+        params.append(f"{alias}%")
+
+    return f"({' OR '.join(clauses)})", tuple(params)
+
+
 def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[dict]:
     """Retorna os heróis mais jogados por um jogador usando matches + match_players."""
-    query = """
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
         SELECT mp.hero_name AS hero, COUNT(*) AS plays
         FROM match_players mp
-        WHERE mp.discord_id = ?
+        WHERE {membership_clause}
           AND mp.hero_name IS NOT NULL
           AND mp.hero_name != ''
         GROUP BY mp.hero_name
         ORDER BY plays DESC, mp.hero_name ASC
         LIMIT ?
     """
-    params = (discord_id, limit)
+    params = params + (limit,)
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -1628,23 +1692,24 @@ def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[
 
 def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> list[dict]:
     """Retorna os jogadores com quem mais jogou junto usando matches + match_players."""
-    query = """
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
         SELECT
             mp2.discord_id,
             COALESCE(p.display_name, mp2.discord_id) AS display_name,
-            COUNT(DISTINCT mp.league_match_id) AS matches
-        FROM match_players mp
-        JOIN match_players mp2
-            ON mp2.league_match_id = mp.league_match_id
-            AND mp2.discord_id != mp.discord_id
-            AND mp2.discord_id IS NOT NULL
-        LEFT JOIN players p ON p.discord_id = mp2.discord_id
-        WHERE mp.discord_id = ?
+            COUNT(DISTINCT mp2.league_match_id) AS matches
+        FROM match_players mp2
+        JOIN players p ON p.discord_id = mp2.discord_id
+        WHERE mp2.discord_id IS NOT NULL
+          AND mp2.league_match_id IN (
+              SELECT league_match_id FROM match_players mp WHERE {membership_clause}
+          )
+          AND mp2.discord_id != ?
         GROUP BY mp2.discord_id
         ORDER BY matches DESC, display_name ASC
         LIMIT ?
     """
-    params = (discord_id, limit)
+    params = params + (discord_id, limit)
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -1661,29 +1726,29 @@ def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> li
 
 def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: int = 3) -> list[dict]:
     """Retorna os jogadores contra quem mais jogou com determinado resultado usando matches + match_players."""
-    query = """
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
         SELECT
             mp2.discord_id,
             COALESCE(p.display_name, mp2.discord_id) AS display_name,
-            COUNT(DISTINCT mp.league_match_id) AS matches
-        FROM match_players mp
-        JOIN match_players mp2
-            ON mp2.league_match_id = mp.league_match_id
-            AND mp2.discord_id != mp.discord_id
-            AND mp2.discord_id IS NOT NULL
-        JOIN matches m ON m.league_match_id = mp.league_match_id
+            COUNT(DISTINCT mp2.league_match_id) AS matches
+        FROM match_players mp2
+        JOIN matches m ON m.league_match_id = mp2.league_match_id
         LEFT JOIN players p ON p.discord_id = mp2.discord_id
-        WHERE mp.discord_id = ?
-          AND mp.team != mp2.team
+        WHERE mp2.discord_id IS NOT NULL
+          AND mp2.league_match_id IN (
+              SELECT league_match_id FROM match_players mp WHERE {membership_clause}
+          )
+          AND mp2.discord_id != ?
           AND (
-              (? = 'win' AND mp.team = m.winner_team)
-              OR (? = 'loss' AND mp.team != m.winner_team)
+              (? = 'win' AND mp2.team != m.winner_team)
+              OR (? = 'loss' AND mp2.team = m.winner_team)
           )
         GROUP BY mp2.discord_id
         ORDER BY matches DESC, display_name ASC
         LIMIT ?
     """
-    params = (discord_id, result, result, limit)
+    params = params + (discord_id, result, result, limit)
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -1700,16 +1765,20 @@ def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: i
 
 def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
     """Retorna o histórico de partidas de um jogador usando matches + match_players."""
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
+        SELECT m.league_match_id, mp.hero_name, mp.kills, mp.deaths, mp.assists,
+               m.winner_team, mp.team, m.created_at
+        FROM match_players mp
+        JOIN matches m ON m.league_match_id = mp.league_match_id
+        WHERE {membership_clause}
+        ORDER BY m.created_at DESC
+        LIMIT ?
+    """
+    params = params + (limit,)
+
     with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT m.league_match_id, mp.hero_name, mp.kills, mp.deaths, mp.assists,
-                   m.winner_team, mp.team, m.created_at
-            FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
-            WHERE mp.discord_id = ?
-            ORDER BY m.created_at DESC
-            LIMIT ?
-        """, (discord_id, limit)).fetchall()
+        rows = conn.execute(query, params).fetchall()
 
     return [
         {
