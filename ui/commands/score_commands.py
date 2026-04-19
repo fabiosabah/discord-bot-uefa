@@ -76,12 +76,19 @@ def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
         assists = kda_value.get("assists") or "?"
         kda = f"{kills}/{deaths}/{assists}"
     else:
-        kda = str(kda_value).strip() if kda_value is not None else ""
+        # Tentar extrair dos campos individuais kills/deaths/assists
+        kills = player.get("kills")
+        deaths = player.get("deaths") 
+        assists = player.get("assists")
+        if kills is not None or deaths is not None or assists is not None:
+            kda = f"{kills or '?'} / {deaths or '?'} / {assists or '?'}"
+        else:
+            kda = str(kda_value).strip() if kda_value is not None else ""
 
     networth = player.get("networth") or player.get("net_worth")
     networth_text = f"NW {networth}" if networth is not None and str(networth).strip() else ""
 
-    parts = [f"`{slot}`", f"**{player_name}**", hero_name]
+    parts = [f"{slot}", player_name, hero_name]
     if team_label:
         parts.append(team_label)
     if kda:
