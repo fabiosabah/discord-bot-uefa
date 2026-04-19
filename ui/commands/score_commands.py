@@ -69,21 +69,13 @@ def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
     elif team in {"d", "dir", "dire"}:
         team_label = "Dire"
 
-    kda_value = player.get("kda")
-    if isinstance(kda_value, dict):
-        kills = kda_value.get("kills") or "?"
-        deaths = kda_value.get("deaths") or "?"
-        assists = kda_value.get("assists") or "?"
-        kda = f"{kills}/{deaths}/{assists}"
-    else:
-        # Tentar extrair dos campos individuais kills/deaths/assists
-        kills = player.get("kills")
-        deaths = player.get("deaths") 
-        assists = player.get("assists")
-        if kills is not None or deaths is not None or assists is not None:
-            kda = f"{kills or '?'} / {deaths or '?'} / {assists or '?'}"
-        else:
-            kda = str(kda_value).strip() if kda_value is not None else ""
+    # Extrair KDA dos campos individuais (sempre dict-like)
+    kills = player.get("kills")
+    deaths = player.get("deaths") 
+    assists = player.get("assists")
+    kda = ""
+    if kills is not None or deaths is not None or assists is not None:
+        kda = f"{kills or '?'} / {deaths or '?'} / {assists or '?'}"
 
     networth = player.get("networth") or player.get("net_worth")
     networth_text = f"NW {networth}" if networth is not None and str(networth).strip() else ""
@@ -1656,7 +1648,8 @@ def setup_score_commands(bot: commands.Bot):
             lines.append(
                 f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'} "
                 f"({player.get('hero_name') or 'herói desconhecido'}) - {player.get('team') or 'time desconhecido'} "
-                f"- {kda_text} - networth {player.get('networth') if player.get('networth') is not None else 'N/A'}"
+                f"- KDA {kills or '?'} / {deaths or '?'} / {assists or '?'} "
+                f"- NW {player.get('networth') if player.get('networth') is not None else 'N/A'}"
             )
 
         await ctx.send(f"```\n{chr(10).join(lines)}\n```")
