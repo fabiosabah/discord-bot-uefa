@@ -1177,6 +1177,11 @@ def delete_match_screenshot(job_id: int) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM match_screenshots WHERE id = ?", (job_id,))
         conn.commit()
+        row = conn.execute("SELECT COUNT(1) AS count FROM match_screenshots").fetchone()
+        if row and row["count"] == 0:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_screenshots'")
+            conn.commit()
+            logger.info("[DB] sqlite_sequence reset for match_screenshots after deletion.")
     logger.info(f"[DB] Screenshot job {job_id} removido.")
 
 

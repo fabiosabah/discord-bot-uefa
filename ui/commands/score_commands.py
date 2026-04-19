@@ -1520,8 +1520,7 @@ def setup_score_commands(bot: commands.Bot):
         if missing:
             await ctx.send(
                 f"❌ Não foi possível mapear automaticamente os seguintes jogadores para IDs do Discord: {', '.join(missing)}. "
-                f"Use `!addalias @Usuario NomeOCR` para registrar esses nicks ou importe com `!importarimagem {job_id} <mapeamento>`.",
-                delete_after=30
+                f"Use `!addalias @Usuario NomeOCR` para registrar esses nicks ou importe com `!importarimagem {job_id} <mapeamento>`."
             )
             return
 
