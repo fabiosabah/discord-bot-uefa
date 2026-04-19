@@ -902,16 +902,20 @@ def get_ranking() -> list[dict]:
 
 
 def get_ranking_from_matches() -> list[dict]:
+    query = """
+        SELECT DISTINCT mp.discord_id AS discord_id,
+               COALESCE(p.display_name, mp.discord_id) AS display_name
+        FROM match_players mp
+        LEFT JOIN players p ON p.discord_id = mp.discord_id
+        WHERE mp.discord_id IS NOT NULL
+        UNION
+        SELECT discord_id, display_name FROM players
+    """
+    
+    logger.info(f"Executing get_ranking_from_matches query: {query.strip()}")
+    
     with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT DISTINCT mp.discord_id AS discord_id,
-                   COALESCE(p.display_name, mp.discord_id) AS display_name
-            FROM match_players mp
-            LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL
-            UNION
-            SELECT discord_id, display_name FROM players
-        """).fetchall()
+        rows = conn.execute(query).fetchall()
 
     ranking = []
     for row in rows:
@@ -1582,14 +1586,19 @@ def get_player_history_stats(discord_id: int) -> dict:
 
 def get_player_match_stats_from_matches(discord_id: int) -> dict:
     """Calcula estatísticas de partidas de um jogador usando matches + match_players."""
+    query = """
+        SELECT mp.kills, mp.deaths, mp.assists, m.winner_team, mp.team
+        FROM match_players mp
+        JOIN matches m ON m.league_match_id = mp.league_match_id
+        WHERE mp.discord_id = ?
+    """
+    params = (discord_id,)
+    
+    logger.info(f"Executing get_player_match_stats_from_matches query: {query.strip()} with params: {params}")
+    
     with get_connection() as conn:
         # Buscar todas as partidas do jogador
-        rows = conn.execute("""
-            SELECT mp.kills, mp.deaths, mp.assists, m.winner_team, mp.team
-            FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
-            WHERE mp.discord_id = ?
-        """, (discord_id,)).fetchall()
+        rows = conn.execute(query, params).fetchall()
 
     total_matches = len(rows)
     wins = 0
@@ -1658,7 +1667,9 @@ def _build_player_membership_clause(discord_id: int) -> tuple[str, tuple]:
         clauses.append("LOWER(mp.player_name) LIKE LOWER(?)")
         params.append(f"%{alias}%")
 
-    return f"({' OR '.join(clauses)})", tuple(params)
+    membership_clause = f"({' OR '.join(clauses)})"
+    logger.info(f"Built membership clause for discord_id {discord_id}: {membership_clause} with params: {params}")
+    return membership_clause, tuple(params)
 
 
 def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[dict]:
@@ -1675,6 +1686,8 @@ def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[
         LIMIT ?
     """
     params = params + (limit,)
+
+    logger.info(f"Executing get_player_top_heroes_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -1708,6 +1721,8 @@ def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> li
         LIMIT ?
     """
     params = params + (discord_id, limit)
+
+    logger.info(f"Executing get_player_top_teammates_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -1748,6 +1763,8 @@ def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: i
     """
     params = params + (discord_id, result, result, limit)
 
+    logger.info(f"Executing get_player_top_opponents_from_matches query: {query.strip()} with params: {params}")
+
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
 
@@ -1774,6 +1791,8 @@ def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> l
         LIMIT ?
     """
     params = params + (limit,)
+
+    logger.info(f"Executing get_player_match_history_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -1814,14 +1833,19 @@ def get_player_streak_from_matches(discord_id: int, max_events: int = 50) -> dic
 
 def get_player_match_history(discord_id: int, limit: int = 20) -> list[dict]:
     """Retorna os últimos eventos de partida de um jogador, do mais recente para o mais antigo."""
+    query = """
+        SELECT match_id, result, details, hero, kills, deaths, assists, created_at
+        FROM match_history
+        WHERE discord_id = ?
+        ORDER BY match_id DESC
+        LIMIT ?
+    """
+    params = (discord_id, limit)
+    
+    logger.info(f"Executing get_player_match_history query: {query.strip()} with params: {params}")
+    
     with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT match_id, result, details, hero, kills, deaths, assists, created_at
-            FROM match_history
-            WHERE discord_id = ?
-            ORDER BY match_id DESC
-            LIMIT ?
-        """, (discord_id, limit)).fetchall()
+        rows = conn.execute(query, params).fetchall()
 
     return [
         {
