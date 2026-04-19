@@ -340,6 +340,160 @@ def extract_text_from_image_url(image_url: str) -> str:
     return text
 
 
+def extract_text_from_image_data(image_data: bytes) -> str:
+    logger.info(f"[OCR] Starting text extraction from image data ({len(image_data)} bytes)")
+    
+    provider, client = _build_ai_client()
+    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    instructions = (
+        "Você é um assistente especializado em Dota 2."
+        "Não adicione explicações, marcações ou comentários. Retorne apenas o texto bruto sem interpretação adicional."
+    )
+
+    logger.debug(f"[OCR] Using {provider} provider with model {model} for text extraction")
+
+    if provider == "gemini":
+        from google.genai import types
+        # Configuração de Thinking conforme o Google AI Studio
+        generate_content_config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=False,
+            ),
+        )
+        
+        mime_type = "image/png"  # Default to PNG
+        
+        image_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
+        logger.debug(f"[OCR] Created image part for Gemini API with mime_type {mime_type}")
+
+        from google.genai.errors import ClientError
+
+        def _is_rate_limit_exception(exc: Exception) -> bool:
+            if isinstance(exc, ClientError):
+                if getattr(exc, "status_code", None) == 429:
+                    return True
+            message = str(exc).lower()
+            return "rate limit" in message or "quota exceeded" in message
+
+        def _is_model_not_found_error(exc: Exception) -> bool:
+            if isinstance(exc, ClientError):
+                if getattr(exc, "status_code", None) == 404:
+                    return True
+            message = str(exc).lower()
+            return "not found" in message or "not supported for generatecontent" in message
+
+        @retry(
+            retry=retry_if_exception(_is_rate_limit_exception),
+            wait=wait_random_exponential(multiplier=8, min=15, max=180),
+            stop=stop_after_attempt(8),
+            reraise=True,
+        )
+        def generate_content_with_retry(model_name: str):
+            logger.debug(f"[OCR] Calling Gemini API for text extraction with model {model_name}")
+            return client.models.generate_content(
+                model=model_name,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(text=instructions),
+                            image_part
+                        ],
+                    ),
+                ],
+                config=generate_content_config
+            )
+
+        candidate_models = [model]
+        if model in {"gemini-1.5-flash", "gemini-1.5-flash-preview", "gemini-1.5-flash-002", "gemini-1.5-pro"}:
+            candidate_models.extend([
+                "gemini-3-flash-preview",
+                "gemini-3-flash",
+                "gemini-3-flash-002",
+            ])
+        elif model in {"gemini-3-flash-preview", "gemini-3-flash", "gemini-3-flash-002"}:
+            candidate_models.extend([
+                "gemini-3-flash-preview",
+                "gemini-3-flash",
+                "gemini-3-flash-002",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-preview",
+                "gemini-1.5-flash-002",
+                "gemini-1.5-pro",
+            ])
+
+        logger.debug(f"[OCR] Trying candidate models: {candidate_models}")
+        response = None
+        last_error = None
+        for candidate in candidate_models:
+            try:
+                response = generate_content_with_retry(candidate)
+                if response and hasattr(response, "text"):
+                    text = response.text
+                elif response and hasattr(response, "candidates"):
+                    candidate_obj = response.candidates[0] if response.candidates else None
+                    if candidate_obj and hasattr(candidate_obj, "content"):
+                        text = candidate_obj.content.parts[0].text if candidate_obj.content.parts else ""
+                    else:
+                        text = ""
+                else:
+                    text = ""
+
+                if not text:
+                    try:
+                        text = _extract_text_from_response(response)
+                        logger.debug(f"[OCR] Extracted text using fallback method: {len(text)} characters")
+                    except Exception:
+                        logger.info("OCR AI raw response: %s", str(response))
+                else:
+                    logger.info("OCR AI raw response: %s", str(response))
+
+                logger.info(f"[OCR] Successfully extracted text using model {candidate}: {len(text)} characters")
+                break
+            except Exception as exc:
+                last_error = exc
+                logger.warning(f"[OCR] Failed with model {candidate}: {exc}")
+                if _is_model_not_found_error(exc) and candidate != candidate_models[-1]:
+                    continue
+                raise
+
+        if response is None:
+            logger.error("[OCR] Failed to find available Gemini model for OCR")
+            raise RuntimeError(
+                "Falha ao encontrar um modelo Gemini disponível para OCR."
+            ) from last_error
+    else:
+        # For OpenAI, we need to encode the image data as base64
+        logger.debug("[OCR] Using OpenAI for text extraction")
+        import base64
+        image_b64 = base64.b64encode(image_data).decode('utf-8')
+        image_url = f"data:image/png;base64,{image_b64}"
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": instructions},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+            temperature=0.0,
+            max_tokens=1000,
+        )
+        text = response.choices[0].message.content
+        logger.info(f"[OCR] OpenAI text extraction completed: {len(text)} characters")
+
+    if not text:
+        logger.error("[OCR] No text extracted from image")
+        raise RuntimeError("Falha ao extrair texto da imagem via OCR.")
+    
+    logger.info(f"[OCR] Text extraction completed successfully: {len(text)} characters")
+    return text
+
+
 def _parse_duration(text: str) -> str | None:
     match = re.search(r"(\d{1,2}:\d{2})", text)
     return match.group(1) if match else None
@@ -714,12 +868,13 @@ def _build_image_llm_prompt(image_url: str) -> str:
     return prompt
 
 
-def _call_gemini_with_image(client, model: str, prompt: str, image_url: str, resize: bool = False) -> str:
-    """Internal function to call Gemini API with image. Decorated with retry logic."""
+def _call_gemini_with_image(client, model: str, prompt: str, image_data: bytes, resize: bool = False) -> str:
+    """Internal function to call Gemini API with image data. Decorated with retry logic."""
     from google.genai import types
-    import urllib.request
     from PIL import Image
     import io
+
+    logger.debug(f"[OCR] Preparing Gemini API call with model {model}, resize={resize}, image_size={len(image_data)} bytes")
 
     generate_content_config = types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(
@@ -727,13 +882,11 @@ def _call_gemini_with_image(client, model: str, prompt: str, image_url: str, res
         ),
     )
 
-    mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
-
-    # Download image
-    image_data = urllib.request.urlopen(image_url).read()
+    mime_type = "image/png"  # Default to PNG
     
     # Resize if needed (only on retry after server error)
     if resize:
+        logger.debug("[OCR] Resizing image for API call")
         image = Image.open(io.BytesIO(image_data))
         max_width = 1280
         if image.width > max_width:
@@ -745,10 +898,12 @@ def _call_gemini_with_image(client, model: str, prompt: str, image_url: str, res
             output = io.BytesIO()
             image.save(output, format=image.format or 'PNG')
             image_data = output.getvalue()
-            logger.info(f"Image resized from {image.width}px to 1280px to handle high server load")
+            logger.info(f"[OCR] Image resized from {image.width}px to 1280px ({len(image_data)} bytes) to handle high server load")
 
     image_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
+    logger.debug(f"[OCR] Created image part with mime_type {mime_type}")
 
+    logger.debug(f"[OCR] Calling Gemini API with model {model}")
     response = client.models.generate_content(
         model=model,
         contents=[
@@ -762,46 +917,79 @@ def _call_gemini_with_image(client, model: str, prompt: str, image_url: str, res
         ],
         config=generate_content_config
     )
-    return response.text
+    
+    content = response.text
+    logger.debug(f"[OCR] Gemini API call completed, received {len(content)} characters")
+    return content
+
+
+def _should_retry_llm_exception(exc: Exception) -> bool:
+    """Check if an exception should trigger a retry for LLM calls."""
+    if isinstance(exc, errors.ClientError):
+        status_code = getattr(exc, "status_code", None)
+        # Don't retry on 403 Forbidden (expired URLs) or 404 Not Found
+        if status_code in (403, 404):
+            logger.warning(f"[OCR] Not retrying LLM call due to permanent error: HTTP {status_code}")
+            return False
+        logger.debug(f"[OCR] Retrying LLM call due to client error: HTTP {status_code}")
+        return True
+    if isinstance(exc, errors.ServerError):
+        logger.debug(f"[OCR] Retrying LLM call due to server error: {exc}")
+        return True
+    logger.debug(f"[OCR] Not retrying LLM call due to unknown error type: {type(exc).__name__}")
+    return False
 
 
 @retry(
     wait=wait_random_exponential(multiplier=1, min=4, max=60),
     stop=stop_after_attempt(5),
-    retry=retry_if_exception_type(errors.ClientError) | retry_if_exception_type(errors.ServerError),
+    retry=retry_if_exception(_should_retry_llm_exception),
     reraise=True
 )
-def _parse_image_with_llm(image_url: str) -> dict[str, Any] | None:
+def _parse_image_with_llm(image_data: bytes) -> dict[str, Any] | None:
+    logger.debug(f"[OCR] Starting LLM image parsing with {len(image_data)} bytes of image data")
+    
     if not can_process_llm():
+        logger.warning("[OCR] LLM processing not available (missing API keys)")
         return None
 
     provider, client = _build_ai_client()
     model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
-    prompt = _build_image_llm_prompt(image_url)
+    prompt = _build_image_llm_prompt("")
+    
+    logger.info(f"[OCR] Using {provider} provider with model {model} for image analysis")
 
     if provider == "gemini":
         try:
             # First attempt with original image (no resizing)
-            content = _call_gemini_with_image(client, model, prompt, image_url, resize=False)
+            logger.debug("[OCR] Calling Gemini API with original image")
+            content = _call_gemini_with_image(client, model, prompt, image_data, resize=False)
+            logger.debug(f"[OCR] Gemini API returned {len(content)} characters of content")
         except errors.ServerError as e:
             # On 503 Service Unavailable, retry with resized image
             if "503" in str(e) or "UNAVAILABLE" in str(e):
-                logger.info(f"503 Server error detected, retrying with resized image for {image_url}")
+                logger.info(f"[OCR] 503 Server error detected, retrying with resized image")
                 try:
-                    content = _call_gemini_with_image(client, model, prompt, image_url, resize=True)
+                    content = _call_gemini_with_image(client, model, prompt, image_data, resize=True)
+                    logger.debug(f"[OCR] Gemini API retry returned {len(content)} characters of content")
                 except Exception as retry_error:
-                    logger.error(f"Failed even with resized image: {retry_error}")
+                    logger.error(f"[OCR] Failed even with resized image: {retry_error}")
                     raise
             else:
+                logger.error(f"[OCR] Gemini API server error: {e}")
                 raise
     else:
+        logger.warning(f"[OCR] Unsupported LLM provider: {provider}")
         return None
 
+    logger.debug("[OCR] Parsing JSON payload from LLM response")
     parsed = _parse_json_payload(content)
     if parsed is not None:
+        logger.info("[OCR] Successfully parsed match data from LLM response")
         return parsed
-
-    return None
+    else:
+        logger.warning("[OCR] Failed to parse JSON payload from LLM response")
+        return None
 
 
 def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[str, Any] | None:
@@ -966,21 +1154,45 @@ def parse_dota_match_text(raw_text: str, image_url: str | None = None) -> dict[s
 def process_match_screenshot(job_id: int, job: dict | None = None) -> dict[str, Any]:
     from core.database import get_match_screenshot, set_match_screenshot_status
 
+    logger.info(f"[OCR] Starting processing of screenshot job {job_id}")
+
     if job is None:
+        logger.debug(f"[OCR] Fetching job data for job {job_id}")
         job = get_match_screenshot(job_id)
     if job is None:
+        logger.error(f"[OCR] Job {job_id} not found in database")
         raise ValueError(f"Job de screenshot {job_id} não encontrado")
 
-    parsed = _parse_image_with_llm(job["image_url"])
+    image_data_size = len(job["image_data"]) if job.get("image_data") else 0
+    logger.info(f"[OCR] Processing job {job_id}: image_size={image_data_size} bytes, status={job.get('status')}")
+
+    # Try LLM-based parsing first
+    logger.debug(f"[OCR] Attempting LLM-based parsing for job {job_id}")
+    parsed = _parse_image_with_llm(job["image_data"])
+    
     if parsed is None:
-        raw_text = extract_text_from_image_url(job["image_url"])
-        parsed = parse_dota_match_text(raw_text, job["image_url"])
+        logger.info(f"[OCR] LLM parsing failed for job {job_id}, falling back to OCR text extraction")
+        try:
+            raw_text = extract_text_from_image_data(job["image_data"])
+            logger.debug(f"[OCR] Extracted text from image: {len(raw_text)} characters")
+            parsed = parse_dota_match_text(raw_text, "")
+            logger.info(f"[OCR] Fallback parsing completed for job {job_id}")
+        except Exception as e:
+            logger.error(f"[OCR] Fallback OCR parsing failed for job {job_id}: {e}")
+            parsed = {"valid_dota_screenshot": False, "error": str(e)}
+    else:
+        logger.info(f"[OCR] LLM parsing successful for job {job_id}")
+
     metadata = json.dumps(parsed, ensure_ascii=False)
+    logger.debug(f"[OCR] Generated metadata for job {job_id}: {len(metadata)} characters")
 
     if parsed.get("valid_dota_screenshot") is False:
+        logger.warning(f"[OCR] Job {job_id} marked as invalid Dota screenshot")
         set_match_screenshot_status(job_id, "failed", metadata=metadata)
+        logger.info(f"[OCR] Job {job_id} processing completed (failed)")
         return {"job": job, "parsed": parsed}
 
+    logger.info(f"[OCR] Job {job_id} processing completed successfully")
     set_match_screenshot_status(job_id, "processed", metadata=metadata)
     return {"job": job, "parsed": parsed}
 

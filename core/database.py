@@ -109,6 +109,13 @@ def init_db():
                 processed_at TEXT
             )
         """)
+
+        # Migration: add image_data column to match_screenshots
+        ms_columns = conn.execute("PRAGMA table_info(match_screenshots)").fetchall()
+        ms_column_names = [col["name"] for col in ms_columns]
+        if "image_data" not in ms_column_names:
+            conn.execute("ALTER TABLE match_screenshots ADD COLUMN image_data BLOB")
+            logger.info("[DB] Coluna 'image_data' adicionada via migration ao match_screenshots.")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS match_imports (
                 match_id       INTEGER PRIMARY KEY,
@@ -1110,14 +1117,30 @@ def delete_match_screenshot(job_id: int) -> None:
 
 
 def enqueue_match_screenshot(message_id: int, guild_id: int, channel_id: int, author_id: int, image_url: str, created_at: str) -> int:
+    import requests
+    
+    logger.info(f"[DB] Starting to enqueue screenshot: message_id={message_id}, guild_id={guild_id}, channel_id={channel_id}, author_id={author_id}, image_url={image_url}")
+    
+    # Download the image
+    try:
+        logger.debug(f"[DB] Downloading image from {image_url}")
+        response = requests.get(image_url, timeout=30)
+        response.raise_for_status()
+        image_data = response.content
+        image_size = len(image_data)
+        logger.info(f"[DB] Successfully downloaded image: {image_size} bytes from {image_url}")
+    except Exception as e:
+        logger.error(f"[DB] Failed to download image from {image_url}: {e}")
+        raise
+    
     with get_connection() as conn:
         cursor = conn.execute(
-            "INSERT INTO match_screenshots (message_id, guild_id, channel_id, author_id, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (message_id, guild_id, channel_id, author_id, image_url, created_at)
+            "INSERT INTO match_screenshots (message_id, guild_id, channel_id, author_id, image_url, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (message_id, guild_id, channel_id, author_id, image_url, image_data, created_at)
         )
         conn.commit()
         job_id = cursor.lastrowid
-    logger.info(f"[DB] Screenshot enfileirada: job {job_id} ({image_url})")
+    logger.info(f"[DB] Screenshot enqueued successfully: job {job_id} ({image_url}, {image_size} bytes)")
     return job_id
 
 
@@ -1131,28 +1154,32 @@ def is_match_screenshot_enqueued(message_id: int) -> bool:
 
 
 def get_pending_match_screenshots(limit: int = 20) -> list[dict]:
+    logger.debug(f"[DB] Fetching up to {limit} pending screenshot jobs")
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, message_id, guild_id, channel_id, author_id, image_url, status, metadata, created_at FROM match_screenshots WHERE status = 'pending' ORDER BY id ASC LIMIT ?",
+            "SELECT id, message_id, guild_id, channel_id, author_id, image_url, image_data, status, metadata, created_at FROM match_screenshots WHERE status = 'pending' ORDER BY id ASC LIMIT ?",
             (limit,)
         ).fetchall()
-    return [dict(row) for row in rows]
+    jobs = [dict(row) for row in rows]
+    logger.debug(f"[DB] Found {len(jobs)} pending jobs")
+    return jobs
 
 
 def set_match_screenshot_status(job_id: int, status: str, metadata: str | None = None) -> None:
+    logger.debug(f"[DB] Updating job {job_id} status to '{status}' with metadata length {len(metadata) if metadata else 0}")
     with get_connection() as conn:
         conn.execute(
             "UPDATE match_screenshots SET status = ?, metadata = ?, processed_at = ? WHERE id = ?",
             (status, metadata, datetime.now().isoformat(), job_id)
         )
         conn.commit()
-    logger.info(f"[DB] Screenshot job {job_id} marcado como {status}.")
+    logger.info(f"[DB] Screenshot job {job_id} marked as {status}.")
 
 
 def get_match_screenshot(job_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, message_id, guild_id, channel_id, author_id, image_url, status, metadata, created_at, processed_at FROM match_screenshots WHERE id = ?",
+            "SELECT id, message_id, guild_id, channel_id, author_id, image_url, image_data, status, metadata, created_at, processed_at FROM match_screenshots WHERE id = ?",
             (job_id,)
         ).fetchone()
     return dict(row) if row else None

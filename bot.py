@@ -141,11 +141,15 @@ async def on_message(message: discord.Message):
             image_channel_id = guild_image_channel
 
     if image_channel_id and message.channel.id == image_channel_id:
+        logger.debug(f"[BOT] Processing message in image channel {message.channel.id}")
         if message.attachments:
             added = 0
             for attachment in message.attachments:
                 content_type = attachment.content_type or ""
-                if content_type.startswith("image") or attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                filename = attachment.filename.lower()
+                logger.debug(f"[BOT] Checking attachment: {filename}, content_type: {content_type}")
+                if content_type.startswith("image") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                    logger.info(f"[BOT] Enqueuing image for OCR: {attachment.url} from user {message.author.id}")
                     job_id = enqueue_match_screenshot(
                         message.id,
                         message.guild.id if message.guild else 0,
@@ -154,12 +158,16 @@ async def on_message(message: discord.Message):
                         attachment.url,
                         message.created_at.isoformat()
                     )
+                    logger.info(f"[BOT] Image enqueued for OCR processing: job {job_id}")
                     added += 1
             if added:
+                logger.info(f"[BOT] {added} image(s) added to OCR queue from message {message.id}")
                 await message.channel.send(
                     f"✅ Imagem adicionada para processamento de partida. ID da fila: {job_id}",
                     delete_after=15
                 )
+        else:
+            logger.debug("[BOT] Message in image channel has no attachments")
 
     if not message.content.startswith(bot.command_prefix):
         return
@@ -209,31 +217,49 @@ async def ocr_background_worker():
             await asyncio.sleep(60)
             continue
 
+        logger.debug("🔍 Checking for pending OCR jobs...")
         jobs = get_pending_match_screenshots(limit=1)
         if not jobs:
+            logger.debug("📭 No pending OCR jobs found, sleeping for 20 seconds")
             await asyncio.sleep(20)
             continue
 
         for job in jobs:
+            job_id = job["id"]
+            logger.info(f"📋 Processing OCR job {job_id} from channel {job['channel_id']}")
+            
             try:
+                logger.debug(f"🔄 Setting job {job_id} status to 'processing'")
                 set_match_screenshot_status(job["id"], "processing")
+                
+                logger.debug(f"🤖 Starting OCR processing for job {job_id}")
                 result = await asyncio.to_thread(process_match_screenshot, job["id"], job)
                 parsed = result.get("parsed", {})
-                logger.info(f"OCR concluído para job {job['id']}: {parsed.get('duration', 'sem duração')}.")
+                
+                logger.info(f"✅ OCR completed for job {job_id}: duration={parsed.get('duration', 'unknown')}, valid={parsed.get('valid_dota_screenshot', 'unknown')}")
+                
                 channel = bot.get_channel(job["channel_id"])
                 if channel:
                     if parsed.get("valid_dota_screenshot") is False:
+                        logger.warning(f"⚠️ Job {job_id} marked as invalid Dota screenshot")
                         await channel.send(
                             f"⚠️ O job {job['id']} não parece ser um placar de Dota válido e foi marcado como não processado."
                         )
                     else:
+                        logger.debug(f"📤 Sending OCR results to channel {job['channel_id']}")
                         summary = build_ocr_job_summary_text(job["id"], parsed)
                         await channel.send(summary)
+                        logger.info(f"📤 OCR results sent to channel {job['channel_id']} for job {job_id}")
+                else:
+                    logger.warning(f"❌ Could not find channel {job['channel_id']} to send OCR results")
+                    
             except Exception as exc:
-                logger.exception(f"Erro ao processar imagem OCR para job {job['id']}")
+                logger.exception(f"💥 Error processing OCR job {job_id}: {exc}")
                 set_match_screenshot_status(job["id"], "failed", metadata=str(exc))
+                logger.info(f"❌ Job {job_id} marked as failed")
 
             # Rate limit the worker to roughly 15 requests per minute for Gemini 3 Flash.
+            logger.debug("⏱️ Rate limiting: sleeping for 4 seconds")
             await asyncio.sleep(4)
 
 
