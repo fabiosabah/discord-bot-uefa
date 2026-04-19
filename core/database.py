@@ -454,7 +454,8 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
 
     from core.ocr import _normalize_team
 
-    winner = parsed.get("winner")
+    match_info = parsed.get("match_info") or parsed.get("game_details") or {}
+    winner = parsed.get("winner") or match_info.get("winner_team") or match_info.get("winner")
     if winner is None:
         radiant_win = parsed.get("radiant_win")
         if radiant_win is None:
