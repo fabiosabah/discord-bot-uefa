@@ -1364,6 +1364,112 @@ def get_player_top_opponents(discord_id: int, result: str, limit: int = 3) -> li
     ]
 
 
+def get_player_top_teammates(discord_id: int, limit: int = 3) -> list[dict]:
+    query = """
+        SELECT
+            team.discord_id,
+            COALESCE(p.display_name, team.discord_id) AS display_name,
+            COUNT(DISTINCT team.match_id) AS matches
+        FROM match_history player
+        JOIN match_history team
+            ON team.match_id = player.match_id
+            AND team.discord_id != player.discord_id
+            AND team.result = player.result
+        LEFT JOIN players p ON p.discord_id = team.discord_id
+        WHERE player.discord_id = ?
+        GROUP BY team.discord_id
+        ORDER BY matches DESC, display_name ASC
+        LIMIT ?
+    """
+    params = (discord_id, limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "discord_id": row["discord_id"],
+            "display_name": row["display_name"],
+            "count": row["matches"]
+        }
+        for row in rows
+    ]
+
+
+def get_player_top_heroes(discord_id: int, limit: int = 5) -> list[dict]:
+    query = """
+        SELECT hero, COUNT(*) AS plays
+        FROM match_history
+        WHERE discord_id = ?
+          AND hero IS NOT NULL
+          AND hero != ''
+        GROUP BY hero
+        ORDER BY plays DESC, hero ASC
+        LIMIT ?
+    """
+    params = (discord_id, limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "hero": row["hero"],
+            "plays": row["plays"]
+        }
+        for row in rows
+    ]
+
+
+def _parse_kda_from_details(details: str) -> tuple[int | None, int | None, int | None]:
+    if not isinstance(details, str):
+        return None, None, None
+
+    match = re.search(r"(\d+)\s*[/\\-]\s*(\d+)\s*[/\\-]\s*(\d+)", details)
+    if match:
+        return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+    match = re.search(r"kda[:\s]*(\d+)\s*[/\\-]\s*(\d+)\s*[/\\-]\s*(\d+)", details, re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+    return None, None, None
+
+
+def get_player_history_stats(discord_id: int) -> dict:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT result, details FROM match_history WHERE discord_id = ?",
+            (discord_id,)
+        ).fetchall()
+
+    total_matches = len(rows)
+    wins = sum(1 for row in rows if row["result"] == "win")
+    losses = sum(1 for row in rows if row["result"] == "loss")
+    total_kills = total_deaths = total_assists = 0
+    kda_rows = 0
+
+    for row in rows:
+        kills, deaths, assists = _parse_kda_from_details(row["details"] or "")
+        if kills is not None and deaths is not None and assists is not None:
+            total_kills += kills
+            total_deaths += deaths
+            total_assists += assists
+            kda_rows += 1
+
+    winrate = (wins / total_matches * 100) if total_matches else 0
+    return {
+        "matches": total_matches,
+        "wins": wins,
+        "losses": losses,
+        "winrate": winrate,
+        "total_kills": total_kills,
+        "total_deaths": total_deaths,
+        "total_assists": total_assists,
+        "kda_rows": kda_rows,
+    }
+
+
 def get_player_match_history(discord_id: int, limit: int = 20) -> list[dict]:
     """Retorna os últimos eventos de partida de um jogador, do mais recente para o mais antigo."""
     with get_connection() as conn:

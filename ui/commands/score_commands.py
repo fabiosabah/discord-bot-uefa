@@ -11,6 +11,7 @@ from core.database import (
     upsert_player, add_win, add_loss, remove_win, remove_loss, delete_player,
     get_ranking, log_action, get_last_admin_action, delete_audit_log_entry,
     get_player, get_last_update, get_player_streak, get_player_match_history,
+    get_player_history_stats, get_player_top_heroes, get_player_top_teammates,
     get_match_summary, get_recent_match_summaries, get_player_top_opponents,
     get_raw_match_audit_events, delete_match_history, create_or_replace_manual_match,
     get_pending_match_screenshots, get_match_screenshot, set_match_screenshot_status,
@@ -649,6 +650,64 @@ def setup_score_commands(bot: commands.Bot):
 
         embed.set_footer(text="Sistema de Liga • UEFA Bot")
 
+        await ctx.send(embed=embed)
+
+    @bot.command(name="perfil2")
+    async def cmd_perfil2(ctx, target: discord.Member = None):
+        target = target or ctx.author
+        stats = get_player_history_stats(target.id)
+
+        if stats["matches"] == 0:
+            await ctx.send(f"❌ Nenhum histórico de partidas encontrado para {target.display_name}.")
+            return
+
+        top_heroes = get_player_top_heroes(target.id, limit=5)
+        teammates = get_player_top_teammates(target.id, limit=3)
+        opponents_against = get_player_top_opponents(target.id, "loss", limit=3)
+        opponents_favor = get_player_top_opponents(target.id, "win", limit=3)
+        recent_matches = get_player_match_history(target.id, limit=5)
+
+        title = f"📊 Perfil 2 de {target.display_name}"
+        embed = discord.Embed(title=title, color=discord.Color.blurple())
+        embed.set_thumbnail(url=target.display_avatar.url)
+
+        embed.add_field(name="🎮 Partidas", value=stats["matches"], inline=True)
+        embed.add_field(name="🏆 Vitórias", value=stats["wins"], inline=True)
+        embed.add_field(name="💀 Derrotas", value=stats["losses"], inline=True)
+        embed.add_field(name="📈 Winrate", value=f"{stats['winrate']:.1f}%", inline=True)
+
+        if stats["kda_rows"]:
+            embed.add_field(
+                name="📊 KDA total",
+                value=f"{stats['total_kills']} / {stats['total_deaths']} / {stats['total_assists']}\n(base em {stats['kda_rows']} partidas)",
+                inline=False
+            )
+        else:
+            embed.add_field(name="📊 KDA total", value="Nenhum KDA detectado no histórico.", inline=False)
+
+        if top_heroes:
+            heroes_text = "\n".join([f"{i+1}. {item['hero']} — {item['plays']}x" for i, item in enumerate(top_heroes)])
+            embed.add_field(name="🔥 Top 5 heróis", value=heroes_text, inline=False)
+
+        if teammates:
+            teammates_text = "\n".join([f"{i+1}. {item['display_name']} — {item['count']} partidas" for i, item in enumerate(teammates)])
+            embed.add_field(name="🤝 Jogou mais a favor de", value=teammates_text, inline=False)
+
+        if opponents_against:
+            opponents_text = "\n".join([f"{i+1}. {item['display_name']} — {item['count']} partidas" for i, item in enumerate(opponents_against)])
+            embed.add_field(name="⚔️ Jogou mais contra", value=opponents_text, inline=False)
+
+        if opponents_favor:
+            favored_text = "\n".join([f"{i+1}. {item['display_name']} — {item['count']} vezes" for i, item in enumerate(opponents_favor)])
+            embed.add_field(name="🏅 Mais derrotados", value=favored_text, inline=False)
+
+        if recent_matches:
+            recent_text = []
+            for item in recent_matches:
+                recent_text.append(f"#{item['match_id']} — {item['result']} — {item['details'] or 'sem detalhes'}")
+            embed.add_field(name="🕒 Últimas partidas", value="\n".join(recent_text), inline=False)
+
+        embed.set_footer(text="Perfil gerado a partir de match_history")
         await ctx.send(embed=embed)
 
     @bot.command(name="historico", aliases=["history"])
