@@ -51,6 +51,7 @@ HERO_NAMES = [
     "Keeper of the Light",
     "Kez",
     "Kunkka",
+    "Largo",
     "Legion Commander",
     "Leshrac",
     "Lich",
