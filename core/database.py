@@ -448,6 +448,54 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
     return mapping
 
 
+def _resolve_ocr_player_discord_ids(players: list[dict[str, Any]], player_mapping: dict[str, dict[str, object]]) -> None:
+    if not players:
+        return
+
+    lookup_names = []
+    for player in players:
+        if not isinstance(player, dict):
+            continue
+
+        player_name = (
+            player.get("player_name")
+            or player.get("name")
+            or player.get("player")
+            or ""
+        ).strip()
+        if not player_name:
+            continue
+
+        discord_id = player.get("discord_id")
+        if discord_id is not None:
+            continue
+
+        mapping_entry = player_mapping.get(player_name)
+        if mapping_entry is not None and mapping_entry.get("discord_id") is not None:
+            player["discord_id"] = int(mapping_entry["discord_id"])
+            continue
+
+        lookup_names.append(player_name)
+
+    resolved = resolve_player_names_exact(lookup_names)
+    for player in players:
+        if not isinstance(player, dict):
+            continue
+
+        player_name = (
+            player.get("player_name")
+            or player.get("name")
+            or player.get("player")
+            or ""
+        ).strip()
+        if not player_name or player.get("discord_id") is not None:
+            continue
+
+        discord_id = resolved.get(player_name)
+        if discord_id is not None:
+            player["discord_id"] = discord_id
+
+
 def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], admin_id: int, admin_name: str) -> int:
     job = get_match_screenshot(job_id)
     if job is None:
@@ -464,6 +512,8 @@ def insert_ocr_match(job_id: int, player_mapping: dict[str, dict[str, object]], 
     players = parsed.get("players_data") or parsed.get("players") or []
     if not isinstance(players, list) or len(players) < 2:
         raise ValueError("Metadados OCR não contêm lista válida de jogadores.")
+
+    _resolve_ocr_player_discord_ids(players, player_mapping)
 
     from core.ocr import _normalize_team
 

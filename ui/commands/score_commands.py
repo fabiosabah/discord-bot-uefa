@@ -1527,6 +1527,7 @@ def setup_score_commands(bot: commands.Bot):
 
         for name, discord_id in resolved.items():
             player_mapping[name] = {"discord_id": discord_id}
+            add_player_alias(discord_id, name)  # ← persiste o alias para o !aliaslist
 
         try:
             league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
@@ -1702,13 +1703,12 @@ def setup_score_commands(bot: commands.Bot):
             kills = player.get("kills")
             deaths = player.get("deaths")
             assists = player.get("assists")
-            if kills is not None or deaths is not None or assists is not None:
-                kda_text = f"K/D/A {kills if kills is not None else '?'} / {deaths if deaths is not None else '?'} / {assists if assists is not None else '?'}"
-            else:
-                kda_text = "K/D/A não informado"
+
+            discord_id = player.get("discord_id")
+            mention = f" (<@{discord_id}>)" if discord_id else ""
 
             lines.append(
-                f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'} "
+                f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'}{mention} "
                 f"({player.get('hero_name') or 'herói desconhecido'}) - {player.get('team') or 'time desconhecido'} "
                 f"- KDA {kills or '?'} / {deaths or '?'} / {assists or '?'} "
                 f"- NW {player.get('networth') if player.get('networth') is not None else 'N/A'}"
