@@ -1705,7 +1705,11 @@ def setup_score_commands(bot: commands.Bot):
             assists = player.get("assists")
 
             discord_id = player.get("discord_id")
-            mention = f" (<@{discord_id}>)" if discord_id else ""
+            if discord_id:
+                user = ctx.guild.get_member(int(discord_id)) or bot.get_user(int(discord_id))
+                mention = f" (@{user.name})" if user else f" (<@{discord_id}>)"
+            else:
+                mention = ""
 
             lines.append(
                 f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'}{mention} "
