@@ -1599,12 +1599,12 @@ def setup_score_commands(bot: commands.Bot):
         if slot is not None:
             await ctx.send(
                 f"✅ Slot {slot} do job {job_id} mapeado para {members[0].mention}. "
-                f"O apelido foi salvo para futuras importações. Use `!ocrok {job_id}` para importar."
+                f"Apelido salvo. → `!ok {job_id} MM:SS`"
             )
         else:
             await ctx.send(
-                f"✅ IDs do Discord mapeados para {mapped_count} slot(s) no job {job_id}. "
-                f"Os apelidos foram salvos para futuras importações. Use `!ocrok {job_id}` para importar."
+                f"✅ {mapped_count} slot(s) mapeados no job {job_id}. "
+                f"Apelidos salvos. → `!ok {job_id} MM:SS`"
             )
 
     @bot.command(name="confirmarimagem", aliases=["confirmimage", "editarimagem", "editimage"])
@@ -1623,8 +1623,8 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"✅ Imagem {job_id} confirmada. Use o texto para registrar o histórico: {text}")
 
-    @bot.command(name="ocrok")
-    async def cmd_ocrok(ctx: commands.Context, job_id: int):
+    @bot.command(name="ok", aliases=["ocrok"])
+    async def cmd_ok(ctx: commands.Context, job_id: int, duration: str = ""):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
@@ -1632,22 +1632,22 @@ def setup_score_commands(bot: commands.Bot):
 
         job = get_match_screenshot(job_id)
         if not job:
-            await ctx.send(f"❌ Job de imagem {job_id} não encontrado.", delete_after=10)
+            await ctx.send(f"❌ Job {job_id} não encontrado.", delete_after=600)
             return
 
         if not job["metadata"]:
-            await ctx.send(f"❌ Job {job_id} não possui metadados OCR processados.", delete_after=10)
+            await ctx.send(f"❌ Job {job_id} ainda sem metadados OCR.", delete_after=600)
             return
 
         try:
             parsed = json.loads(job["metadata"])
         except json.JSONDecodeError:
-            await ctx.send(f"❌ Metadados OCR inválidos para o job {job_id}.", delete_after=10)
+            await ctx.send(f"❌ Metadados OCR inválidos no job {job_id}.", delete_after=600)
             return
 
         players = parsed.get("players_data") or parsed.get("players") or []
         if not isinstance(players, list) or not players:
-            await ctx.send(f"❌ Não foi possível obter a lista de jogadores do job {job_id}.", delete_after=10)
+            await ctx.send(f"❌ Sem lista de jogadores no job {job_id}.", delete_after=600)
             return
 
         player_mapping: dict[str, dict[str, object]] = {}
@@ -1658,48 +1658,50 @@ def setup_score_commands(bot: commands.Bot):
             player_name = _get_ocr_player_name(player)
             if not player_name:
                 continue
-
             discord_id = player.get("discord_id")
             if discord_id is not None:
                 try:
-                    discord_id = int(discord_id)
-                    player_mapping[player_name] = {"discord_id": discord_id}
+                    player_mapping[player_name] = {"discord_id": int(discord_id)}
                     continue
                 except (TypeError, ValueError):
                     pass
-
             unresolved_names.append(player_name)
 
         existing_count = len(player_mapping)
         resolved = resolve_player_names_exact(unresolved_names)
-        resolved_count = len(resolved)
         missing = [name for name in unresolved_names if name not in resolved]
+
         audit_logger.info(
-            f"[OCROK] job={job_id} existing_ids={existing_count} resolved_by_name={resolved_count} missing={missing}"
+            f"[OK] job={job_id} existing_ids={existing_count} resolved={len(resolved)} missing={missing}"
         )
+
         if missing:
-            await ctx.send(
-                f"❌ Não foi possível mapear automaticamente os seguintes jogadores para IDs do Discord: {', '.join(missing)}. "
-                f"Use `!addalias @Usuario NomeOCR` para registrar esses nicks ou importe com `!importarimagem {job_id} <mapeamento>`."
-            )
+            dur_hint = duration.strip() if duration.strip() else "MM:SS"
+            lines = ["⚠️ Nicks não reconhecidos. Cadastre e tente novamente:\n"]
+            for name in missing:
+                lines.append(f"`!cadastro {name} @usuario`")
+            lines.append(f"\nApós cadastrar:\n`!ok {job_id} {dur_hint}`")
+            await ctx.message.delete()
+            await ctx.send("\n".join(lines), delete_after=600)
             return
 
         for name, discord_id in resolved.items():
             player_mapping[name] = {"discord_id": discord_id}
-            add_player_alias(discord_id, name)  # ← persiste o alias para o !aliaslist
+            add_player_alias(discord_id, name)
 
         try:
             league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
             delete_match_screenshot(job_id)
         except Exception as exc:
-            await ctx.send(f"❌ Falha ao importar job {job_id}: {exc}", delete_after=20)
+            await ctx.send(f"❌ Falha ao importar job {job_id}: {exc}", delete_after=600)
             return
 
+        duration = duration.strip()
+        if duration and re.match(r"^\d{1,2}:\d{2}$", duration):
+            update_league_match_duration(league_match_id, duration)
+
         await ctx.message.delete()
-        await ctx.send(
-            f"✅ Job {job_id} importado como partida `#{league_match_id}` no banco e removido da fila de OCR. "
-            f"Use `!id {league_match_id}` para revisar e `!fixhero` / `!nick` para ajustes."
-        )
+        await ctx.send(f"✅ Partida **#{league_match_id}** registrada com sucesso.")
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
     async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):
@@ -2158,6 +2160,39 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.message.delete()
         await ctx.send(f"✅ Alias `{alias}` adicionado para {member.mention}.")
+
+    @bot.command(name="cadastro")
+    async def cmd_cadastro(ctx: commands.Context, nick: str, member: discord.Member = None):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if member is None:
+            await ctx.message.delete()
+            await ctx.send(
+                f"❌ Informe o usuário Discord.\n"
+                f"→ `!cadastro {nick} @usuario`",
+                delete_after=600
+            )
+            return
+
+        existing = get_player(member.id)
+        if existing:
+            upsert_player(member.id, existing["display_name"], existing["wins"], existing["losses"])
+        else:
+            upsert_player(member.id, member.display_name, 0, 0)
+
+        add_player_alias(member.id, nick)
+        log_action(
+            ctx.author.id, ctx.author.display_name,
+            "!cadastro",
+            f"discord_id={member.id} nick={nick}",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ `{nick}` cadastrado como nick de {member.mention}.", delete_after=600)
 
     @bot.command(name="removealias", aliases=["delalias"])
     async def cmd_remove_alias(ctx: commands.Context, member: discord.Member, *, alias: str):
