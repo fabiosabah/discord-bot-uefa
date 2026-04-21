@@ -1424,8 +1424,20 @@ def get_last_update():
             ORDER BY id DESC
             LIMIT 1
         """).fetchone()
-    
+
     return row["created_at"] if row else None
+
+
+def get_last_ocr_match_info() -> dict | None:
+    """Retorna id e data da última partida importada via OCR."""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT league_match_id, created_at
+            FROM matches
+            ORDER BY league_match_id DESC
+            LIMIT 1
+        """).fetchone()
+    return dict(row) if row else None
 
 
 def resolve_player_names(discord_ids: list[int]) -> dict:

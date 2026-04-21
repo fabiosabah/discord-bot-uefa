@@ -28,7 +28,7 @@ from core.database import (
     get_player_match_history_from_matches, get_player_streak_from_matches,
     get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
     get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
-    get_player_top_win_teammates_from_matches
+    get_player_top_win_teammates_from_matches, get_last_ocr_match_info
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -2365,7 +2365,19 @@ def setup_score_commands(bot: commands.Bot):
             )
 
         embed.description = "\n".join(linhas)
-        embed.set_footer(text="Tabela gerada a partir de partidas importadas via OCR")
+
+        last = get_last_ocr_match_info()
+        if last:
+            try:
+                from datetime import datetime as _dt
+                ts = _dt.fromisoformat(last["created_at"])
+                last_text = f"📌 Última partida: #{last['league_match_id']} • {format_brazil_time(ts.isoformat())}"
+            except Exception:
+                last_text = f"📌 Última partida: #{last['league_match_id']}"
+        else:
+            last_text = "🕹️ Nenhuma partida importada ainda"
+
+        embed.set_footer(text=f"⚖️ Vitória +3 pts | Derrota -1 pt\n{last_text}")
 
         await ctx.send(embed=embed)
 
