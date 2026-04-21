@@ -2602,8 +2602,7 @@ def setup_score_commands(bot: commands.Bot):
         )
 
         def fmt(i: int, h: dict) -> str:
-            bar = "█" * min(int(h["winrate"] / 10), 10)
-            return f"`{i:>2}.` **{h['hero']}** — {h['picks']}× · {h['winrate']:.0f}% {bar}"
+            return f"`{i:>2}.` **{h['hero']}** — {h['picks']}× · {h['winrate']:.0f}%"
 
         # Chunkar dinamicamente respeitando limite de 1024 chars por field
         FIELD_LIMIT = 1000
