@@ -2601,17 +2601,29 @@ def setup_score_commands(bot: commands.Bot):
             color=discord.Color.dark_teal(),
         )
 
-        mid = (len(stats) + 1) // 2
         def fmt(i: int, h: dict) -> str:
             bar = "█" * min(int(h["winrate"] / 10), 10)
             return f"`{i:>2}.` **{h['hero']}** — {h['picks']}× · {h['winrate']:.0f}% {bar}"
 
-        col_a = "\n".join(fmt(i + 1, h) for i, h in enumerate(stats[:mid]))
-        col_b = "\n".join(fmt(i + 1 + mid, h) for i, h in enumerate(stats[mid:]))
+        # Chunkar dinamicamente respeitando limite de 1024 chars por field
+        FIELD_LIMIT = 1000
+        chunks: list[list[str]] = [[]]
+        for i, h in enumerate(stats):
+            line = fmt(i + 1, h)
+            current = "\n".join(chunks[-1])
+            if len(current) + len(line) + 1 > FIELD_LIMIT:
+                chunks.append([])
+            chunks[-1].append(line)
 
-        embed.add_field(name=f"Picks 1–{mid}", value=col_a or "—", inline=True)
-        if col_b:
-            embed.add_field(name=f"Picks {mid+1}–{len(stats)}", value=col_b, inline=True)
+        start = 1
+        for chunk in chunks:
+            end = start + len(chunk) - 1
+            embed.add_field(
+                name=f"Picks {start}–{end}",
+                value="\n".join(chunk),
+                inline=True,
+            )
+            start = end + 1
 
         total_picks = sum(h["picks"] for h in stats)
         embed.set_footer(text=f"{len(stats)} heróis diferentes · {total_picks} picks totais · use !heroes <nome> para detalhes")
