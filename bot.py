@@ -163,8 +163,8 @@ async def on_message(message: discord.Message):
             if added:
                 logger.info(f"[BOT] {added} image(s) added to OCR queue from message {message.id}")
                 await message.channel.send(
-                    f"✅ Imagem adicionada para processamento de partida. ID da fila: {job_id}",
-                    delete_after=15
+                    f"📷 Imagem recebida! Enviando para análise... _(job #{job_id})_",
+                    delete_after=60
                 )
         else:
             logger.debug("[BOT] Message in image channel has no attachments")
@@ -231,14 +231,27 @@ async def ocr_background_worker():
             try:
                 logger.debug(f"🔄 Setting job {job_id} status to 'processing'")
                 set_match_screenshot_status(job["id"], "processing")
-                
+
+                channel = bot.get_channel(job["channel_id"])
+                if channel:
+                    status_msg = await channel.send(
+                        f"🤖 Analisando imagem com IA... _(job #{job_id})_"
+                    )
+                else:
+                    status_msg = None
+
                 logger.debug(f"🤖 Starting OCR processing for job {job_id}")
                 result = await asyncio.to_thread(process_match_screenshot, job["id"], job)
                 parsed = result.get("parsed", {})
-                
+
                 logger.info(f"✅ OCR completed for job {job_id}: duration={parsed.get('duration', 'unknown')}, valid={parsed.get('valid_dota_screenshot', 'unknown')}")
-                
-                channel = bot.get_channel(job["channel_id"])
+
+                if status_msg:
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
+
                 if channel:
                     if parsed.get("valid_dota_screenshot") is False:
                         logger.warning(f"⚠️ Job {job_id} marked as invalid Dota screenshot; no message will be sent to channel")

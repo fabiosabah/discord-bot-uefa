@@ -1015,6 +1015,16 @@ def add_player_alias(discord_id: int, alias: str) -> None:
     if not alias:
         return
     with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT discord_id FROM player_aliases WHERE LOWER(alias) = LOWER(?) AND discord_id != ?",
+            (alias, discord_id)
+        ).fetchall()
+        if len(existing) >= 2:
+            owners = [str(r["discord_id"]) for r in existing]
+            raise ValueError(
+                f"O nick '{alias}' já está associado a 2 usuários ({', '.join(owners)}). "
+                f"Limite máximo atingido."
+            )
         conn.execute(
             "INSERT OR IGNORE INTO player_aliases (discord_id, alias) VALUES (?, ?)",
             (discord_id, alias)

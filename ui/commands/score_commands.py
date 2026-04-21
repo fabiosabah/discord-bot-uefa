@@ -179,61 +179,81 @@ def _get_ocr_player_name(player: dict[str, Any]) -> str:
 def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
     if parsed.get("valid_dota_screenshot") is False:
         return (
-            f"⚠️ Job {job_id} processado, mas não parece ser um placar válido de Dota 2. "
-            f"Use `!detalhesimagem {job_id}` para revisar o JSON ou `!rawtextimagem {job_id}` para o texto OCR bruto."
+            f"⚠️ **Job {job_id}** — imagem não reconhecida como placar de Dota 2.\n"
+            f"Use `!detalhesimagem {job_id}` para revisar o JSON ou `!rawtextimagem {job_id}` para o texto bruto."
         )
 
     match_info = parsed.get("match_info") or parsed.get("game_details") or {}
     score = match_info.get("score") or {}
     radiant_score = score.get("radiant") or parsed.get("radiant_score")
-    dire_score = score.get("dire") or parsed.get("dire_score")
-    winner_team = _get_winner_team(parsed)
-    winner_text = winner_team.title() if winner_team else "não identificado"
-    duration = match_info.get("duration") or parsed.get("duration") or parsed.get("match_date")
-    mode = match_info.get("game_mode") or match_info.get("mode") or parsed.get("mode")
+    dire_score    = score.get("dire")    or parsed.get("dire_score")
+    winner_team   = _get_winner_team(parsed)
+    duration      = match_info.get("duration") or parsed.get("duration")
+    mode          = match_info.get("game_mode") or match_info.get("mode") or parsed.get("mode")
+    players       = parsed.get("players_data") or parsed.get("players") or []
 
-    players = parsed.get("players_data") or parsed.get("players") or []
-    lines = [
-        f"✅ OCR completo para o job {job_id}",
-        "",
-        f"📊 Placar: `{radiant_score or 0}` x `{dire_score or 0}`",
-        f"🏆 Vencedor: {winner_text}",
-    ]
+    lines = [f"📸 **Análise OCR concluída — Job #{job_id}**", ""]
+
+    # ── placar / vencedor ─────────────────────────────────────────────────────
+    lines.append(f"📊 Placar: `{radiant_score or 0}` × `{dire_score or 0}`")
+
+    if winner_team:
+        lines.append(f"🏆 Vencedor: **{winner_team.title()}**")
+    else:
+        lines.append(
+            f"🏆 Vencedor: ❌ **não detectado** — defina antes de registrar:\n"
+            f"   `!setjobwinner {job_id} radiant`  ou  `!setjobwinner {job_id} dire`"
+        )
 
     if duration:
-        lines.append(f"⏱️ Duração/data: {duration}")
+        lines.append(f"⏱️ Duração: `{duration}`")
+    else:
+        lines.append(
+            f"⏱️ Duração: ❌ **não detectada** — informe ao registrar:\n"
+            f"   `!ok {job_id} MM:SS`"
+        )
+
     if mode:
         lines.append(f"🎮 Modo: {mode}")
 
+    # ── jogadores ─────────────────────────────────────────────────────────────
     if not players:
-        lines.append("")
-        lines.append("⚠️ Não foi possível extrair a lista de jogadores do OCR.")
-        lines.append(f"Use `!detalhesimagem {job_id}` para ver o JSON completo.")
+        lines += [
+            "",
+            "⚠️ Não foi possível extrair a lista de jogadores.",
+            f"Use `!detalhesimagem {job_id}` para ver o JSON completo.",
+        ]
         return "\n".join(lines)
 
-    lines.extend(["", "👥 Jogadores detectados:"])
+    lines.extend(["", "👥 **Jogadores detectados:**"])
     for index, player in enumerate(players, start=1):
-        lines.append(_format_ocr_player_line(player, index))
+        lines.append(f"  {_format_ocr_player_line(player, index)}")
 
-    lines.extend(["", "🛠️ Correções e próximos passos:"])
-    lines.append(f"• `!importarimagem {job_id} <mapeamento>` para salvar a partida no banco.")
+    # ── correções disponíveis ─────────────────────────────────────────────────
+    lines.extend([
+        "",
+        "🛠️ **Correções antes de importar:**",
+        f"• Herói errado? → `!ocrhero {job_id} <slot> <herói>`",
+        f"• Nick errado? → `!ocrnick {job_id} <slot> <novo nick>`",
+        f"• Jogador usando conta de outro? → `!cadastro <nick> @usuario`",
+        f"• Vencedor errado? → `!setjobwinner {job_id} radiant|dire`",
+    ])
+
+    # ── próximo passo ─────────────────────────────────────────────────────────
+    lines.append("")
     if not winner_team:
         lines.append(
-            f"• O vencedor não foi extraído. Defina manualmente com `!setjobwinner {job_id} radiant|dire` "
-            f"ou cancele com `!removerimagem {job_id} confirmar`."
+            f"⛔ **Defina o vencedor antes de registrar** (veja acima)."
         )
-    lines.extend([
-        f"• `!detalhesimagem {job_id}` para ver o JSON processado.",
-        f"• `!rawtextimagem {job_id}` para ver o texto OCR bruto.",
-        f"• Use `!ocrhero {job_id} <slot> <novo herói>`, `!ocrnick {job_id} <slot> <novo nick>` ou `!ocruser {job_id} <@u1> <@u2> ...` / `!ocruser {job_id} <slot> @u1` para corrigir antes de importar.",
-        f"• Depois de corrigir a imagem, use `!ocrok {job_id}` para importar o job diretamente se todos os nicks estiverem mapeados.",
-        f"• Use `!confirmarimagem {job_id} <texto>` ou `!editarimagem {job_id} <texto>` para corrigir metadados diretamente.",
-        "• Se o nick ainda não estiver registrado, use `!addalias @Usuario NomeOCR`.",
-        "• Depois de importar, ajuste com `!fixhero <league_match_id> <slot>, <herói>` e `!nick <league_match_id> <slot>, <novo nick> @Usuario>`",
-    ])
-    if winner_team:
+    elif not duration:
         lines.append(
-            "• Se o vencedor estiver incorreto, use `!setjobwinner {job_id} radiant|dire` antes de importar."
+            f"✅ **Tudo certo?** Registre informando a duração:\n"
+            f"   `!ok {job_id} MM:SS`"
+        )
+    else:
+        lines.append(
+            f"✅ **Tudo certo?** Registre com:\n"
+            f"   `!ok {job_id}`  — ou  `!ok {job_id} MM:SS` para sobrescrever a duração"
         )
 
     return "\n".join(lines)
@@ -1077,12 +1097,20 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send("❌ Este comando só pode ser usado em um servidor.", delete_after=8)
             return
 
+        old_channel_id = get_image_channel(ctx.guild.id)
         set_image_channel(ctx.guild.id, ctx.channel.id)
         await ctx.message.delete()
-        await ctx.send(
-            f"✅ Canal <#{ctx.channel.id}> registrado para leitura de imagens de partida.",
-            delete_after=15
-        )
+
+        if old_channel_id and old_channel_id != ctx.channel.id:
+            await ctx.send(
+                f"✅ Canal de imagens atualizado: <#{old_channel_id}> → <#{ctx.channel.id}>",
+                delete_after=20
+            )
+        else:
+            await ctx.send(
+                f"✅ Canal <#{ctx.channel.id}> registrado para leitura de imagens de partida.",
+                delete_after=20
+            )
 
     @bot.command(name="limparcanalimagem", aliases=["limparcanalocr"])
     async def cmd_clear_image_channel(ctx: commands.Context):
@@ -1652,6 +1680,17 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Sem lista de jogadores no job {job_id}.", delete_after=600)
             return
 
+        # Require duration — from parsed data or from the command argument
+        match_info   = parsed.get("match_info") or parsed.get("game_details") or {}
+        ocr_duration = match_info.get("duration") or parsed.get("duration")
+        arg_duration = duration.strip()
+        if not ocr_duration and not (arg_duration and re.match(r"^\d{1,2}:\d{2}$", arg_duration)):
+            await ctx.send(
+                f"⏱️ Duração não detectada no OCR. Informe ao registrar:\n`!ok {job_id} MM:SS`",
+                delete_after=600
+            )
+            return
+
         player_mapping: dict[str, dict[str, object]] = {}
         unresolved_names: list[str] = []
         for player in players:
@@ -1687,9 +1726,22 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send("\n".join(lines), delete_after=600)
             return
 
+        alias_errors: list[str] = []
         for name, discord_id in resolved.items():
             player_mapping[name] = {"discord_id": discord_id}
-            add_player_alias(discord_id, name)
+            try:
+                add_player_alias(discord_id, name)
+            except ValueError as e:
+                alias_errors.append(str(e))
+
+        if alias_errors:
+            await ctx.send(
+                "❌ Limite de usuários por nick atingido:\n" +
+                "\n".join(f"• {e}" for e in alias_errors) +
+                "\nUse `!cadastro <nick> @usuario` para verificar ou remover associações.",
+                delete_after=600
+            )
+            return
 
         try:
             league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
