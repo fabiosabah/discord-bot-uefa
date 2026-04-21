@@ -130,6 +130,12 @@ async def on_ready():
         logger.warning("LLM desativado: configure OPENAI_API_KEY ou GEMINI_API_KEY para usar a interpretação com IA.")
 
 @bot.event
+async def on_command(ctx: commands.Context):
+    guild  = ctx.guild.name if ctx.guild else "DM"
+    logger.info(f"[CMD] {ctx.author.display_name} ({ctx.author.id}) → !{ctx.command} | #{ctx.channel} | {guild}")
+
+
+@bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return

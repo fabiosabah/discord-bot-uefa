@@ -42,22 +42,18 @@ def _populate_heroes() -> None:
 
 
 def get_all_hero_stats_from_matches() -> list[dict]:
-    """
-    Retorna estatísticas de todos os heróis jogados no campeonato,
-    ordenados por quantidade de picks DESC.
-    Usa índice em match_players(hero_name) via JOIN com heroes.
-    """
+    """Retorna estatísticas de todos os heróis jogados, ordenados por picks DESC."""
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                h.name                                                          AS hero,
-                COUNT(mp.id)                                                    AS picks,
+                mp.hero_name                                                    AS hero,
+                COUNT(*)                                                        AS picks,
                 SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END)       AS wins
-            FROM heroes h
-            JOIN match_players mp ON mp.hero_name = h.name
-            JOIN matches m        ON m.league_match_id = mp.league_match_id
-            GROUP BY h.name
-            ORDER BY picks DESC, wins * 1.0 / COUNT(mp.id) DESC
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.hero_name IS NOT NULL AND mp.hero_name != ''
+            GROUP BY mp.hero_name
+            ORDER BY picks DESC, wins * 1.0 / COUNT(*) DESC
         """).fetchall()
     return [
         {
@@ -1818,7 +1814,7 @@ def get_player_match_stats_from_matches(discord_id: int) -> dict:
     """
     params = (discord_id,)
     
-    logger.info(f"Executing get_player_match_stats_from_matches query: {query.strip()} with params: {params}")
+    logger.debug(f"Executing get_player_match_stats_from_matches query: {query.strip()} with params: {params}")
     
     with get_connection() as conn:
         # Buscar todas as partidas do jogador
@@ -1948,7 +1944,7 @@ def _build_player_membership_clause(discord_id: int) -> tuple[str, tuple]:
         params.append(f"%{alias}%")
 
     membership_clause = f"({' OR '.join(clauses)})"
-    logger.info(f"Built membership clause for discord_id {discord_id}: {membership_clause} with params: {params}")
+    logger.debug(f"Built membership clause for discord_id {discord_id}: {membership_clause} with params: {params}")
     return membership_clause, tuple(params)
 
 
@@ -1967,7 +1963,7 @@ def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[
     """
     params = params + (limit,)
 
-    logger.info(f"Executing get_player_top_heroes_from_matches query: {query.strip()} with params: {params}")
+    logger.debug(f"Executing get_player_top_heroes_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -2002,7 +1998,7 @@ def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> li
     """
     params = params + (discord_id, limit)
 
-    logger.info(f"Executing get_player_top_teammates_from_matches query: {query.strip()} with params: {params}")
+    logger.debug(f"Executing get_player_top_teammates_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -2043,7 +2039,7 @@ def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: i
     """
     params = params + (discord_id, result, result, limit)
 
-    logger.info(f"Executing get_player_top_opponents_from_matches query: {query.strip()} with params: {params}")
+    logger.debug(f"Executing get_player_top_opponents_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -2229,7 +2225,7 @@ def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> l
     """
     params = params + (limit,)
 
-    logger.info(f"Executing get_player_match_history_from_matches query: {query.strip()} with params: {params}")
+    logger.debug(f"Executing get_player_match_history_from_matches query: {query.strip()} with params: {params}")
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -2270,36 +2266,47 @@ def get_player_streak_from_matches(discord_id: int, max_events: int = 50) -> dic
 
 def get_streak_highlights_from_matches() -> dict:
     """
-    Returns current and all-time win/loss streak leaders across all players.
+    Returns current and all-time win/loss streak leaders.
+    Single query — fetches all players' history at once, processes in Python.
     Each key maps to {"discord_id": int, "display_name": str, "count": int}.
     """
     with get_connection() as conn:
-        players = conn.execute("""
-            SELECT DISTINCT mp.discord_id,
-                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name
+        rows = conn.execute("""
+            SELECT
+                mp.discord_id,
+                COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                CASE WHEN mp.team = m.winner_team THEN 'win' ELSE 'loss' END AS result,
+                m.created_at
             FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
             WHERE mp.discord_id IS NOT NULL
+            ORDER BY mp.discord_id, m.created_at DESC
         """).fetchall()
+
+    # Group by discord_id (already sorted)
+    from itertools import groupby
+    players_history: dict[int, tuple[str, list[str]]] = {}
+    for discord_id, group in groupby(rows, key=lambda r: r["discord_id"]):
+        events = list(group)
+        display_name = str(events[0]["display_name"])
+        results = [e["result"] for e in events]  # DESC order (most recent first)
+        players_history[discord_id] = (display_name, results)
 
     current_win  = {"discord_id": None, "display_name": None, "count": 0}
     current_loss = {"discord_id": None, "display_name": None, "count": 0}
     record_win   = {"discord_id": None, "display_name": None, "count": 0}
     record_loss  = {"discord_id": None, "display_name": None, "count": 0}
 
-    for player in players:
-        discord_id   = player["discord_id"]
-        display_name = str(player["display_name"])
-
-        history = get_player_match_history_from_matches(discord_id, limit=500)
-        if not history:
+    for discord_id, (display_name, results) in players_history.items():
+        if not results:
             continue
 
-        # Current streak (history[0] is most recent)
-        cur_type  = history[0]["result"]
+        # Current streak (results[0] is most recent)
+        cur_type  = results[0]
         cur_count = 0
-        for event in history:
-            if event["result"] != cur_type:
+        for r in results:
+            if r != cur_type:
                 break
             cur_count += 1
 
@@ -2308,10 +2315,10 @@ def get_streak_highlights_from_matches() -> dict:
         elif cur_type == "loss" and cur_count > current_loss["count"]:
             current_loss = {"discord_id": discord_id, "display_name": display_name, "count": cur_count}
 
-        # All-time record: scan full history in chronological order
+        # All-time record: scan chronological order (reversed)
         max_win = max_loss = cur_w = cur_l = 0
-        for event in reversed(history):
-            if event["result"] == "win":
+        for r in reversed(results):
+            if r == "win":
                 cur_w += 1
                 cur_l = 0
             else:
@@ -2346,7 +2353,7 @@ def get_player_match_history(discord_id: int, limit: int = 20) -> list[dict]:
     """
     params = (discord_id, limit)
     
-    logger.info(f"Executing get_player_match_history query: {query.strip()} with params: {params}")
+    logger.debug(f"Executing get_player_match_history query: {query.strip()} with params: {params}")
     
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
