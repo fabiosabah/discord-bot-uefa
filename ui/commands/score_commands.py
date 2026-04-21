@@ -30,7 +30,8 @@ from core.database import (
     get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
     get_player_top_win_teammates_from_matches, get_player_top_loss_teammates_from_matches,
     get_last_ocr_match_info, get_league_hero_winrates_from_matches,
-    get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches
+    get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches,
+    get_all_hero_stats_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -2538,6 +2539,37 @@ def setup_score_commands(bot: commands.Bot):
             last_text = "🕹️ Nenhuma partida importada ainda"
 
         embed.set_footer(text=f"⚖️ Vitória +3 pts | Derrota -1 pt\n{last_text}")
+
+        await ctx.send(embed=embed)
+
+    @bot.command(name="heroes", aliases=["herois", "herostat", "heropool"])
+    async def cmd_heroes(ctx: commands.Context):
+        stats = get_all_hero_stats_from_matches()
+
+        if not stats:
+            await ctx.send("📋 Nenhum herói registrado ainda nas partidas importadas.")
+            return
+
+        embed = discord.Embed(
+            title="🗡️ Heróis do Campeonato",
+            color=discord.Color.dark_teal(),
+        )
+
+        # Divide em duas colunas: top metade e bottom metade
+        mid = (len(stats) + 1) // 2
+        def fmt(i: int, h: dict) -> str:
+            bar = "█" * min(int(h["winrate"] / 10), 10)
+            return f"`{i:>2}.` **{h['hero']}** — {h['picks']}× · {h['winrate']:.0f}% {bar}"
+
+        col_a = "\n".join(fmt(i + 1, h) for i, h in enumerate(stats[:mid]))
+        col_b = "\n".join(fmt(i + 1 + mid, h) for i, h in enumerate(stats[mid:]))
+
+        embed.add_field(name=f"Picks 1–{mid}", value=col_a or "—", inline=True)
+        if col_b:
+            embed.add_field(name=f"Picks {mid+1}–{len(stats)}", value=col_b, inline=True)
+
+        total_picks = sum(h["picks"] for h in stats)
+        embed.set_footer(text=f"{len(stats)} heróis diferentes · {total_picks} picks totais")
 
         await ctx.send(embed=embed)
 

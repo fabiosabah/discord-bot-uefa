@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from typing import Any
 from core.config import DB_PATH
-from core.dota_heroes import resolve_hero_name
+from core.dota_heroes import resolve_hero_name, HERO_NAMES
 
 logger = logging.getLogger("Database")
 
@@ -29,6 +29,45 @@ def _sanitize_hero_name(value: str | None) -> str | None:
         return None
     resolved_hero, _, _ = resolve_hero_name(value)
     return resolved_hero
+
+
+def _populate_heroes() -> None:
+    """Insere todos os heróis oficiais na tabela heroes (idempotente)."""
+    with get_connection() as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO heroes (name) VALUES (?)",
+            [(name,) for name in HERO_NAMES]
+        )
+        conn.commit()
+
+
+def get_all_hero_stats_from_matches() -> list[dict]:
+    """
+    Retorna estatísticas de todos os heróis jogados no campeonato,
+    ordenados por quantidade de picks DESC.
+    Usa índice em match_players(hero_name) via JOIN com heroes.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                h.name                                                          AS hero,
+                COUNT(mp.id)                                                    AS picks,
+                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END)       AS wins
+            FROM heroes h
+            JOIN match_players mp ON mp.hero_name = h.name
+            JOIN matches m        ON m.league_match_id = mp.league_match_id
+            GROUP BY h.name
+            ORDER BY picks DESC, wins * 1.0 / COUNT(mp.id) DESC
+        """).fetchall()
+    return [
+        {
+            "hero":    row["hero"],
+            "picks":   row["picks"],
+            "wins":    row["wins"],
+            "winrate": row["wins"] * 100.0 / row["picks"] if row["picks"] else 0.0,
+        }
+        for row in rows
+    ]
 
 
 def init_db():
@@ -162,12 +201,21 @@ def init_db():
             )
         """)
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)
+            CREATE TABLE IF NOT EXISTS heroes (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE
+            )
         """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)
-        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_id ON match_players(discord_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_hero_name ON match_players(hero_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_hero ON match_players(discord_id, hero_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_admin_cmd_date ON audit_log(admin_id, command, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_audit_id ON match_history(audit_id)")
         conn.commit()
+    _populate_heroes()
     logger.info("[DB] Banco de dados inicializado.")
 
 def migrate_db():
@@ -306,13 +354,26 @@ def migrate_db():
             CREATE INDEX IF NOT EXISTS idx_match_imports_steam_match_id
             ON match_imports(steam_match_id)
         """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_imports_match_date ON match_imports(match_date)")
+
+        # Índices críticos para performance de queries de jogadores e heróis
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_id ON match_players(discord_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_hero_name ON match_players(hero_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_hero ON match_players(discord_id, hero_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_admin_cmd_date ON audit_log(admin_id, command, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_audit_id ON match_history(audit_id)")
+
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_match_imports_match_date
-            ON match_imports(match_date)
+            CREATE TABLE IF NOT EXISTS heroes (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE
+            )
         """)
-        logger.info("[DB] Índices de match_history criados ou já existentes.")
+        logger.info("[DB] Índices e tabela heroes criados ou já existentes.")
 
         conn.commit()
+    _populate_heroes()
     logger.info("[DB] Migração finalizada.")
 
 def upsert_player(discord_id: int, display_name: str, wins: int, losses: int):
