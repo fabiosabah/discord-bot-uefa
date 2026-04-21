@@ -26,7 +26,8 @@ from core.database import (
     get_player_match_stats_from_matches, get_player_top_heroes_from_matches,
     get_player_top_teammates_from_matches, get_player_top_opponents_from_matches,
     get_player_match_history_from_matches, get_player_streak_from_matches,
-    get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players
+    get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
+    get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -712,6 +713,92 @@ def setup_score_commands(bot: commands.Bot):
             embed.add_field(name="🕒 Últimas partidas", value="\n".join(recent_text), inline=False)
 
         embed.set_footer(text="Perfil gerado a partir de matches + match_players")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="perfil3", aliases=["p3"])
+    async def cmd_perfil3(ctx, target: discord.Member = None):
+        target = target or ctx.author
+        stats = get_player_match_stats_from_matches(target.id)
+
+        if stats["matches"] == 0:
+            await ctx.send(f"❌ Nenhum histórico OCR encontrado para **{target.display_name}**.")
+            return
+
+        top_heroes  = get_player_top_heroes_with_winrate_from_matches(target.id, limit=5)
+        head_to_head = get_player_head_to_head_from_matches(target.id)
+
+        wins    = stats["wins"]
+        losses  = stats["losses"]
+        winrate = stats["winrate"]
+
+        # top 3 que o oponente ganhou mais duelos diretos
+        malvados = sorted(
+            [h for h in head_to_head if h["opponent_wins"] > h["player_wins"]],
+            key=lambda x: x["opponent_wins"] - x["player_wins"],
+            reverse=True
+        )[:3]
+
+        # top 3 que eu ganhei mais duelos diretos
+        defuntos = sorted(
+            [h for h in head_to_head if h["player_wins"] > h["opponent_wins"]],
+            key=lambda x: x["player_wins"] - x["opponent_wins"],
+            reverse=True
+        )[:3]
+
+        if winrate >= 60:
+            color = discord.Color.green()
+        elif winrate >= 40:
+            color = discord.Color.gold()
+        else:
+            color = discord.Color.red()
+
+        embed = discord.Embed(title=f"📊 Perfil de {target.display_name}", color=color)
+        embed.set_thumbnail(url=target.display_avatar.url)
+
+        embed.add_field(name="🎮 Partidas", value=str(stats["matches"]), inline=True)
+        embed.add_field(name="🏆 Vitórias",  value=str(wins),           inline=True)
+        embed.add_field(name="💀 Derrotas",  value=str(losses),         inline=True)
+        embed.add_field(name="📈 Winrate",   value=f"{winrate:.1f}%",   inline=True)
+
+        if stats["kda_rows"]:
+            n = stats["kda_rows"]
+            avg_k = stats["total_kills"]   / n
+            avg_d = stats["total_deaths"]  / n
+            avg_a = stats["total_assists"] / n
+            embed.add_field(
+                name="⚔️ KDA Médio",
+                value=f"{avg_k:.1f} / {avg_d:.1f} / {avg_a:.1f}",
+                inline=True
+            )
+
+        if top_heroes:
+            lines = [
+                f"{i+1}. **{h['hero']}** — {h['plays']} jogos · {h['winrate']:.0f}% WR"
+                for i, h in enumerate(top_heroes)
+            ]
+            embed.add_field(name="🦸 Top 5 Heróis", value="\n".join(lines), inline=False)
+
+        if malvados:
+            lines = []
+            for i, m in enumerate(malvados):
+                diff = m["opponent_wins"] - m["player_wins"]
+                lines.append(
+                    f"{i+1}. **{m['display_name']}** — "
+                    f"{m['player_wins']}V/{m['opponent_wins']}D em {m['total']} confrontos (−{diff})"
+                )
+            embed.add_field(name="😈 Meu Malvado Favorito", value="\n".join(lines), inline=False)
+
+        if defuntos:
+            lines = []
+            for i, d in enumerate(defuntos):
+                diff = d["player_wins"] - d["opponent_wins"]
+                lines.append(
+                    f"{i+1}. **{d['display_name']}** — "
+                    f"{d['player_wins']}V/{d['opponent_wins']}D em {d['total']} confrontos (+{diff})"
+                )
+            embed.add_field(name="⚰️ Meu Defunto", value="\n".join(lines), inline=False)
+
+        embed.set_footer(text="Perfil gerado a partir de partidas importadas via OCR")
         await ctx.send(embed=embed)
 
     @bot.command(name="historico", aliases=["history"])

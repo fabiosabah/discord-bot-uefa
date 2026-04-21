@@ -1897,6 +1897,83 @@ def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: i
     ]
 
 
+def get_player_top_heroes_with_winrate_from_matches(discord_id: int, limit: int = 5) -> list[dict]:
+    """Retorna os heróis mais jogados com winrate calculada."""
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
+        SELECT
+            mp.hero_name AS hero,
+            COUNT(*) AS plays,
+            SUM(CASE WHEN m.winner_team = mp.team THEN 1 ELSE 0 END) AS wins,
+            CAST(SUM(CASE WHEN m.winner_team = mp.team THEN 1 ELSE 0 END) AS REAL)
+                / COUNT(*) * 100.0 AS winrate
+        FROM match_players mp
+        JOIN matches m ON m.league_match_id = mp.league_match_id
+        WHERE {membership_clause}
+          AND mp.hero_name IS NOT NULL
+          AND mp.hero_name != ''
+        GROUP BY mp.hero_name
+        ORDER BY plays DESC, winrate DESC
+        LIMIT ?
+    """
+    params = params + (limit,)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "hero": row["hero"],
+            "plays": row["plays"],
+            "wins": row["wins"],
+            "winrate": row["winrate"] or 0.0,
+        }
+        for row in rows
+    ]
+
+
+def get_player_head_to_head_from_matches(discord_id: int) -> list[dict]:
+    """Retorna saldo de duelos diretos contra cada oponente identificado por discord_id."""
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
+        WITH player_matches AS (
+            SELECT DISTINCT mp.league_match_id, mp.team AS player_team
+            FROM match_players mp
+            WHERE {membership_clause}
+        )
+        SELECT
+            opp.discord_id,
+            COALESCE(p.display_name, CAST(opp.discord_id AS TEXT)) AS display_name,
+            COUNT(*) AS total,
+            SUM(CASE WHEN m.winner_team = pm.player_team THEN 1 ELSE 0 END) AS player_wins,
+            SUM(CASE WHEN m.winner_team = opp.team  THEN 1 ELSE 0 END) AS opponent_wins
+        FROM player_matches pm
+        JOIN match_players opp
+            ON opp.league_match_id = pm.league_match_id
+           AND opp.team != pm.player_team
+           AND opp.discord_id IS NOT NULL
+        JOIN matches m ON m.league_match_id = pm.league_match_id
+        LEFT JOIN players p ON p.discord_id = opp.discord_id
+        WHERE opp.discord_id != ?
+        GROUP BY opp.discord_id
+    """
+    params = params + (discord_id,)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "discord_id": row["discord_id"],
+            "display_name": str(row["display_name"]),
+            "total": row["total"],
+            "player_wins": row["player_wins"],
+            "opponent_wins": row["opponent_wins"],
+        }
+        for row in rows
+    ]
+
+
 def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
     """Retorna o histórico de partidas de um jogador usando matches + match_players."""
     membership_clause, params = _build_player_membership_clause(discord_id)
