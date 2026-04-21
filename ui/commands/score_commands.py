@@ -559,7 +559,7 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"🗑️ **{member.display_name}** foi removido do ranking e do banco de dados.")
 
-    @bot.command(name="perfil")
+    @bot.command(name="perfil1")
     async def cmd_perfil(ctx, target: discord.Member = None):
         target = target or ctx.author
         player = get_player(target.id)
@@ -658,7 +658,7 @@ def setup_score_commands(bot: commands.Bot):
 
         await ctx.send(embed=embed)
 
-    @bot.command(name="perfil2")
+    @bot.command(name="perfil", aliases=["perfil2"])
     async def cmd_perfil2(ctx, target: discord.Member = None):
         target = target or ctx.author
         stats = get_player_match_stats_from_matches(target.id)
