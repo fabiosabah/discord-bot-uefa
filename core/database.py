@@ -70,6 +70,43 @@ def get_all_hero_stats_from_matches() -> list[dict]:
     ]
 
 
+def get_hero_match_history(hero_name: str) -> list[dict]:
+    """Retorna todas as partidas em que um herói foi jogado, com quem jogou e o resultado."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                mp.league_match_id,
+                mp.player_name,
+                mp.discord_id,
+                COALESCE(p.display_name, mp.player_name) AS display_name,
+                mp.team,
+                mp.kills,
+                mp.deaths,
+                mp.assists,
+                m.winner_team,
+                m.created_at
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.hero_name = ?
+            ORDER BY mp.league_match_id DESC
+        """, (hero_name,)).fetchall()
+    return [
+        {
+            "league_match_id": row["league_match_id"],
+            "player_name":     row["player_name"],
+            "display_name":    str(row["display_name"]),
+            "team":            row["team"],
+            "kills":           row["kills"],
+            "deaths":          row["deaths"],
+            "assists":         row["assists"],
+            "result":          "win" if row["team"] == row["winner_team"] else "loss",
+            "created_at":      row["created_at"],
+        }
+        for row in rows
+    ]
+
+
 def init_db():
     """Cria as tabelas se não existirem."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)

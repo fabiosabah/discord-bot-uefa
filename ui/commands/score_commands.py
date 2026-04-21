@@ -31,7 +31,7 @@ from core.database import (
     get_player_top_win_teammates_from_matches, get_player_top_loss_teammates_from_matches,
     get_last_ocr_match_info, get_league_hero_winrates_from_matches,
     get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches,
-    get_all_hero_stats_from_matches
+    get_all_hero_stats_from_matches, get_hero_match_history
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -2543,7 +2543,53 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="heroes", aliases=["herois", "herostat", "heropool"])
-    async def cmd_heroes(ctx: commands.Context):
+    async def cmd_heroes(ctx: commands.Context, *, hero: str = ""):
+        # ── modo herói específico ──────────────────────────────────────────
+        if hero.strip():
+            resolved, suggestions, status = resolve_hero_name(hero.strip())
+            if status == "ambiguous":
+                await ctx.send(
+                    f"❓ Herói ambíguo. Você quis dizer: {', '.join(f'`{s}`' for s in suggestions)}?",
+                    delete_after=20
+                )
+                return
+            if not resolved:
+                msg = f"❌ Herói `{hero}` não encontrado."
+                if suggestions:
+                    msg += f" Sugestões: {', '.join(f'`{s}`' for s in suggestions)}"
+                await ctx.send(msg, delete_after=20)
+                return
+
+            matches = get_hero_match_history(resolved)
+            if not matches:
+                await ctx.send(f"📋 **{resolved}** ainda não foi jogado no campeonato.")
+                return
+
+            wins   = sum(1 for m in matches if m["result"] == "win")
+            losses = len(matches) - wins
+            wr     = wins * 100 / len(matches)
+
+            embed = discord.Embed(
+                title=f"🗡️ {resolved}",
+                description=f"**{len(matches)} partidas** · {wins}V / {losses}D · {wr:.0f}% WR",
+                color=discord.Color.dark_teal(),
+            )
+
+            lines = []
+            for m in matches:
+                icon  = "✅" if m["result"] == "win" else "❌"
+                k, d, a = m["kills"], m["deaths"], m["assists"]
+                kda   = f"{k}/{d}/{a}" if k is not None and d is not None else "?/?/?"
+                team  = m["team"].title() if m["team"] else "?"
+                lines.append(
+                    f"{icon} **#{m['league_match_id']}** · {m['display_name']} ({team}) · `{kda}`"
+                )
+
+            embed.add_field(name="Partidas", value="\n".join(lines) or "—", inline=False)
+            await ctx.send(embed=embed)
+            return
+
+        # ── modo pool completo ─────────────────────────────────────────────
         stats = get_all_hero_stats_from_matches()
 
         if not stats:
@@ -2555,7 +2601,6 @@ def setup_score_commands(bot: commands.Bot):
             color=discord.Color.dark_teal(),
         )
 
-        # Divide em duas colunas: top metade e bottom metade
         mid = (len(stats) + 1) // 2
         def fmt(i: int, h: dict) -> str:
             bar = "█" * min(int(h["winrate"] / 10), 10)
@@ -2569,7 +2614,7 @@ def setup_score_commands(bot: commands.Bot):
             embed.add_field(name=f"Picks {mid+1}–{len(stats)}", value=col_b, inline=True)
 
         total_picks = sum(h["picks"] for h in stats)
-        embed.set_footer(text=f"{len(stats)} heróis diferentes · {total_picks} picks totais")
+        embed.set_footer(text=f"{len(stats)} heróis diferentes · {total_picks} picks totais · use !heroes <nome> para detalhes")
 
         await ctx.send(embed=embed)
 
