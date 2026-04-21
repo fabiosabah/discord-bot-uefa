@@ -1459,6 +1459,32 @@ def get_last_ocr_match_info() -> dict | None:
     return dict(row) if row else None
 
 
+def get_league_hero_winrates_from_matches(min_games: int = 2) -> list[dict]:
+    """Retorna winrate por herói em todo o campeonato, filtrado por mínimo de partidas."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                mp.hero_name,
+                COUNT(*) AS games,
+                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.hero_name IS NOT NULL AND mp.hero_name != ''
+            GROUP BY mp.hero_name
+            HAVING COUNT(*) >= ?
+            ORDER BY wins * 1.0 / COUNT(*) DESC, games DESC
+        """, (min_games,)).fetchall()
+    return [
+        {
+            "hero":    row["hero_name"],
+            "games":   row["games"],
+            "wins":    row["wins"],
+            "winrate": row["wins"] * 100.0 / row["games"],
+        }
+        for row in rows
+    ]
+
+
 def resolve_player_names(discord_ids: list[int]) -> dict:
     if not discord_ids:
         return {}

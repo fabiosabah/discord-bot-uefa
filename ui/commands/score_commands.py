@@ -28,7 +28,8 @@ from core.database import (
     get_player_match_history_from_matches, get_player_streak_from_matches,
     get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
     get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
-    get_player_top_win_teammates_from_matches, get_player_top_loss_teammates_from_matches, get_last_ocr_match_info,
+    get_player_top_win_teammates_from_matches, get_player_top_loss_teammates_from_matches,
+    get_last_ocr_match_info, get_league_hero_winrates_from_matches,
     get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
@@ -2451,6 +2452,27 @@ def setup_score_commands(bot: commands.Bot):
             records_lines.append(f"💔 Recorde lossstreak: **{rec_l['display_name']}** ({rec_l['count']} seguidas)")
         if records_lines:
             embed.add_field(name="Recordes", value="\n".join(records_lines), inline=False)
+
+        hero_wr = get_league_hero_winrates_from_matches(min_games=2)
+        if hero_wr:
+            top3 = sorted(hero_wr, key=lambda h: (-h["winrate"], -h["games"]))[:3]
+            bot3 = sorted(hero_wr, key=lambda h: (h["winrate"], -h["games"]))[:3]
+            embed.add_field(
+                name="🏹 Melhores heróis",
+                value="\n".join(
+                    f"{i+1}. **{h['hero']}** — {h['winrate']:.0f}% ({h['games']} jogos)"
+                    for i, h in enumerate(top3)
+                ),
+                inline=True,
+            )
+            embed.add_field(
+                name="💀 Piores heróis",
+                value="\n".join(
+                    f"{i+1}. **{h['hero']}** — {h['winrate']:.0f}% ({h['games']} jogos)"
+                    for i, h in enumerate(bot3)
+                ),
+                inline=True,
+            )
 
         last = get_last_ocr_match_info()
         if last:
