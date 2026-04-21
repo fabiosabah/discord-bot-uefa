@@ -42,6 +42,27 @@ def points(wins: int, losses: int) -> int:
     return wins * 3 - losses
 
 
+def winrate_tier(winrate: float) -> str:
+    if winrate >= 85:
+        return "👑 Lenda da liga — ninguém te para"
+    elif winrate >= 75:
+        return "🏆 Praticamente intocável"
+    elif winrate >= 65:
+        return "💪 Fera do lobby — respeito ganho"
+    elif winrate >= 55:
+        return "🔥 Mandando bem, continua assim"
+    elif winrate >= 50:
+        return "⚖️ Na linha do equilíbrio, pode mais"
+    elif winrate >= 42:
+        return "📉 Precisa melhorar — mas tem jeito"
+    elif winrate >= 32:
+        return "😬 Isso tá doendo de ver, parceiro"
+    elif winrate >= 20:
+        return "🪦 A equipe reza quando te vê entrar"
+    else:
+        return "💀 Mochila oficial do time — parabéns"
+
+
 def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
     slot = player.get("slot")
     if isinstance(slot, str) and slot.isdigit():
@@ -701,7 +722,11 @@ def setup_score_commands(bot: commands.Bot):
         else:
             color = discord.Color.red()
 
-        embed = discord.Embed(title=f"📊 Perfil de {target.display_name}", color=color)
+        embed = discord.Embed(
+            title=f"📊 Perfil de {target.display_name}",
+            description=winrate_tier(winrate),
+            color=color
+        )
         embed.set_thumbnail(url=target.display_avatar.url)
 
         # ── Stats base ──
