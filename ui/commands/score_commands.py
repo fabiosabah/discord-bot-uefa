@@ -26,7 +26,7 @@ from core.database import (
     get_player_match_stats_from_matches, get_player_top_heroes_from_matches,
     get_player_top_teammates_from_matches, get_player_top_opponents_from_matches,
     get_player_match_history_from_matches, get_player_streak_from_matches,
-    get_ranking_from_matches
+    get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -1714,7 +1714,7 @@ def setup_score_commands(bot: commands.Bot):
             lines.append(
                 f"{player.get('slot')}. {player.get('player_name') or 'desconhecido'}{mention} "
                 f"({player.get('hero_name') or 'herói desconhecido'}) - {player.get('team') or 'time desconhecido'} "
-                f"- KDA {kills or '?'} / {deaths or '?'} / {assists or '?'} "
+                f"- KDA {kills if kills is not None else '?'} / {deaths if deaths is not None else '?'} / {assists if assists is not None else '?'} "
                 f"- NW {player.get('networth') if player.get('networth') is not None else 'N/A'}"
             )
 
@@ -2139,6 +2139,77 @@ def setup_score_commands(bot: commands.Bot):
         embed.set_footer(text=build_footer())
 
         await ctx.send(embed=embed)
+
+    @bot.command(name="jogadoresfaltando", aliases=["missingplayers", "faltando"])
+    async def cmd_jogadores_faltando(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        missing = find_unregistered_match_players()
+        if not missing:
+            await ctx.send("✅ Todos os jogadores das partidas importadas estão registrados.")
+            return
+
+        lines = [f"⚠️ **{len(missing)} jogador(es) em partidas mas sem registro na tabela `players`:**\n"]
+        for m in missing:
+            lines.append(
+                f"• `{m['player_name']}` — discord_id: `{m['discord_id']}` — {m['partidas']} partida(s)\n"
+                f"  → `!registrar <@{m['discord_id']}> 0 0` para registrar"
+            )
+        await ctx.send("\n".join(lines))
+
+    @bot.command(name="fixkda", aliases=["corrigirkda"])
+    async def cmd_fix_kda(ctx: commands.Context, confirm: str = ""):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        do_fix = confirm.lower() in {"sim", "yes", "ok", "fix"}
+        result = diagnose_and_fix_kda_data(fix=do_fix)
+        bad_rows = result["bad_rows"]
+
+        if not bad_rows:
+            await ctx.send("✅ Nenhum valor inválido de KDA encontrado nas partidas.")
+            return
+
+        lines = [f"⚠️ Encontrados **{len(bad_rows)}** registros com KDA inválido:"]
+        for r in bad_rows[:20]:
+            lines.append(
+                f"• Partida {r['league_match_id']}, slot {r['slot']}, `{r['player_name']}` → "
+                f"kills={r['kills']}({r['kills_type']}), deaths={r['deaths']}({r['deaths_type']}), assists={r['assists']}({r['assists_type']})"
+            )
+        if len(bad_rows) > 20:
+            lines.append(f"... e mais {len(bad_rows) - 20} registros.")
+
+        if do_fix:
+            lines.append("\n✅ **Valores corrigidos para 0.**")
+        else:
+            lines.append("\n💡 Use `!fixkda sim` para corrigir os valores para 0.")
+
+        await ctx.send("\n".join(lines))
+
+    @bot.command(name="diagtabela2", aliases=["debugtabela2", "diagtab2"])
+    async def cmd_diag_tabela2(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        import traceback as _tb
+        try:
+            ranking = get_ranking_from_matches()
+            await ctx.send(f"✅ `get_ranking_from_matches()` OK — {len(ranking)} jogadores sem erro.")
+        except Exception as exc:
+            tb_text = _tb.format_exc()
+            short_tb = tb_text[-1800:] if len(tb_text) > 1800 else tb_text
+            await ctx.send(
+                f"❌ Erro em `get_ranking_from_matches()`:\n"
+                f"```\n{type(exc).__name__}: {exc}\n```\n"
+                f"```\n{short_tb}\n```"
+            )
 
     @bot.command(name="tabela2")
     async def cmd_tabela2(ctx: commands.Context):

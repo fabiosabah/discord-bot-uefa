@@ -970,7 +970,8 @@ def get_ranking_from_matches() -> list[dict]:
     ranking = []
     for row in rows:
         discord_id = row["discord_id"]
-        display_name = row["display_name"]
+        # COALESCE pode retornar mp.discord_id (int) quando o jogador não tem registro em players
+        display_name = str(row["display_name"]) if row["display_name"] is not None else str(discord_id)
         stats = get_player_match_stats_from_matches(discord_id)
         if stats["matches"] == 0:
             continue
@@ -984,7 +985,7 @@ def get_ranking_from_matches() -> list[dict]:
             "games": stats["matches"],
         })
 
-    ranking.sort(key=lambda item: (-item["points"], -item["wins"], item["display_name"]))
+    ranking.sort(key=lambda item: (-item["points"], -item["wins"], str(item["display_name"])))
     return ranking
 
 
@@ -1671,9 +1672,6 @@ def get_player_match_stats_from_matches(discord_id: int) -> dict:
     kda_rows = 0
 
     for row in rows:
-        kills = row["kills"]
-        deaths = row["deaths"]
-        assists = row["assists"]
         winner_team = row["winner_team"]
         player_team = row["team"]
 
@@ -1684,11 +1682,18 @@ def get_player_match_stats_from_matches(discord_id: int) -> dict:
             else:
                 losses += 1
 
-        # Somar KDA se disponível
-        if kills is not None and deaths is not None and assists is not None:
-            total_kills += kills
-            total_deaths += deaths
-            total_assists += assists
+        # Somar KDA se disponível — cast defensivo pois SQLite pode ter string "?" salvo
+        try:
+            k = int(row["kills"]) if row["kills"] is not None else None
+            d = int(row["deaths"]) if row["deaths"] is not None else None
+            a = int(row["assists"]) if row["assists"] is not None else None
+        except (ValueError, TypeError):
+            k = d = a = None
+
+        if k is not None and d is not None and a is not None:
+            total_kills += k
+            total_deaths += d
+            total_assists += a
             kda_rows += 1
 
     winrate = (wins / total_matches * 100) if total_matches else 0
@@ -1702,6 +1707,58 @@ def get_player_match_stats_from_matches(discord_id: int) -> dict:
         "total_assists": total_assists,
         "kda_rows": kda_rows,
     }
+
+
+def find_unregistered_match_players() -> list[dict]:
+    """Retorna discord_ids presentes em match_players mas ausentes na tabela players."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT mp.discord_id,
+                   mp.player_name,
+                   COUNT(*) AS partidas
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+              AND p.discord_id IS NULL
+            GROUP BY mp.discord_id
+            ORDER BY partidas DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def diagnose_and_fix_kda_data(fix: bool = False) -> dict:
+    """Encontra linhas em match_players com KDA não-inteiro e opcionalmente corrige para 0."""
+    with get_connection() as conn:
+        bad_rows = conn.execute("""
+            SELECT id, league_match_id, player_name, slot,
+                   kills, deaths, assists,
+                   typeof(kills)   AS kills_type,
+                   typeof(deaths)  AS deaths_type,
+                   typeof(assists) AS assists_type
+            FROM match_players
+            WHERE (kills   IS NOT NULL AND typeof(kills)   != 'integer')
+               OR (deaths  IS NOT NULL AND typeof(deaths)  != 'integer')
+               OR (assists IS NOT NULL AND typeof(assists) != 'integer')
+        """).fetchall()
+
+        results = [dict(r) for r in bad_rows]
+
+        if fix and results:
+            conn.execute("""
+                UPDATE match_players SET kills = 0
+                WHERE kills IS NOT NULL AND typeof(kills) != 'integer'
+            """)
+            conn.execute("""
+                UPDATE match_players SET deaths = 0
+                WHERE deaths IS NOT NULL AND typeof(deaths) != 'integer'
+            """)
+            conn.execute("""
+                UPDATE match_players SET assists = 0
+                WHERE assists IS NOT NULL AND typeof(assists) != 'integer'
+            """)
+            conn.commit()
+
+    return {"bad_rows": results, "fixed": fix and len(results) > 0}
 
 
 def _get_player_alias_names(discord_id: int) -> list[str]:
