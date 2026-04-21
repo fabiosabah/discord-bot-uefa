@@ -667,7 +667,7 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Nenhum histórico OCR encontrado para **{target.display_name}**.")
             return
 
-        top_heroes    = get_player_top_heroes_with_winrate_from_matches(target.id, limit=5)
+        all_heroes    = get_player_top_heroes_with_winrate_from_matches(target.id, limit=50)
         head_to_head  = get_player_head_to_head_from_matches(target.id)
         win_teammates = get_player_top_win_teammates_from_matches(target.id, limit=3)
         loss_opps     = get_player_top_opponents_from_matches(target.id, "loss", limit=3)
@@ -730,12 +730,31 @@ def setup_score_commands(bot: commands.Bot):
             embed.add_field(name="📉 Sequência", value=f"{s_count} derrotas seguidas", inline=True)
 
         # ── Heróis ──
-        if top_heroes:
+        top5_played  = all_heroes[:5]
+        eligible_wr  = [h for h in all_heroes if h["plays"] >= 3]
+        top3_best_wr = sorted(eligible_wr, key=lambda x: (-x["winrate"], -x["plays"]))[:3]
+        top3_worst_wr = sorted(eligible_wr, key=lambda x: (x["winrate"], -x["plays"]))[:3]
+
+        if top5_played:
             lines = [
                 f"{i+1}. **{h['hero']}** — {h['plays']} jogos · {h['winrate']:.0f}% WR"
-                for i, h in enumerate(top_heroes)
+                for i, h in enumerate(top5_played)
             ]
-            embed.add_field(name="🦸 Top 5 Heróis", value="\n".join(lines), inline=False)
+            embed.add_field(name="🦸 Top 5 mais jogados", value="\n".join(lines), inline=False)
+
+        if top3_best_wr:
+            lines = [
+                f"{i+1}. **{h['hero']}** — {h['winrate']:.0f}% WR ({h['plays']} jogos)"
+                for i, h in enumerate(top3_best_wr)
+            ]
+            embed.add_field(name="📈 Melhor winrate", value="\n".join(lines), inline=True)
+
+        if top3_worst_wr:
+            lines = [
+                f"{i+1}. **{h['hero']}** — {h['winrate']:.0f}% WR ({h['plays']} jogos)"
+                for i, h in enumerate(top3_worst_wr)
+            ]
+            embed.add_field(name="📉 Pior winrate", value="\n".join(lines), inline=True)
 
         # ── Com quem mais vence / perde ──
         if win_teammates:
