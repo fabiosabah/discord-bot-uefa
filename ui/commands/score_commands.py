@@ -927,32 +927,32 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="ultimas", aliases=["ultimaspartidas", "recentes"])
-    async def cmd_ultimas(ctx: commands.Context, n: int = 7):
-        if n < 1 or n > 12:
-            await ctx.send("❌ Escolha um número entre 1 e 12.")
-            return
+    async def cmd_ultimas(ctx: commands.Context, member: discord.Member = None):
+        target = member or ctx.author
+        history = get_player_match_history_from_matches(target.id, limit=30)
 
-        summaries = get_recent_match_summaries(n)
-        summaries = [s for s in summaries if s]
-        if not summaries:
-            await ctx.send("📋 Nenhuma partida registrada ainda.")
+        if not history:
+            who = f"**{target.display_name}**" if member else "você"
+            await ctx.send(f"📋 Nenhuma partida encontrada para {who}.")
             return
 
         lines = []
-        for summary in summaries:
-            winners = summary["winners"] or ["(não registrado)"]
-            losers = summary["losers"] or ["(não registrado)"]
-            lines.append(
-                f"`#{summary['match_id']:03d}` — "
-                f"🏆 {', '.join(winners)} | 💀 {', '.join(losers)}"
-            )
+        for m in history:
+            icon  = "✅" if m["result"] == "win" else "❌"
+            hero  = m["hero"] or "?"
+            k, d, a = m.get("kills"), m.get("deaths"), m.get("assists")
+            kda   = f"{k}/{d}/{a}" if k is not None and d is not None else "?/?/?"
+            lines.append(f"{icon} **#{m['league_match_id']}** · {hero} · `{kda}`")
+
+        wins   = sum(1 for m in history if m["result"] == "win")
+        losses = len(history) - wins
 
         embed = discord.Embed(
-            title="📈 Últimas partidas registradas na liga",
+            title=f"📈 Últimas {len(history)} partidas — {target.display_name}",
             description="\n".join(lines),
-            color=discord.Color.gold()
+            color=discord.Color.gold(),
         )
-        embed.set_footer(text=f"Mostrando {len(lines)} partidas")
+        embed.set_footer(text=f"{wins}V / {losses}D nas últimas {len(history)} partidas")
         await ctx.send(embed=embed)
 
     @bot.command(name="debugpartidas", aliases=["debugmatches", "auditmatches"])
