@@ -2131,32 +2131,38 @@ def get_player_head_to_head_from_matches(discord_id: int) -> list[dict]:
     ]
 
 
-def get_player_top_win_teammates_from_matches(discord_id: int, limit: int = 3) -> list[dict]:
-    """Retorna os companheiros com quem o jogador mais venceu partidas."""
+def get_player_teammate_balance_from_matches(discord_id: int, min_games: int = 3, limit: int = 3) -> list[dict]:
+    """Retorna saldo (vitórias − derrotas) por parceiro, mínimo min_games juntos.
+
+    Ordenado por saldo DESC → os primeiros são os melhores parceiros,
+    os últimos são os piores. Chame com limit=3 e fatie para obter ambos os extremos.
+    """
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
-        WITH player_wins AS (
+        WITH player_games AS (
             SELECT DISTINCT mp.league_match_id, mp.team AS player_team
             FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
             WHERE {membership_clause}
-              AND mp.team = m.winner_team
         )
         SELECT
             mp2.discord_id,
             COALESCE(p.display_name, CAST(mp2.discord_id AS TEXT)) AS display_name,
-            COUNT(*) AS wins_together
-        FROM player_wins pw
-        JOIN match_players mp2 ON mp2.league_match_id = pw.league_match_id
-            AND mp2.team = pw.player_team
+            COUNT(*) AS games_together,
+            SUM(CASE WHEN mp2.team = m.winner_team THEN 1 ELSE 0 END) AS wins_together,
+            SUM(CASE WHEN mp2.team != m.winner_team THEN 1 ELSE 0 END) AS losses_together,
+            SUM(CASE WHEN mp2.team = m.winner_team THEN 1 ELSE -1 END) AS balance
+        FROM player_games pg
+        JOIN match_players mp2 ON mp2.league_match_id = pg.league_match_id
+            AND mp2.team = pg.player_team
             AND mp2.discord_id IS NOT NULL
+        JOIN matches m ON m.league_match_id = pg.league_match_id
         LEFT JOIN players p ON p.discord_id = mp2.discord_id
         WHERE mp2.discord_id != ?
         GROUP BY mp2.discord_id
-        ORDER BY wins_together DESC
-        LIMIT ?
+        HAVING games_together >= ?
+        ORDER BY balance DESC
     """
-    params = params + (discord_id, limit)
+    params = params + (discord_id, min_games)
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -2165,47 +2171,10 @@ def get_player_top_win_teammates_from_matches(discord_id: int, limit: int = 3) -
         {
             "discord_id": row["discord_id"],
             "display_name": str(row["display_name"]),
-            "count": row["wins_together"],
-        }
-        for row in rows
-    ]
-
-
-def get_player_top_loss_teammates_from_matches(discord_id: int, limit: int = 3) -> list[dict]:
-    """Retorna os companheiros com quem o jogador mais perdeu partidas."""
-    membership_clause, params = _build_player_membership_clause(discord_id)
-    query = f"""
-        WITH player_losses AS (
-            SELECT DISTINCT mp.league_match_id, mp.team AS player_team
-            FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
-            WHERE {membership_clause}
-              AND mp.team != m.winner_team
-        )
-        SELECT
-            mp2.discord_id,
-            COALESCE(p.display_name, CAST(mp2.discord_id AS TEXT)) AS display_name,
-            COUNT(*) AS losses_together
-        FROM player_losses pl
-        JOIN match_players mp2 ON mp2.league_match_id = pl.league_match_id
-            AND mp2.team = pl.player_team
-            AND mp2.discord_id IS NOT NULL
-        LEFT JOIN players p ON p.discord_id = mp2.discord_id
-        WHERE mp2.discord_id != ?
-        GROUP BY mp2.discord_id
-        ORDER BY losses_together DESC
-        LIMIT ?
-    """
-    params = params + (discord_id, limit)
-
-    with get_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
-
-    return [
-        {
-            "discord_id": row["discord_id"],
-            "display_name": str(row["display_name"]),
-            "count": row["losses_together"],
+            "games": row["games_together"],
+            "wins": row["wins_together"],
+            "losses": row["losses_together"],
+            "balance": row["balance"],
         }
         for row in rows
     ]

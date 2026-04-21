@@ -28,7 +28,7 @@ from core.database import (
     get_player_match_history_from_matches, get_player_streak_from_matches,
     get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
     get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
-    get_player_top_win_teammates_from_matches, get_player_top_loss_teammates_from_matches,
+    get_player_teammate_balance_from_matches,
     get_last_ocr_match_info, get_league_hero_winrates_from_matches,
     get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches,
     get_all_hero_stats_from_matches, get_hero_match_history
@@ -711,11 +711,10 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Nenhum histórico OCR encontrado para **{target.display_name}**.")
             return
 
-        all_heroes    = get_player_top_heroes_with_winrate_from_matches(target.id, limit=50)
-        head_to_head  = get_player_head_to_head_from_matches(target.id)
-        win_teammates  = get_player_top_win_teammates_from_matches(target.id, limit=3)
-        loss_teammates = get_player_top_loss_teammates_from_matches(target.id, limit=3)
-        streak        = get_player_streak_from_matches(target.id)
+        all_heroes       = get_player_top_heroes_with_winrate_from_matches(target.id, limit=50)
+        head_to_head     = get_player_head_to_head_from_matches(target.id)
+        teammate_balance = get_player_teammate_balance_from_matches(target.id, min_games=3, limit=3)
+        streak           = get_player_streak_from_matches(target.id)
         recent        = get_player_match_history_from_matches(target.id, limit=5)
 
         ranking   = get_ranking_from_matches()
@@ -804,20 +803,29 @@ def setup_score_commands(bot: commands.Bot):
             ]
             embed.add_field(name="📉 Pior winrate", value="\n".join(lines), inline=True)
 
-        # ── Com quem mais vence / perde ──
-        if win_teammates:
-            lines = [
-                f"{i+1}. **{t['display_name']}** — {t['count']} vitórias juntos"
-                for i, t in enumerate(win_teammates)
-            ]
-            embed.add_field(name="🤝 Vence principalmente com", value="\n".join(lines), inline=False)
+        # ── Melhores / piores parceiros por saldo ──
+        if teammate_balance:
+            best  = teammate_balance[:3]
+            worst = list(reversed(teammate_balance[-3:]))
+            # remove sobreposição quando a lista é pequena (ex: só 3 parceiros)
+            worst = [t for t in worst if t not in best]
 
-        if loss_teammates:
-            lines = [
-                f"{i+1}. **{t['display_name']}** — {t['count']} derrotas juntos"
-                for i, t in enumerate(loss_teammates)
-            ]
-            embed.add_field(name="😤 Perde principalmente com", value="\n".join(lines), inline=False)
+            def _fmt_teammate(t: dict) -> str:
+                sign = "+" if t["balance"] >= 0 else ""
+                return f"**{t['display_name']}** — {sign}{t['balance']} ({t['wins']}V/{t['losses']}D em {t['games']} jogos)"
+
+            if best:
+                embed.add_field(
+                    name="🤝 Melhores parceiros",
+                    value="\n".join(_fmt_teammate(t) for t in best),
+                    inline=False
+                )
+            if worst:
+                embed.add_field(
+                    name="😤 Piores parceiros",
+                    value="\n".join(_fmt_teammate(t) for t in worst),
+                    inline=False
+                )
 
         # ── Defunto (eu domino) ──
         if defuntos:
