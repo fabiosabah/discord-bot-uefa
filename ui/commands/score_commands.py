@@ -60,7 +60,7 @@ def winrate_tier(winrate: float) -> str:
     elif winrate >= 20:
         return "🪦 A equipe reza quando te vê entrar"
     else:
-        return "💀 Mochila oficial do time — parabéns"
+        return "🫀 TESTE PRA CARDÍACO — sua equipe não aguenta"
 
 
 def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
