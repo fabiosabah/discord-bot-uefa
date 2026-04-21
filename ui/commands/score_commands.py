@@ -27,7 +27,8 @@ from core.database import (
     get_player_top_teammates_from_matches, get_player_top_opponents_from_matches,
     get_player_match_history_from_matches, get_player_streak_from_matches,
     get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
-    get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches
+    get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
+    get_player_top_win_teammates_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -666,22 +667,30 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send(f"❌ Nenhum histórico OCR encontrado para **{target.display_name}**.")
             return
 
-        top_heroes   = get_player_top_heroes_with_winrate_from_matches(target.id, limit=5)
-        head_to_head = get_player_head_to_head_from_matches(target.id)
+        top_heroes    = get_player_top_heroes_with_winrate_from_matches(target.id, limit=5)
+        head_to_head  = get_player_head_to_head_from_matches(target.id)
+        win_teammates = get_player_top_win_teammates_from_matches(target.id, limit=3)
+        loss_opps     = get_player_top_opponents_from_matches(target.id, "loss", limit=3)
+        streak        = get_player_streak_from_matches(target.id)
+        recent        = get_player_match_history_from_matches(target.id, limit=5)
+
+        ranking   = get_ranking_from_matches()
+        rank_pos  = next((i + 1 for i, p in enumerate(ranking) if p["discord_id"] == target.id), None)
+        rank_pts  = next((p["points"] for p in ranking if p["discord_id"] == target.id), None)
 
         wins    = stats["wins"]
         losses  = stats["losses"]
         winrate = stats["winrate"]
 
-        malvados = sorted(
-            [h for h in head_to_head if h["opponent_wins"] > h["player_wins"]],
-            key=lambda x: x["opponent_wins"] - x["player_wins"],
-            reverse=True
-        )[:3]
-
         defuntos = sorted(
             [h for h in head_to_head if h["player_wins"] > h["opponent_wins"]],
             key=lambda x: x["player_wins"] - x["opponent_wins"],
+            reverse=True
+        )[:3]
+
+        nemesis = sorted(
+            [h for h in head_to_head if h["opponent_wins"] > h["player_wins"]],
+            key=lambda x: x["opponent_wins"] - x["player_wins"],
             reverse=True
         )[:3]
 
@@ -695,22 +704,32 @@ def setup_score_commands(bot: commands.Bot):
         embed = discord.Embed(title=f"📊 Perfil de {target.display_name}", color=color)
         embed.set_thumbnail(url=target.display_avatar.url)
 
+        # ── Stats base ──
         embed.add_field(name="🎮 Partidas", value=str(stats["matches"]), inline=True)
         embed.add_field(name="🏆 Vitórias",  value=str(wins),           inline=True)
         embed.add_field(name="💀 Derrotas",  value=str(losses),         inline=True)
         embed.add_field(name="📈 Winrate",   value=f"{winrate:.1f}%",   inline=True)
 
+        if rank_pos is not None:
+            embed.add_field(name="🥇 Ranking", value=f"#{rank_pos} — {rank_pts} pts", inline=True)
+
         if stats["kda_rows"]:
             n = stats["kda_rows"]
-            avg_k = stats["total_kills"]   / n
-            avg_d = stats["total_deaths"]  / n
-            avg_a = stats["total_assists"] / n
             embed.add_field(
                 name="⚔️ KDA Médio",
-                value=f"{avg_k:.1f} / {avg_d:.1f} / {avg_a:.1f}",
+                value=f"{stats['total_kills']/n:.1f} / {stats['total_deaths']/n:.1f} / {stats['total_assists']/n:.1f}",
                 inline=True
             )
 
+        # ── Streak ──
+        s_type  = streak["streak_type"]
+        s_count = streak["streak_count"]
+        if s_type == "win" and s_count >= 2:
+            embed.add_field(name="🔥 Sequência", value=f"{s_count} vitórias seguidas", inline=True)
+        elif s_type == "loss" and s_count >= 2:
+            embed.add_field(name="📉 Sequência", value=f"{s_count} derrotas seguidas", inline=True)
+
+        # ── Heróis ──
         if top_heroes:
             lines = [
                 f"{i+1}. **{h['hero']}** — {h['plays']} jogos · {h['winrate']:.0f}% WR"
@@ -718,16 +737,22 @@ def setup_score_commands(bot: commands.Bot):
             ]
             embed.add_field(name="🦸 Top 5 Heróis", value="\n".join(lines), inline=False)
 
-        if malvados:
-            lines = []
-            for i, m in enumerate(malvados):
-                diff = m["opponent_wins"] - m["player_wins"]
-                lines.append(
-                    f"{i+1}. **{m['display_name']}** — "
-                    f"{m['player_wins']}V/{m['opponent_wins']}D em {m['total']} confrontos (−{diff})"
-                )
-            embed.add_field(name="😈 Meu Malvado Favorito", value="\n".join(lines), inline=False)
+        # ── Com quem mais vence / perde ──
+        if win_teammates:
+            lines = [
+                f"{i+1}. **{t['display_name']}** — {t['count']} vitórias juntos"
+                for i, t in enumerate(win_teammates)
+            ]
+            embed.add_field(name="🤝 Vence principalmente com", value="\n".join(lines), inline=False)
 
+        if loss_opps:
+            lines = [
+                f"{i+1}. **{o['display_name']}** — {o['count']} derrotas"
+                for i, o in enumerate(loss_opps)
+            ]
+            embed.add_field(name="😤 Perde principalmente contra", value="\n".join(lines), inline=False)
+
+        # ── Defunto (eu domino) ──
         if defuntos:
             lines = []
             for i, d in enumerate(defuntos):
@@ -738,8 +763,71 @@ def setup_score_commands(bot: commands.Bot):
                 )
             embed.add_field(name="⚰️ Meu Defunto", value="\n".join(lines), inline=False)
 
+        # ── Nemesis (me domina) ──
+        if nemesis:
+            lines = []
+            for i, m in enumerate(nemesis):
+                diff = m["opponent_wins"] - m["player_wins"]
+                lines.append(
+                    f"{i+1}. **{m['display_name']}** — "
+                    f"{m['player_wins']}V/{m['opponent_wins']}D em {m['total']} confrontos (−{diff})"
+                )
+            embed.add_field(name="👹 Meu Nemesis", value="\n".join(lines), inline=False)
+
+        # ── Últimas 5 partidas ──
+        if recent:
+            lines = []
+            for r in recent:
+                icon  = "✅" if r["result"] == "win" else "❌"
+                hero  = r["hero"] or "?"
+                k, d, a = r.get("kills"), r.get("deaths"), r.get("assists")
+                kda   = f"{k}/{d}/{a}" if k is not None and d is not None and a is not None else "?/?/?"
+                lines.append(f"{icon} `#{r['league_match_id']}` {hero} · {kda}")
+            embed.add_field(name="🕹️ Últimas 5 partidas", value="\n".join(lines), inline=False)
+
         embed.set_footer(text="Perfil gerado a partir de partidas importadas via OCR")
         await ctx.send(embed=embed)
+
+    @bot.command(name="listarpartidas", aliases=["partidas", "matchlist"])
+    async def cmd_listar_partidas(ctx, target: discord.Member = None, limit: int = 30):
+        target = target or ctx.author
+        if limit < 1 or limit > 200:
+            limit = 30
+
+        history = get_player_match_history_from_matches(target.id, limit=limit)
+        if not history:
+            await ctx.send(f"❌ Nenhuma partida OCR encontrada para **{target.display_name}**.")
+            return
+
+        total = stats["matches"] if (stats := get_player_match_stats_from_matches(target.id)) else len(history)
+
+        lines = []
+        for r in history:
+            icon = "✅" if r["result"] == "win" else "❌"
+            hero = (r["hero"] or "?").ljust(18)
+            k, d, a = r.get("kills"), r.get("deaths"), r.get("assists")
+            kda  = f"{k}/{d}/{a}" if k is not None and d is not None and a is not None else "?/?/?"
+            date = ""
+            if r.get("created_at"):
+                try:
+                    from datetime import datetime as _dt
+                    date = _dt.fromisoformat(r["created_at"]).strftime("%d/%m")
+                except Exception:
+                    pass
+            lines.append(f"{icon} #{str(r['league_match_id']).ljust(4)} {hero} {kda.ljust(9)} {date}")
+
+        header = (
+            f"📜 **Partidas de {target.display_name}** — {total} no total "
+            f"| mostrando últimas {len(history)} | `!id <número>` para detalhes"
+        )
+
+        chunk_size = 1800
+        text = "\n".join(lines)
+        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+
+        await ctx.send(header)
+        for chunk in chunks:
+            await ctx.send(f"```\n{chunk}\n```")
 
     @bot.command(name="historico", aliases=["history"])
     async def cmd_historico(ctx: commands.Context, member: discord.Member = None, limit: int = 8):

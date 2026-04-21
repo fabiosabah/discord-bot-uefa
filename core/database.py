@@ -1974,6 +1974,46 @@ def get_player_head_to_head_from_matches(discord_id: int) -> list[dict]:
     ]
 
 
+def get_player_top_win_teammates_from_matches(discord_id: int, limit: int = 3) -> list[dict]:
+    """Retorna os companheiros com quem o jogador mais venceu partidas."""
+    membership_clause, params = _build_player_membership_clause(discord_id)
+    query = f"""
+        WITH player_wins AS (
+            SELECT DISTINCT mp.league_match_id, mp.team AS player_team
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE {membership_clause}
+              AND mp.team = m.winner_team
+        )
+        SELECT
+            mp2.discord_id,
+            COALESCE(p.display_name, CAST(mp2.discord_id AS TEXT)) AS display_name,
+            COUNT(*) AS wins_together
+        FROM player_wins pw
+        JOIN match_players mp2 ON mp2.league_match_id = pw.league_match_id
+            AND mp2.team = pw.player_team
+            AND mp2.discord_id IS NOT NULL
+        LEFT JOIN players p ON p.discord_id = mp2.discord_id
+        WHERE mp2.discord_id != ?
+        GROUP BY mp2.discord_id
+        ORDER BY wins_together DESC
+        LIMIT ?
+    """
+    params = params + (discord_id, limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "discord_id": row["discord_id"],
+            "display_name": str(row["display_name"]),
+            "count": row["wins_together"],
+        }
+        for row in rows
+    ]
+
+
 def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
     """Retorna o histórico de partidas de um jogador usando matches + match_players."""
     membership_clause, params = _build_player_membership_clause(discord_id)
