@@ -1189,6 +1189,18 @@ def update_league_match_player_name_by_slot(league_match_id: int, slot: int, pla
         logger.info(f"[DB] Atualizado nick do slot {slot} para league_match_id {league_match_id}.")
     return updated > 0
 
+def update_league_match_duration(league_match_id: int, duration: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE matches SET duration = ? WHERE league_match_id = ?",
+            (duration.strip(), league_match_id)
+        )
+        conn.commit()
+    updated = cursor.rowcount if hasattr(cursor, "rowcount") else 0
+    if updated:
+        logger.info(f"[DB] Duração da partida {league_match_id} atualizada para: {duration}")
+    return updated > 0
+
 
 def log_match_action(admin_id: int, admin_name: str, command: str, details: str, affected_ids: list[int] = None) -> int:
     created_at = datetime.now().isoformat()

@@ -22,7 +22,7 @@ from core.database import (
     delete_match_screenshots, delete_match_screenshot, delete_match_history,
     delete_league_match,
     update_match_hero, update_league_match_heroes, update_league_match_player_name_by_slot,
-    update_league_match_hero_by_slot, update_league_match_player_names,
+    update_league_match_hero_by_slot, update_league_match_player_names, update_league_match_duration,
     get_player_match_stats_from_matches, get_player_top_heroes_from_matches,
     get_player_top_teammates_from_matches, get_player_top_opponents_from_matches,
     get_player_match_history_from_matches, get_player_streak_from_matches,
@@ -1778,6 +1778,40 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.send(
             f"✅ Herói do slot {slot} na partida {league_match_id} atualizado para **{resolved_hero}**."
         )
+    @bot.command(name="ocrtime", aliases=["settime", "definirtempo"])
+    async def cmd_ocr_time(ctx: commands.Context, league_match_id: int, *, duration: str):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        match = get_match_by_league_id(league_match_id)
+        if not match:
+            await ctx.send(f"❌ Partida `{league_match_id}` não encontrada.", delete_after=10)
+            return
+
+        duration = duration.strip()
+        if not re.match(r"^\d{1,2}:\d{2}$", duration):
+            await ctx.send(
+                "❌ Formato inválido. Use `MM:SS`, por exemplo: `!ocrtime 1 36:55`",
+                delete_after=10
+            )
+            return
+
+        updated = update_league_match_duration(league_match_id, duration)
+        if not updated:
+            await ctx.send(f"❌ Não foi possível atualizar a duração da partida `{league_match_id}`.", delete_after=10)
+            return
+
+        log_action(
+            ctx.author.id,
+            ctx.author.display_name,
+            "!ocrtime",
+            f"league_match_id={league_match_id} duration={duration}",
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"✅ Duração da partida `#{league_match_id}` atualizada para **{duration}**.")
 
     @bot.command(name="definirherois", aliases=["setmatchheroes", "setherois"])
     async def cmd_set_match_heroes(ctx: commands.Context, league_match_id: int, *, heroes_text: str):
