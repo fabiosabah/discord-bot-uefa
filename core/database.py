@@ -1249,6 +1249,25 @@ def delete_match_history() -> None:
     logger.info("[DB] Histórico de partidas e partidas importadas apagados.")
 
 
+def get_match_created_at(league_match_id: int) -> str | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM matches WHERE league_match_id = ? LIMIT 1",
+            (league_match_id,)
+        ).fetchone()
+    return row["created_at"] if row else None
+
+
+def count_match_deletions_today(admin_id: int) -> int:
+    today = datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(1) AS cnt FROM audit_log WHERE admin_id = ? AND command = '!apagarmatch' AND created_at >= ?",
+            (admin_id, today)
+        ).fetchone()
+    return row["cnt"] if row else 0
+
+
 def delete_league_match(league_match_id: int) -> bool:
     with get_connection() as conn:
         exists = conn.execute(
@@ -2076,6 +2095,73 @@ def get_player_streak_from_matches(discord_id: int, max_events: int = 50) -> dic
         "streak_type": streak_type,
         "streak_count": streak_count,
         "recent": history[:5],
+    }
+
+
+def get_streak_highlights_from_matches() -> dict:
+    """
+    Returns current and all-time win/loss streak leaders across all players.
+    Each key maps to {"discord_id": int, "display_name": str, "count": int}.
+    """
+    with get_connection() as conn:
+        players = conn.execute("""
+            SELECT DISTINCT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+        """).fetchall()
+
+    current_win  = {"discord_id": None, "display_name": None, "count": 0}
+    current_loss = {"discord_id": None, "display_name": None, "count": 0}
+    record_win   = {"discord_id": None, "display_name": None, "count": 0}
+    record_loss  = {"discord_id": None, "display_name": None, "count": 0}
+
+    for player in players:
+        discord_id   = player["discord_id"]
+        display_name = str(player["display_name"])
+
+        history = get_player_match_history_from_matches(discord_id, limit=500)
+        if not history:
+            continue
+
+        # Current streak (history[0] is most recent)
+        cur_type  = history[0]["result"]
+        cur_count = 0
+        for event in history:
+            if event["result"] != cur_type:
+                break
+            cur_count += 1
+
+        if cur_type == "win" and cur_count > current_win["count"]:
+            current_win = {"discord_id": discord_id, "display_name": display_name, "count": cur_count}
+        elif cur_type == "loss" and cur_count > current_loss["count"]:
+            current_loss = {"discord_id": discord_id, "display_name": display_name, "count": cur_count}
+
+        # All-time record: scan full history in chronological order
+        max_win = max_loss = cur_w = cur_l = 0
+        for event in reversed(history):
+            if event["result"] == "win":
+                cur_w += 1
+                cur_l = 0
+            else:
+                cur_l += 1
+                cur_w = 0
+            if cur_w > max_win:
+                max_win = cur_w
+            if cur_l > max_loss:
+                max_loss = cur_l
+
+        if max_win > record_win["count"]:
+            record_win = {"discord_id": discord_id, "display_name": display_name, "count": max_win}
+        if max_loss > record_loss["count"]:
+            record_loss = {"discord_id": discord_id, "display_name": display_name, "count": max_loss}
+
+    return {
+        "current_win":  current_win,
+        "current_loss": current_loss,
+        "record_win":   record_win,
+        "record_loss":  record_loss,
     }
 
 

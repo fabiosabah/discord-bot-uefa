@@ -28,7 +28,8 @@ from core.database import (
     get_player_match_history_from_matches, get_player_streak_from_matches,
     get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
     get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
-    get_player_top_win_teammates_from_matches, get_last_ocr_match_info
+    get_player_top_win_teammates_from_matches, get_last_ocr_match_info,
+    get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
@@ -2259,24 +2260,6 @@ def setup_score_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"✅ Match #{match_id:03d} registrado manualmente.")
 
-    @bot.command(name="limparhistorico", aliases=["clearmatchhistory", "apagarhistorico"])
-    async def cmd_clear_match_history(ctx: commands.Context, confirm: str = None):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
-            return
-
-        if confirm != "confirmar":
-            await ctx.send(
-                "⚠️ Para apagar o histórico de partidas e as partidas importadas, use `!limparhistorico confirmar`.",
-                delete_after=15
-            )
-            return
-
-        delete_match_history()
-        await ctx.message.delete()
-        await ctx.send("🗑️ Histórico de partidas e partidas importadas apagados com sucesso.")
-
     @bot.command(name="limparhistoricodeimagens", aliases=["clearimagehistory", "apagarhistoricodeimagens", "limparimagens"])
     async def cmd_clear_image_history(ctx: commands.Context, confirm: str = None):
         if not is_admin(ctx.author.id):
@@ -2302,23 +2285,47 @@ def setup_score_commands(bot: commands.Bot):
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        deleted = delete_league_match(league_match_id)
-        if not deleted:
-            await ctx.send(f"❌ Partida com id `{league_match_id}` não encontrada.", delete_after=10)
+        if count_match_deletions_today(ctx.author.id) >= 1:
+            await ctx.send("❌ Você já apagou uma partida hoje. Limite: 1 por dia.", delete_after=60)
             return
 
-        await ctx.message.delete()
-        await ctx.send(f"🗑️ Partida importada `#{league_match_id}` apagada com sucesso.")
+        created_at = get_match_created_at(league_match_id)
+        if created_at is None:
+            await ctx.send(f"❌ Partida `#{league_match_id}` não encontrada.", delete_after=30)
+            return
 
-    @bot.command(name="tabela")
-    async def cmd_tabela(ctx: commands.Context):
+        from datetime import datetime, timedelta
+        try:
+            match_dt = datetime.fromisoformat(created_at)
+        except ValueError:
+            match_dt = None
+
+        if match_dt is None or datetime.now() - match_dt > timedelta(hours=24):
+            await ctx.send(
+                f"❌ Partida `#{league_match_id}` foi adicionada há mais de 24h e não pode ser apagada.",
+                delete_after=60
+            )
+            return
+
+        delete_league_match(league_match_id)
+        log_action(
+            ctx.author.id, ctx.author.display_name,
+            "!apagarmatch",
+            f"Apagou partida league_match_id={league_match_id} (criada em {created_at})",
+            affected_ids=[league_match_id]
+        )
+        await ctx.message.delete()
+        await ctx.send(f"🗑️ Partida `#{league_match_id}` apagada com sucesso.")
+
+    @bot.command(name="tabela1", aliases=["tabelamanual"])
+    async def cmd_tabela1(ctx: commands.Context):
         ranking = get_ranking()
 
         if not ranking:
             await ctx.send("📋 Nenhum jogador registrado ainda.")
             return
 
-        embed = discord.Embed(title="🏆 Tabela do Campeonato", color=discord.Color.gold())
+        embed = discord.Embed(title="🏆 Tabela do Campeonato (manual)", color=discord.Color.gold())
 
         linhas = []
         for i, p in enumerate(ranking):
@@ -2405,26 +2412,45 @@ def setup_score_commands(bot: commands.Bot):
                 f"```\n{short_tb}\n```"
             )
 
-    @bot.command(name="tabela2")
-    async def cmd_tabela2(ctx: commands.Context):
+    @bot.command(name="tabela", aliases=["tabela2"])
+    async def cmd_tabela(ctx: commands.Context):
         ranking = get_ranking_from_matches()
 
         if not ranking:
             await ctx.send("📋 Nenhum jogador registrado ainda nas partidas importadas.")
             return
 
-        embed = discord.Embed(title="🏆 Tabela 2 (partidas OCR/importadas)", color=discord.Color.dark_gold())
+        streaks = get_streak_highlights_from_matches()
+        cur_win_id  = streaks["current_win"]["discord_id"]
+        cur_loss_id = streaks["current_loss"]["discord_id"]
+
+        embed = discord.Embed(title="🏆 Tabela do Campeonato", color=discord.Color.dark_gold())
 
         linhas = []
         for i, p in enumerate(ranking):
             prefix = "👑" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+            streak_tag = ""
+            if p["discord_id"] == cur_win_id and streaks["current_win"]["count"] >= 2:
+                streak_tag = f" 🔥×{streaks['current_win']['count']}"
+            elif p["discord_id"] == cur_loss_id and streaks["current_loss"]["count"] >= 2:
+                streak_tag = f" 💀×{streaks['current_loss']['count']}"
             linhas.append(
-                f"{prefix} **{p['display_name']}** — "
+                f"{prefix} **{p['display_name']}**{streak_tag} — "
                 f"{p['points']} pts "
                 f"(`{p['wins']}V / {p['losses']}D` — {p['games']} jogos)"
             )
 
         embed.description = "\n".join(linhas)
+
+        rec_w = streaks["record_win"]
+        rec_l = streaks["record_loss"]
+        records_lines = []
+        if rec_w["display_name"]:
+            records_lines.append(f"🏅 Recorde winstreak: **{rec_w['display_name']}** ({rec_w['count']} seguidas)")
+        if rec_l["display_name"]:
+            records_lines.append(f"💔 Recorde lossstreak: **{rec_l['display_name']}** ({rec_l['count']} seguidas)")
+        if records_lines:
+            embed.add_field(name="Recordes", value="\n".join(records_lines), inline=False)
 
         last = get_last_ocr_match_info()
         if last:
