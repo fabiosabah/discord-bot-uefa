@@ -182,7 +182,10 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         session.message = msg
         active_lobbies[msg.id] = session
         save_lobby_session(session)
-        await ctx.message.delete()
+        try:
+            await ctx.message.delete()
+        except discord.errors.NotFound:
+            pass
 
     @bot.command(name="lista", aliases=["lobby", "inhouse"])
     async def open_list(ctx: commands.Context):

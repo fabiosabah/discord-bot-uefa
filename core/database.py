@@ -1050,41 +1050,37 @@ def get_ranking() -> list[dict]:
 
 
 def get_ranking_from_matches() -> list[dict]:
-    query = """
-        SELECT DISTINCT mp.discord_id AS discord_id,
-               COALESCE(p.display_name, mp.discord_id) AS display_name
-        FROM match_players mp
-        LEFT JOIN players p ON p.discord_id = mp.discord_id
-        WHERE mp.discord_id IS NOT NULL
-        UNION
-        SELECT discord_id, display_name FROM players
-    """
-    
-    logger.info(f"Executing get_ranking_from_matches query: {query.strip()}")
-    
+    """Retorna o ranking completo em uma única query agregada (sem N+1)."""
     with get_connection() as conn:
-        rows = conn.execute(query).fetchall()
+        rows = conn.execute("""
+            SELECT
+                mp.discord_id,
+                COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                COUNT(*)                                               AS games,
+                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+            GROUP BY mp.discord_id
+            ORDER BY
+                (SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) * 3
+                 - SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END)) DESC,
+                wins DESC
+        """).fetchall()
 
-    ranking = []
-    for row in rows:
-        discord_id = row["discord_id"]
-        # COALESCE pode retornar mp.discord_id (int) quando o jogador não tem registro em players
-        display_name = str(row["display_name"]) if row["display_name"] is not None else str(discord_id)
-        stats = get_player_match_stats_from_matches(discord_id)
-        if stats["matches"] == 0:
-            continue
-
-        ranking.append({
-            "discord_id": discord_id,
-            "display_name": display_name,
-            "wins": stats["wins"],
-            "losses": stats["losses"],
-            "points": stats["wins"] * 3 - stats["losses"],
-            "games": stats["matches"],
-        })
-
-    ranking.sort(key=lambda item: (-item["points"], -item["wins"], str(item["display_name"])))
-    return ranking
+    return [
+        {
+            "discord_id":   row["discord_id"],
+            "display_name": str(row["display_name"]),
+            "wins":         row["wins"],
+            "losses":       row["losses"],
+            "points":       row["wins"] * 3 - row["losses"],
+            "games":        row["games"],
+        }
+        for row in rows
+    ]
 
 
 def get_captains_from_list(player_ids: list[int]) -> list[dict]:
