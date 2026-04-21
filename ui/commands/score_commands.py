@@ -28,7 +28,7 @@ from core.database import (
     get_player_match_history_from_matches, get_player_streak_from_matches,
     get_ranking_from_matches, diagnose_and_fix_kda_data, find_unregistered_match_players,
     get_player_top_heroes_with_winrate_from_matches, get_player_head_to_head_from_matches,
-    get_player_top_win_teammates_from_matches, get_last_ocr_match_info,
+    get_player_top_win_teammates_from_matches, get_player_top_loss_teammates_from_matches, get_last_ocr_match_info,
     get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches
 )
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
@@ -691,8 +691,8 @@ def setup_score_commands(bot: commands.Bot):
 
         all_heroes    = get_player_top_heroes_with_winrate_from_matches(target.id, limit=50)
         head_to_head  = get_player_head_to_head_from_matches(target.id)
-        win_teammates = get_player_top_win_teammates_from_matches(target.id, limit=3)
-        loss_opps     = get_player_top_opponents_from_matches(target.id, "loss", limit=3)
+        win_teammates  = get_player_top_win_teammates_from_matches(target.id, limit=3)
+        loss_teammates = get_player_top_loss_teammates_from_matches(target.id, limit=3)
         streak        = get_player_streak_from_matches(target.id)
         recent        = get_player_match_history_from_matches(target.id, limit=5)
 
@@ -790,12 +790,12 @@ def setup_score_commands(bot: commands.Bot):
             ]
             embed.add_field(name="🤝 Vence principalmente com", value="\n".join(lines), inline=False)
 
-        if loss_opps:
+        if loss_teammates:
             lines = [
-                f"{i+1}. **{o['display_name']}** — {o['count']} derrotas"
-                for i, o in enumerate(loss_opps)
+                f"{i+1}. **{t['display_name']}** — {t['count']} derrotas juntos"
+                for i, t in enumerate(loss_teammates)
             ]
-            embed.add_field(name="😤 Perde principalmente contra", value="\n".join(lines), inline=False)
+            embed.add_field(name="😤 Perde principalmente com", value="\n".join(lines), inline=False)
 
         # ── Defunto (eu domino) ──
         if defuntos:
