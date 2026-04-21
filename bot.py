@@ -214,6 +214,28 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     await ctx.send("❌ Ocorreu um erro ao processar o comando.", delete_after=20)
 
 
+async def _schedule_ocr_summary_deletion(channel, summary_msg, job_id: int):
+    await asyncio.sleep(105)  # espera 1m45s antes de avisar
+    try:
+        warning_msg = await channel.send(
+            f"⏳ O resumo do job #{job_id} será apagado em **15 segundos**.\n"
+            f"Para consultar os dados depois da importação use `!detalhesimagem {job_id}`.",
+            delete_after=60
+        )
+    except Exception:
+        warning_msg = None
+
+    await asyncio.sleep(15)  # aviso fica 15s
+
+    for msg in (summary_msg, warning_msg):
+        if msg is None:
+            continue
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+
 async def ocr_background_worker():
     await bot.wait_until_ready()
     logger.info("🔎 Iniciando worker OCR de imagens de partida.")
@@ -264,8 +286,11 @@ async def ocr_background_worker():
                     else:
                         logger.debug(f"📤 Sending OCR results to channel {job['channel_id']}")
                         summary = build_ocr_job_summary_text(job["id"], parsed)
-                        await channel.send(summary)
+                        summary_msg = await channel.send(summary)
                         logger.info(f"📤 OCR results sent to channel {job['channel_id']} for job {job_id}")
+                        bot.loop.create_task(
+                            _schedule_ocr_summary_deletion(channel, summary_msg, job["id"])
+                        )
                 else:
                     logger.warning(f"❌ Could not find channel {job['channel_id']} to send OCR results")
                     
