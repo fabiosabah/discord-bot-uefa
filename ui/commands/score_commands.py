@@ -2624,8 +2624,18 @@ def setup_score_commands(bot: commands.Bot):
             )
             start = end + 1
 
-        total_picks = sum(h["picks"] for h in stats)
-        embed.set_footer(text=f"{len(stats)} heróis diferentes · {total_picks} picks totais · use !heroes <nome> para detalhes")
+        unpicked = [h["hero"] for h in stats if h["picks"] == 0]
+        picked   = [h for h in stats if h["picks"] > 0]
+        total_picks = sum(h["picks"] for h in picked)
+
+        if unpicked:
+            embed.add_field(
+                name=f"⛔ Nunca pickados ({len(unpicked)})",
+                value=", ".join(unpicked),
+                inline=False,
+            )
+
+        embed.set_footer(text=f"{len(picked)} heróis pickados · {total_picks} picks totais · use !heroes <nome> para detalhes")
 
         await ctx.send(embed=embed)
 

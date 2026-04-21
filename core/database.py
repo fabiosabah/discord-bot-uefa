@@ -42,18 +42,18 @@ def _populate_heroes() -> None:
 
 
 def get_all_hero_stats_from_matches() -> list[dict]:
-    """Retorna estatísticas de todos os heróis jogados, ordenados por picks DESC."""
+    """Retorna estatísticas de todos os heróis (incluindo não pickados), ordenados por picks DESC."""
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                mp.hero_name                                                    AS hero,
-                COUNT(*)                                                        AS picks,
-                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END)       AS wins
-            FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
-            WHERE mp.hero_name IS NOT NULL AND mp.hero_name != ''
-            GROUP BY mp.hero_name
-            ORDER BY picks DESC, wins * 1.0 / COUNT(*) DESC
+                h.name                                                                  AS hero,
+                COUNT(mp.id)                                                            AS picks,
+                COALESCE(SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END), 0)  AS wins
+            FROM heroes h
+            LEFT JOIN match_players mp ON mp.hero_name = h.name
+            LEFT JOIN matches m        ON m.league_match_id = mp.league_match_id
+            GROUP BY h.name
+            ORDER BY picks DESC, wins * 1.0 / NULLIF(COUNT(mp.id), 0) DESC
         """).fetchall()
     return [
         {
