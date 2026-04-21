@@ -663,82 +663,22 @@ def setup_score_commands(bot: commands.Bot):
         stats = get_player_match_stats_from_matches(target.id)
 
         if stats["matches"] == 0:
-            await ctx.send(f"❌ Nenhum histórico de partidas encontrado para {target.display_name}.")
-            return
-
-        top_heroes = get_player_top_heroes_from_matches(target.id, limit=5)
-        teammates = get_player_top_teammates_from_matches(target.id, limit=3)
-        opponents_against = get_player_top_opponents_from_matches(target.id, "loss", limit=3)
-        opponents_favor = get_player_top_opponents_from_matches(target.id, "win", limit=3)
-        recent_matches = get_player_match_history_from_matches(target.id, limit=5)
-
-        title = f"📊 Perfil 2 de {target.display_name}"
-        embed = discord.Embed(title=title, color=discord.Color.blurple())
-        embed.set_thumbnail(url=target.display_avatar.url)
-
-        embed.add_field(name="🎮 Partidas", value=stats["matches"], inline=True)
-        embed.add_field(name="🏆 Vitórias", value=stats["wins"], inline=True)
-        embed.add_field(name="💀 Derrotas", value=stats["losses"], inline=True)
-        embed.add_field(name="📈 Winrate", value=f"{stats['winrate']:.1f}%", inline=True)
-
-        if stats["kda_rows"]:
-            embed.add_field(
-                name="📊 KDA total",
-                value=f"{stats['total_kills']} / {stats['total_deaths']} / {stats['total_assists']}\n(base em {stats['kda_rows']} partidas)",
-                inline=False
-            )
-        else:
-            embed.add_field(name="📊 KDA total", value="Nenhum KDA detectado no histórico.", inline=False)
-
-        if top_heroes:
-            heroes_text = "\n".join([f"{i+1}. {item['hero']} — {item['plays']}x" for i, item in enumerate(top_heroes)])
-            embed.add_field(name="🔥 Top 5 heróis", value=heroes_text, inline=False)
-
-        if teammates:
-            teammates_text = "\n".join([f"{i+1}. {item['display_name']} — {item['count']} partidas" for i, item in enumerate(teammates)])
-            embed.add_field(name="🤝 Jogou mais a favor de", value=teammates_text, inline=False)
-
-        if opponents_against:
-            opponents_text = "\n".join([f"{i+1}. {item['display_name']} — {item['count']} partidas" for i, item in enumerate(opponents_against)])
-            embed.add_field(name="⚔️ Jogou mais contra", value=opponents_text, inline=False)
-
-        if opponents_favor:
-            favored_text = "\n".join([f"{i+1}. {item['display_name']} — {item['count']} vezes" for i, item in enumerate(opponents_favor)])
-            embed.add_field(name="🏅 Mais derrotados", value=favored_text, inline=False)
-
-        if recent_matches:
-            recent_text = []
-            for item in recent_matches:
-                recent_text.append(f"#{item['league_match_id']} — {item['result']} — {item['hero'] or 'sem herói'}")
-            embed.add_field(name="🕒 Últimas partidas", value="\n".join(recent_text), inline=False)
-
-        embed.set_footer(text="Perfil gerado a partir de matches + match_players")
-        await ctx.send(embed=embed)
-
-    @bot.command(name="perfil3", aliases=["p3"])
-    async def cmd_perfil3(ctx, target: discord.Member = None):
-        target = target or ctx.author
-        stats = get_player_match_stats_from_matches(target.id)
-
-        if stats["matches"] == 0:
             await ctx.send(f"❌ Nenhum histórico OCR encontrado para **{target.display_name}**.")
             return
 
-        top_heroes  = get_player_top_heroes_with_winrate_from_matches(target.id, limit=5)
+        top_heroes   = get_player_top_heroes_with_winrate_from_matches(target.id, limit=5)
         head_to_head = get_player_head_to_head_from_matches(target.id)
 
         wins    = stats["wins"]
         losses  = stats["losses"]
         winrate = stats["winrate"]
 
-        # top 3 que o oponente ganhou mais duelos diretos
         malvados = sorted(
             [h for h in head_to_head if h["opponent_wins"] > h["player_wins"]],
             key=lambda x: x["opponent_wins"] - x["player_wins"],
             reverse=True
         )[:3]
 
-        # top 3 que eu ganhei mais duelos diretos
         defuntos = sorted(
             [h for h in head_to_head if h["player_wins"] > h["opponent_wins"]],
             key=lambda x: x["player_wins"] - x["opponent_wins"],
