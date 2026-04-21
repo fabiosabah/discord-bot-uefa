@@ -257,71 +257,72 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
     @bot.command(name="uefa", aliases=["liga", "comandos"])
     async def help_command(ctx: commands.Context):
-        """Exibe a lista de comandos administrativos e informações da liga."""
-        
+        """Exibe a lista de comandos e informações da liga."""
+
         embed = discord.Embed(
-            title="📖 Guia de Comandos - UEFA Fumos League",
-            description="Aqui estão os comandos disponíveis para gerenciar a liga e as listas.",
+            title="📖 Guia de Comandos — UEFA Fumos League",
+            description="Todos os comandos disponíveis para jogadores e administradores.",
             color=discord.Color.blue()
         )
 
         embed.add_field(
-            name="🎮 Comandos de Jogador",
+            name="🎮 Jogadores",
             value=(
-                "`!lista` ou `!lobby`: Abre uma nova lista de presença.\n"
-                "`!tabela`: Mostra o ranking atual da liga.\n"
-                "`!perfil @usuario`: Mostra as estatísticas de um jogador.\n"
-                "`!uefa` ou `!liga`: Abre este guia de ajuda."
+                "`!lista` / `!lobby` — Abre uma lista de presença para o inhouse.\n"
+                "`!tabela` — Ranking OCR com streaks atuais, recordes e top/bottom heróis do campeonato.\n"
+                "`!tabela1` — Ranking de pontuação manual (vitórias/derrotas registradas por ADM).\n"
+                "`!perfil @jogador` — Estatísticas detalhadas: winrate, heróis favoritos, adversários.\n"
+                "`!ultimas @jogador` — Últimas 30 partidas OCR com herói e KDA.\n"
+                "`!heroes` — Pool de heróis do campeonato: total de picks e winrate de cada um.\n"
+                "`!heroes <nome>` — Todas as partidas em que um herói específico foi jogado.\n"
+                "`!uefa` / `!liga` / `!comandos` — Exibe este guia."
             ),
             inline=False
         )
 
-        # Configuração de canal de lista
         embed.add_field(
-            name="🛠️ Comandos de Configuração (Apenas ADMs)",
+            name="📸 OCR e Importação de Partidas (ADMs)",
             value=(
-                "`!registrarcanal`: Registra o canal atual como canal exclusivo para abrir listas.\n"
-                "`!limparcanal`: Remove a configuração e permite abrir listas em qualquer canal.\n"
-                "`!registrarcanalimagem`: Registra o canal atual para leitura de imagens OCR.\n"
-                "`!limparcanalimagem`: Remove a imagem OCR registrada e volta a usar apenas o ENV ou nenhum canal.\n"
-                "`!canalimagem`: Mostra o canal de imagem OCR atualmente configurado."
+                "`!ok <id> [MM:SS]` — Aprova e importa uma partida OCR. Se a duração não foi detectada automaticamente, informe no formato `5:23`.\n"
+                "`!cadastro <nick> @jogador` — Mapeia um nick de jogo (como aparece no placar) a um jogador do Discord.\n"
+                "`!fixhero <match_id> <slot> <herói>` — Corrige o herói de um slot em uma partida já importada.\n"
+                "`!apagarid <id>` — Remove uma partida importada recentemente (limite: **1 por dia**, apenas nas últimas 24h).\n"
+                "`!registrarcanalimagem` — Define o canal atual como canal de recebimento de screenshots.\n"
+                "`!pendenciaimagem` — Lista jobs OCR aguardando aprovação.\n"
+                "`!detalhesimagem <id>` — Mostra os dados extraídos de um job OCR.\n"
+                "`!scanhistory [n]` — Reenfileira as últimas *n* imagens do canal para reprocessamento OCR."
             ),
             inline=False
         )
 
-        # Comandos OCR / Score (Apenas ADMs)
         embed.add_field(
-            name="📸 Comandos OCR e Importação",
+            name="📊 Partidas Manuais (ADMs)",
             value=(
-                "`!scanhistory [limite]`: Enfileira imagens antigas para OCR.\n"
-                "`!pendenciaimagem`: Lista imagens aguardando processamento.\n"
-                "`!detalhesimagem <job_id>`: Mostra o JSON extraído e os dados OCR do job.\n"
-                "`!rawtextimagem <job_id>`: Exibe o texto bruto extraído para diagnóstico.\n"
-                "`!importarimagem <job_id> <mapeamento>`: Registra a imagem como partida usando o mapeamento de nomes para IDs.\n"
-                "`!confirmarimagem <job_id> <texto>`: Corrige manualmente os metadados OCR.\n"
-                "`!fixhero <match_id>, <slot>, <herói>`: Ajusta o herói de um jogador em uma partida importada.\n"
-                "`!devhelp`: Obtenha documentação técnica de fluxo e esquema do banco."
+                "`!venceu @u1 @u2 ...` — Registra vitória (+3 pts) para cada jogador mencionado.\n"
+                "`!perdeu @u1 @u2 ...` — Registra derrota (-1 pt) para cada jogador mencionado.\n"
+                "`!registrar @jogador <V> <D>` — Define vitórias e derrotas manualmente para um jogador.\n"
+                "`!registrarmatch <id> @venc... -- @derrot...` — Registra uma partida completa sem imagem.\n"
+                "`!desfazer` / `!undo` — Desfaz a última ação de vitória/derrota.\n"
+                "**Botões da Lista:** ADMs podem adicionar/remover jogadores e encerrar qualquer lista."
             ),
             inline=False
         )
 
-        # Comandos Administrativos
         embed.add_field(
-            name="🛠️ Comandos Administrativos (Apenas ADMs)",
+            name="⚙️ Configuração (ADMs)",
             value=(
-                "`!venceu @u1 @u2...`: Adiciona 1 vitória (+3 pts) para os jogadores.\n"
-                "`!perdeu @u1 @u2...`: Adiciona 1 derrota (-1 pt) para os jogadores.\n"
-                "`!registrar @u <V> <D>`: Define manualmente o score de um jogador.\n"
-                "`!registrarmatch <id> @win... -- @loss...`: Registra partida manual sem imagem.\n"
-                "`!desfazer` ou `!undo`: Desfaz sua última ação de vitória/derrota.\n"
-                "**Botões da Lista:** ADMs podem adicionar/remover pessoas e encerrar qualquer lista."
+                "`!registrarcanal` — Define o canal atual como exclusivo para abertura de listas.\n"
+                "`!limparcanal` — Remove a restrição; listas podem ser abertas em qualquer canal.\n"
+                "`!limparcanalimagem` — Remove a configuração de canal OCR.\n"
+                "`!canalimagem` — Mostra o canal OCR configurado atualmente.\n"
+                "`!devhelp` — Documentação técnica do fluxo OCR e schema do banco de dados."
             ),
             inline=False
         )
 
         admin_mentions = [f"<@{admin_id}>" for admin_id in ADMIN_IDS]
         admins_text = ", ".join(admin_mentions) if admin_mentions else "Nenhum administrador configurado no .env"
-        
+
         embed.add_field(
             name="👑 Administradores da Liga",
             value=f"Os seguintes usuários têm permissão administrativa:\n{admins_text}",
@@ -329,7 +330,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         )
 
         embed.set_footer(text="Dúvidas? Entre em contato com um administrador.")
-        
+
         await ctx.send(embed=embed)
 
     @bot.command(name="devhelp", aliases=["debughelp", "devdocs", "techhelp"])
