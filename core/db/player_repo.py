@@ -79,13 +79,16 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(f"""
             SELECT
-                discord_id,
-                display_name,
-                wins,
-                losses,
-                (wins * 3 - losses) AS points
-            FROM players
-            WHERE discord_id IN ({placeholders})
+                mp.discord_id,
+                COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
+                SUM(CASE WHEN mp.team = m.winner_team THEN 3 ELSE -1 END) AS points
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IN ({placeholders})
+            GROUP BY mp.discord_id
             ORDER BY points DESC, wins DESC
             LIMIT 2
         """, player_ids).fetchall()
