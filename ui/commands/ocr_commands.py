@@ -650,12 +650,18 @@ def setup_ocr_commands(bot: commands.Bot):
             await ctx.send(f"❌ Sem lista de jogadores no job {job_id}.", delete_after=600)
             return
 
+        _DURATION_RE = re.compile(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$")
         match_info   = parsed.get("match_info") or parsed.get("game_details") or {}
-        ocr_duration = match_info.get("duration") or parsed.get("duration")
+        ocr_duration = str(match_info.get("duration") or parsed.get("duration") or "").strip()
         arg_duration = duration.strip()
-        if not ocr_duration and not (arg_duration and re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", arg_duration)):
+        valid_ocr = bool(ocr_duration and _DURATION_RE.match(ocr_duration))
+        valid_arg = bool(arg_duration and _DURATION_RE.match(arg_duration))
+
+        if not valid_ocr and not valid_arg:
+            dur_hint = arg_duration if arg_duration else "MM:SS"
             await ctx.send(
-                f"⏱️ Duração não detectada no OCR. Informe ao registrar:\n`!ok {job_id} MM:SS`",
+                f"⏱️ Duração ausente ou inválida (OCR detectou: `{ocr_duration or 'nada'}`). "
+                f"Informe ao registrar:\n`!ok {job_id} {dur_hint}`",
                 delete_after=600
             )
             return
