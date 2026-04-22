@@ -192,7 +192,10 @@ def setup_admin_commands(bot: commands.Bot):
             await ctx.send("⚠️ Nenhum alias cadastrado.")
             return
 
-        lines = [f"{r['alias']:<25} → {r['display_name'] or f'<@{r[\"discord_id\"]}>'}" for r in rows]
+        lines = [
+            f"{r['alias']:<25} → {r['display_name'] or ('<@' + str(r['discord_id']) + '>')}"
+            for r in rows
+        ]
 
         header = f"📋 **{len(lines)} alias(es) cadastrados:**"
         chunk_size = 1800
