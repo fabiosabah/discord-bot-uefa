@@ -22,6 +22,7 @@ from core.db.match_repo import (
     get_hero_match_history,
     get_player_duo_stats,
     get_match_duration_extremes,
+    get_match_players_bulk,
 )
 from core.db.player_repo import get_player, get_ranking, find_player_by_display_name
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
@@ -511,7 +512,7 @@ def setup_player_commands(bot: commands.Bot):
 
     @bot.command(name="recordes", aliases=["tempos", "duracoes", "recordstime"])
     async def cmd_recordes(ctx: commands.Context):
-        data = get_match_duration_extremes(min_seconds=60)
+        data    = get_match_duration_extremes(min_seconds=60)
         fastest = data["fastest"]
         longest = data["longest"]
 
@@ -519,30 +520,47 @@ def setup_player_commands(bot: commands.Bot):
             await ctx.send("📋 Nenhuma partida com duração registrada ainda.")
             return
 
-        def fmt(m: dict) -> str:
-            winner = (m["winner_team"] or "?").title()
-            score  = ""
+        all_ids     = [m["league_match_id"] for m in fastest + longest]
+        players_map = get_match_players_bulk(all_ids)
+
+        def team_line(players: list[dict], team: str, winner: str) -> str:
+            members = [p for p in players if (p["team"] or "").lower() == team.lower()]
+            icon    = "🏆" if (winner or "").lower() == team.lower() else ("🟢" if team == "radiant" else "🔴")
+            parts   = [
+                f"{p['display_name']}({p['hero_name']})" if p.get("hero_name")
+                else p["display_name"]
+                for p in members
+            ]
+            return f"{icon} {' · '.join(parts)}" if parts else ""
+
+        def match_field(m: dict, prefix: str) -> tuple[str, str]:
+            score = ""
             if m.get("score_radiant") is not None and m.get("score_dire") is not None:
                 score = f" · {m['score_radiant']}×{m['score_dire']}"
-            return f"`#{m['league_match_id']}` **{m['duration']}** — {winner}{score}"
+            winner  = (m["winner_team"] or "?").title()
+            dur     = m.get("display_duration") or m["duration"]
+            name    = f"{prefix} `#{m['league_match_id']}` · {dur} · {winner}{score}"
+            players = players_map.get(m["league_match_id"], [])
+            lines   = [l for l in [
+                team_line(players, "radiant", m["winner_team"]),
+                team_line(players, "dire",    m["winner_team"]),
+            ] if l]
+            value = "\n".join(lines) or "—"
+            return name, value
 
-        embed = discord.Embed(
-            title="⏱️ Recordes de duração",
-            color=discord.Color.teal(),
-        )
+        embed = discord.Embed(title="⏱️ Recordes de duração", color=discord.Color.teal())
 
         if fastest:
-            embed.add_field(
-                name="💥 5 maiores stomps",
-                value="\n".join(f"{i+1}. {fmt(m)}" for i, m in enumerate(fastest)),
-                inline=False,
-            )
+            embed.add_field(name="💥 STOMPS", value="​", inline=False)
+            for i, m in enumerate(fastest):
+                name, value = match_field(m, f"{i+1}.")
+                embed.add_field(name=name, value=value, inline=False)
+
         if longest:
-            embed.add_field(
-                name="🐢 5 mais longas",
-                value="\n".join(f"{i+1}. {fmt(m)}" for i, m in enumerate(longest)),
-                inline=False,
-            )
+            embed.add_field(name="🐢 MAIS LONGAS", value="​", inline=False)
+            for i, m in enumerate(longest):
+                name, value = match_field(m, f"{i+1}.")
+                embed.add_field(name=name, value=value, inline=False)
 
         embed.set_footer(text="Partidas com menos de 1 minuto ignoradas")
         await ctx.send(embed=embed)

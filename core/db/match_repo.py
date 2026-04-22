@@ -1140,6 +1140,18 @@ def _duration_to_seconds(d: str) -> int | None:
     return None
 
 
+def _format_duration(d: str) -> str:
+    secs = _duration_to_seconds(d)
+    if secs is None:
+        return d
+    h = secs // 3600
+    m = (secs % 3600) // 60
+    s = secs % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
 def get_match_duration_extremes(min_seconds: int = 60) -> dict:
     with get_connection() as conn:
         rows = conn.execute("""
@@ -1154,13 +1166,32 @@ def get_match_duration_extremes(min_seconds: int = 60) -> dict:
         secs = _duration_to_seconds(row["duration"])
         if secs is None or secs < min_seconds:
             continue
-        parsed.append({**dict(row), "seconds": secs})
+        parsed.append({**dict(row), "seconds": secs, "display_duration": _format_duration(row["duration"])})
 
     parsed.sort(key=lambda x: x["seconds"])
     return {
         "fastest": parsed[:5],
         "longest": list(reversed(parsed[-5:])),
     }
+
+
+def get_match_players_bulk(league_match_ids: list[int]) -> dict[int, list[dict]]:
+    if not league_match_ids:
+        return {}
+    placeholders = ",".join("?" * len(league_match_ids))
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT mp.league_match_id, mp.team, mp.hero_name,
+                   COALESCE(p.display_name, mp.player_name) AS display_name
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.league_match_id IN ({placeholders})
+            ORDER BY mp.league_match_id, mp.slot
+        """, league_match_ids).fetchall()
+    result: dict[int, list[dict]] = {}
+    for row in rows:
+        result.setdefault(row["league_match_id"], []).append(dict(row))
+    return result
 
 
 def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
