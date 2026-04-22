@@ -653,7 +653,7 @@ def setup_ocr_commands(bot: commands.Bot):
         match_info   = parsed.get("match_info") or parsed.get("game_details") or {}
         ocr_duration = match_info.get("duration") or parsed.get("duration")
         arg_duration = duration.strip()
-        if not ocr_duration and not (arg_duration and re.match(r"^\d{1,2}:\d{2}$", arg_duration)):
+        if not ocr_duration and not (arg_duration and re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", arg_duration)):
             await ctx.send(
                 f"⏱️ Duração não detectada no OCR. Informe ao registrar:\n`!ok {job_id} MM:SS`",
                 delete_after=600
@@ -720,7 +720,7 @@ def setup_ocr_commands(bot: commands.Bot):
             return
 
         duration = duration.strip()
-        if duration and re.match(r"^\d{1,2}:\d{2}$", duration):
+        if duration and re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", duration):
             update_league_match_duration(league_match_id, duration)
 
         await ctx.message.delete()
@@ -927,9 +927,9 @@ def setup_ocr_commands(bot: commands.Bot):
             return
 
         duration = duration.strip()
-        if not re.match(r"^\d{1,2}:\d{2}$", duration):
+        if not re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", duration):
             await ctx.send(
-                "❌ Formato inválido. Use `MM:SS`, por exemplo: `!ocrtime 1 36:55`",
+                "❌ Formato inválido. Use `MM:SS` ou `H:MM:SS`, por exemplo: `!ocrtime 1 36:55` ou `!ocrtime 1 1:07:40`",
                 delete_after=10
             )
             return
