@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
 import logging
-import re
 from datetime import datetime
 from itertools import groupby
 from typing import Any
@@ -73,31 +72,6 @@ def get_hero_match_history(hero_name: str) -> list[dict]:
             "assists":         row["assists"],
             "result":          "win" if row["team"] == row["winner_team"] else "loss",
             "created_at":      row["created_at"],
-        }
-        for row in rows
-    ]
-
-
-def get_league_hero_winrates_from_matches(min_games: int = 2) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT
-                mp.hero_name,
-                COUNT(*) AS games,
-                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins
-            FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
-            WHERE mp.hero_name IS NOT NULL AND mp.hero_name != ''
-            GROUP BY mp.hero_name
-            HAVING COUNT(*) >= ?
-            ORDER BY wins * 1.0 / COUNT(*) DESC, games DESC
-        """, (min_games,)).fetchall()
-    return [
-        {
-            "hero":    row["hero_name"],
-            "games":   row["games"],
-            "wins":    row["wins"],
-            "winrate": row["wins"] * 100.0 / row["games"],
         }
         for row in rows
     ]
@@ -510,81 +484,6 @@ def get_next_match_id() -> int:
     return (row["max_match_id"] or 0) + 1
 
 
-def _find_open_match_id(result: str, same_side: bool = False) -> int | None:
-    if same_side:
-        having = (
-            "(? = 'win' AND win_count > 0 AND loss_count = 0 AND win_count < 5) "
-            "OR (? = 'loss' AND loss_count > 0 AND win_count = 0 AND loss_count < 5)"
-        )
-    else:
-        having = (
-            "(? = 'win' AND win_count = 0 AND loss_count > 0) "
-            "OR (? = 'loss' AND loss_count = 0 AND win_count > 0)"
-        )
-    query = f"""
-        SELECT match_id,
-               SUM(CASE WHEN result = 'win'  THEN 1 ELSE 0 END) AS win_count,
-               SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) AS loss_count
-        FROM match_history
-        GROUP BY match_id
-        HAVING {having}
-        ORDER BY match_id DESC
-        LIMIT 1
-    """
-    with get_connection() as conn:
-        row = conn.execute(query, (result, result)).fetchone()
-    return row["match_id"] if row else None
-
-
-def get_pending_match_id_for_opposite_result(result: str) -> int | None:
-    return _find_open_match_id(result, same_side=False)
-
-
-def get_pending_match_id_for_same_side(result: str) -> int | None:
-    return _find_open_match_id(result, same_side=True)
-
-
-def record_match_history(
-    audit_id: int,
-    affected_ids: list[int],
-    result: str,
-    details: str,
-    created_at: str,
-    match_id: int,
-    hero: str | None = None,
-    kills: int | None = None,
-    deaths: int | None = None,
-    assists: int | None = None,
-) -> None:
-    if not affected_ids:
-        return
-    inserted = 0
-    with get_connection() as conn:
-        for discord_id in affected_ids:
-            conn.execute(
-                "INSERT OR IGNORE INTO match_history "
-                "(audit_id, match_id, discord_id, result, details, hero, kills, deaths, assists, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (audit_id, match_id, discord_id, result, details, hero, kills, deaths, assists, created_at),
-            )
-            inserted += 1
-        conn.commit()
-    logger.info(f"[DB] Gravado match_history do audit {audit_id} com match_id {match_id}: {inserted} registros.")
-
-
-def update_match_hero(match_id: int, discord_id: int, hero: str) -> bool:
-    with get_connection() as conn:
-        cursor = conn.execute(
-            "UPDATE match_history SET hero = ? WHERE match_id = ? AND discord_id = ?",
-            (hero, match_id, discord_id),
-        )
-        conn.commit()
-    updated = cursor.rowcount if hasattr(cursor, "rowcount") else 0
-    if updated:
-        logger.info(f"[DB] Match {match_id} hero atualizado para {discord_id}: {hero}")
-    return updated > 0
-
-
 def update_league_match_heroes(league_match_id: int, hero_names: list[str]) -> int:
     with get_connection() as conn:
         updated = 0
@@ -656,19 +555,6 @@ def update_league_match_duration(league_match_id: int, duration: str) -> bool:
     return updated > 0
 
 
-def delete_match_history() -> None:
-    with get_connection() as conn:
-        conn.execute("DELETE FROM match_history")
-        conn.execute("DELETE FROM matches")
-        conn.execute("DELETE FROM match_players")
-        conn.execute("DELETE FROM match_imports")
-        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_history'")
-        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'matches'")
-        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'match_players'")
-        conn.commit()
-    logger.info("[DB] Histórico de partidas e partidas importadas apagados.")
-
-
 def delete_league_match(league_match_id: int) -> bool:
     with get_connection() as conn:
         exists = conn.execute(
@@ -681,207 +567,6 @@ def delete_league_match(league_match_id: int) -> bool:
         conn.commit()
     logger.info(f"[DB] Partida importada league_match_id {league_match_id} removida.")
     return True
-
-
-def delete_match_history_by_audit_id(audit_id: int) -> None:
-    with get_connection() as conn:
-        conn.execute("DELETE FROM match_history WHERE audit_id = ?", (audit_id,))
-        conn.commit()
-
-
-def create_or_replace_manual_match(
-    match_id: int,
-    winner_ids: list[int],
-    loser_ids: list[int],
-    admin_id: int,
-    admin_name: str,
-) -> int:
-    details = f"Manual match {match_id}: winners={winner_ids} losers={loser_ids}"
-    audit_id = log_action(admin_id, admin_name, "!registrarmatch", details, affected_ids=winner_ids + loser_ids)
-    created_at = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute("DELETE FROM match_history WHERE match_id = ?", (match_id,))
-        for discord_id in winner_ids:
-            conn.execute(
-                "INSERT INTO match_history (audit_id, match_id, discord_id, result, details, created_at) VALUES (?, ?, ?, 'win', ?, ?)",
-                (audit_id, match_id, discord_id, details, created_at),
-            )
-        for discord_id in loser_ids:
-            conn.execute(
-                "INSERT INTO match_history (audit_id, match_id, discord_id, result, details, created_at) VALUES (?, ?, ?, 'loss', ?, ?)",
-                (audit_id, match_id, discord_id, details, created_at),
-            )
-        conn.commit()
-    logger.info(f"[DB] Match manual {match_id} registrado: {len(winner_ids)} vencedores, {len(loser_ids)} derrotados.")
-    return audit_id
-
-
-# ─────────────────────────────────────────────
-# Match history reads (legacy manual scoring)
-# ─────────────────────────────────────────────
-
-def _parse_kda_from_details(details: str) -> tuple[int | None, int | None, int | None]:
-    if not isinstance(details, str):
-        return None, None, None
-    match = re.search(r"(\d+)\s*[/\\-]\s*(\d+)\s*[/\\-]\s*(\d+)", details)
-    if match:
-        return int(match.group(1)), int(match.group(2)), int(match.group(3))
-    match = re.search(r"kda[:\s]*(\d+)\s*[/\\-]\s*(\d+)\s*[/\\-]\s*(\d+)", details, re.IGNORECASE)
-    if match:
-        return int(match.group(1)), int(match.group(2)), int(match.group(3))
-    return None, None, None
-
-
-def get_player_history_stats(discord_id: int) -> dict:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT result, details, kills, deaths, assists FROM match_history WHERE discord_id = ?",
-            (discord_id,),
-        ).fetchall()
-
-    total_matches = len(rows)
-    wins = sum(1 for r in rows if r["result"] == "win")
-    losses = total_matches - wins
-    total_kills = total_deaths = total_assists = kda_rows = 0
-
-    for row in rows:
-        k, d, a = row["kills"], row["deaths"], row["assists"]
-        if k is not None and d is not None and a is not None:
-            total_kills += k; total_deaths += d; total_assists += a; kda_rows += 1
-        else:
-            pk, pd, pa = _parse_kda_from_details(row["details"] or "")
-            if pk is not None and pd is not None and pa is not None:
-                total_kills += pk; total_deaths += pd; total_assists += pa; kda_rows += 1
-
-    return {
-        "matches": total_matches, "wins": wins, "losses": losses,
-        "winrate": wins / total_matches * 100 if total_matches else 0,
-        "total_kills": total_kills, "total_deaths": total_deaths,
-        "total_assists": total_assists, "kda_rows": kda_rows,
-    }
-
-
-def get_player_match_history(discord_id: int, limit: int = 20) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT match_id, result, details, hero, kills, deaths, assists, created_at "
-            "FROM match_history WHERE discord_id = ? ORDER BY match_id DESC LIMIT ?",
-            (discord_id, limit),
-        ).fetchall()
-    return [
-        {
-            "match_id": row["match_id"], "result": row["result"], "details": row["details"],
-            "hero": row["hero"], "kills": row["kills"], "deaths": row["deaths"],
-            "assists": row["assists"], "created_at": row["created_at"],
-        }
-        for row in rows
-    ]
-
-
-def get_player_streak(discord_id: int, max_events: int = 50) -> dict:
-    history = get_player_match_history(discord_id, max_events)
-    if not history:
-        return {"streak_type": None, "streak_count": 0, "recent": []}
-    streak_type = history[0]["result"]
-    streak_count = sum(1 for _ in (e for e in history if e["result"] == streak_type))
-    # count only the unbroken run at the front
-    streak_count = 0
-    for event in history:
-        if event["result"] != streak_type:
-            break
-        streak_count += 1
-    return {"streak_type": streak_type, "streak_count": streak_count, "recent": history[:5]}
-
-
-def get_player_top_opponents(discord_id: int, result: str, limit: int = 3) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT
-                opp.discord_id,
-                COALESCE(p.display_name, opp.discord_id) AS display_name,
-                COUNT(DISTINCT opp.match_id) AS matches
-            FROM match_history player
-            JOIN match_history opp
-                ON opp.match_id = player.match_id
-               AND opp.discord_id != player.discord_id
-               AND opp.result != player.result
-            LEFT JOIN players p ON p.discord_id = opp.discord_id
-            WHERE player.discord_id = ? AND player.result = ?
-            GROUP BY opp.discord_id
-            ORDER BY matches DESC, display_name ASC
-            LIMIT ?
-        """, (discord_id, result, limit)).fetchall()
-    return [{"discord_id": r["discord_id"], "display_name": r["display_name"], "count": r["matches"]} for r in rows]
-
-
-def get_player_top_teammates(discord_id: int, limit: int = 3) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT
-                team.discord_id,
-                COALESCE(p.display_name, team.discord_id) AS display_name,
-                COUNT(DISTINCT team.match_id) AS matches
-            FROM match_history player
-            JOIN match_history team
-                ON team.match_id = player.match_id
-               AND team.discord_id != player.discord_id
-               AND team.result = player.result
-            LEFT JOIN players p ON p.discord_id = team.discord_id
-            WHERE player.discord_id = ?
-            GROUP BY team.discord_id
-            ORDER BY matches DESC, display_name ASC
-            LIMIT ?
-        """, (discord_id, limit)).fetchall()
-    return [{"discord_id": r["discord_id"], "display_name": r["display_name"], "count": r["matches"]} for r in rows]
-
-
-def get_player_top_heroes(discord_id: int, limit: int = 5) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT hero, COUNT(*) AS plays FROM match_history "
-            "WHERE discord_id = ? AND hero IS NOT NULL AND hero != '' "
-            "GROUP BY hero ORDER BY plays DESC, hero ASC LIMIT ?",
-            (discord_id, limit),
-        ).fetchall()
-    return [{"hero": r["hero"], "plays": r["plays"]} for r in rows]
-
-
-def get_match_summary(match_id: int) -> dict | None:
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT mh.result, mh.discord_id, p.display_name, mh.hero,
-                   al.command, al.details, al.created_at
-            FROM match_history mh
-            LEFT JOIN players p ON p.discord_id = mh.discord_id
-            LEFT JOIN audit_log al ON al.id = mh.audit_id
-            WHERE mh.match_id = ?
-            ORDER BY mh.result DESC, p.display_name, mh.discord_id
-        """, (match_id,)).fetchall()
-    if not rows:
-        return None
-    winners, losers = [], []
-    for row in rows:
-        name = row['display_name'] or str(row['discord_id'])
-        if row['hero']:
-            name = f"{name} ({row['hero']})"
-        (winners if row['result'] == 'win' else losers).append(name)
-    return {
-        'match_id': match_id, 'command': rows[0]['command'],
-        'details': rows[0]['details'], 'created_at': rows[0]['created_at'],
-        'winners': winners, 'losers': losers,
-    }
-
-
-def get_recent_match_ids(limit: int = 10) -> list[int]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT match_id FROM match_history ORDER BY match_id DESC LIMIT ?", (limit,)
-        ).fetchall()
-    return [row['match_id'] for row in rows]
-
-
-def get_recent_match_summaries(limit: int = 10) -> list[dict]:
-    return [get_match_summary(mid) for mid in get_recent_match_ids(limit)]
 
 
 # ─────────────────────────────────────────────

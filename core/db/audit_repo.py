@@ -29,39 +29,6 @@ def log_action(
     return audit_id
 
 
-def log_match_action(
-    admin_id: int,
-    admin_name: str,
-    command: str,
-    details: str,
-    affected_ids: list[int] | None = None,
-) -> int:
-    return log_action(admin_id, admin_name, command, details, affected_ids, created_at=datetime.now().isoformat())
-
-
-def get_last_admin_action(admin_id: int) -> dict | None:
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM audit_log WHERE admin_id = ? AND command IN ('!venceu', '!perdeu') ORDER BY id DESC LIMIT 1",
-            (admin_id,),
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def delete_audit_log_entry(entry_id: int) -> None:
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT command, details, affected_ids FROM audit_log WHERE id = ?", (entry_id,)
-        ).fetchone()
-        conn.execute("DELETE FROM match_history WHERE audit_id = ?", (entry_id,))
-        conn.execute("DELETE FROM audit_log WHERE id = ?", (entry_id,))
-        conn.commit()
-    if row:
-        logger.info(f"[DB] Ação de auditoria {entry_id} desfeita: {row['command']} | {row['details']} | afetados: {row['affected_ids']}")
-    else:
-        logger.info(f"[DB] Ação de auditoria {entry_id} desfeita e histórico correspondente removido.")
-
-
 def count_match_deletions_today(admin_id: int) -> int:
     today = datetime.now().strftime("%Y-%m-%d")
     with get_connection() as conn:

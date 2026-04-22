@@ -16,10 +16,6 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-def points(wins: int, losses: int) -> int:
-    return wins * 3 - losses
-
-
 def winrate_tier(winrate: float) -> str:
     if winrate >= 85:
         return "👑 Lenda da liga — ninguém te para"

@@ -23,65 +23,6 @@ def upsert_player(discord_id: int, display_name: str, wins: int, losses: int) ->
     logger.info(f"[DB] Upsert: {display_name} ({discord_id}) → W:{wins} L:{losses}")
 
 
-def _get_player_display_name(discord_id: int) -> str:
-    player = get_player(discord_id)
-    if player and player.get("display_name"):
-        return player["display_name"]
-    return "Desconhecido"
-
-
-def add_win(discord_id: int, display_name: str) -> None:
-    now = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT INTO players (discord_id, display_name, wins, losses, updated_at)
-            VALUES (?, ?, 1, 0, ?)
-            ON CONFLICT(discord_id) DO UPDATE SET
-                display_name = excluded.display_name,
-                wins         = wins + 1,
-                updated_at   = excluded.updated_at
-        """, (discord_id, display_name, now))
-        conn.commit()
-    logger.info(f"[DB] Adicionada vitória para {display_name} ({discord_id}).")
-
-
-def remove_win(discord_id: int) -> None:
-    now = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE players SET wins = MAX(0, wins - 1), updated_at = ? WHERE discord_id = ?",
-            (now, discord_id)
-        )
-        conn.commit()
-    logger.info(f"[DB] Removida vitória para {_get_player_display_name(discord_id)} ({discord_id}).")
-
-
-def add_loss(discord_id: int, display_name: str) -> None:
-    now = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT INTO players (discord_id, display_name, wins, losses, updated_at)
-            VALUES (?, ?, 0, 1, ?)
-            ON CONFLICT(discord_id) DO UPDATE SET
-                display_name = excluded.display_name,
-                losses       = losses + 1,
-                updated_at   = excluded.updated_at
-        """, (discord_id, display_name, now))
-        conn.commit()
-    logger.info(f"[DB] Adicionada derrota para {display_name} ({discord_id}).")
-
-
-def remove_loss(discord_id: int) -> None:
-    now = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE players SET losses = MAX(0, losses - 1), updated_at = ? WHERE discord_id = ?",
-            (now, discord_id)
-        )
-        conn.commit()
-    logger.info(f"[DB] Removida derrota para {_get_player_display_name(discord_id)} ({discord_id}).")
-
-
 def get_player(discord_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
@@ -129,41 +70,6 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
             if row:
                 mapping[name] = row["discord_id"]
     return mapping
-
-
-def resolve_player_names(discord_ids: list[int]) -> dict[int, str]:
-    if not discord_ids:
-        return {}
-    placeholders = ', '.join(['?'] * len(discord_ids))
-    with get_connection() as conn:
-        rows = conn.execute(
-            f"SELECT discord_id, display_name FROM players WHERE discord_id IN ({placeholders})",
-            discord_ids
-        ).fetchall()
-    return {row['discord_id']: row['display_name'] for row in rows}
-
-
-def delete_player(discord_id: int) -> None:
-    with get_connection() as conn:
-        conn.execute("DELETE FROM players WHERE discord_id = ?", (discord_id,))
-        conn.commit()
-    logger.info(f"[DB] Jogador removido: {discord_id}")
-
-
-def get_ranking() -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT
-                discord_id,
-                display_name,
-                wins,
-                losses,
-                (wins * 3 - losses) AS points,
-                (wins + losses)      AS games
-            FROM players
-            ORDER BY points DESC, wins DESC
-        """).fetchall()
-    return [dict(r) for r in rows]
 
 
 def get_captains_from_list(player_ids: list[int]) -> list[dict]:
