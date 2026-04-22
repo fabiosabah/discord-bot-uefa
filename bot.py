@@ -18,6 +18,7 @@ from core.database import (
     delete_lobby_session
 )
 from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
+from core.utils.discord_helpers import resolve_member
 from domain.models import LobbySession
 from ui.commands.lobby_commands import setup_lobby_commands
 from ui.commands.score_commands import setup_score_commands, build_ocr_job_summary_text
@@ -43,26 +44,6 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None, case_
 
 active_lobbies = {}
 
-class PartialMember:
-    def __init__(self, id: int, display_name: str):
-        self.id = id
-        self.display_name = display_name
-        self.name = display_name
-
-    @property
-    def mention(self):
-        return f"<@{self.id}>"
-
-
-async def _resolve_member(guild: discord.Guild, member_id: int):
-    member = guild.get_member(member_id)
-    if member:
-        return member
-    try:
-        return await guild.fetch_member(member_id)
-    except discord.NotFound:
-        return PartialMember(member_id, f"Usuário {member_id}")
-
 
 async def restore_saved_lobby_sessions():
     saved_sessions = get_lobby_sessions()
@@ -87,12 +68,12 @@ async def restore_saved_lobby_sessions():
             delete_lobby_session(row["guild_id"])
             continue
 
-        host = await _resolve_member(guild, row["host_id"])
+        host = await resolve_member(guild, row["host_id"])
         session = LobbySession(host=host, session_id=row["session_id"])
         session.message = message
-        session.players = [await _resolve_member(guild, pid) for pid in row["player_ids"]]
+        session.players = [await resolve_member(guild, pid) for pid in row["player_ids"]]
         session.player_ids = set(row["player_ids"])
-        session.waitlist = [await _resolve_member(guild, wid) for wid in row["waitlist_ids"]]
+        session.waitlist = [await resolve_member(guild, wid) for wid in row["waitlist_ids"]]
         session.waitlist_ids = set(row["waitlist_ids"])
         session.closed = bool(row["closed"])
         session.created_at = datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now()

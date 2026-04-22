@@ -3,6 +3,7 @@ import discord
 import logging
 from datetime import datetime
 from discord.ext import commands
+from core.utils.discord_helpers import resolve_member
 from domain.models import LobbySession
 from ui.views.lobby_view import LobbyView
 from services.state import get_next_id
@@ -11,15 +12,6 @@ from core.database import get_list_channel, set_list_channel, clear_list_channel
 
 logger = logging.getLogger("LobbyCommands")
 
-class PartialMember:
-    def __init__(self, id: int, display_name: str):
-        self.id = id
-        self.display_name = display_name
-        self.name = display_name
-
-    @property
-    def mention(self):
-        return f"<@{self.id}>"
 
 def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
     async def _cleanup_stale_lobbies():
@@ -38,15 +30,6 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             session = active_lobbies.pop(msg_id, None)
             if session and session.message and session.message.guild:
                 delete_lobby_session(session.message.guild.id)
-
-    async def _resolve_member(guild: discord.Guild, member_id: int):
-        member = guild.get_member(member_id)
-        if member:
-            return member
-        try:
-            return await guild.fetch_member(member_id)
-        except discord.NotFound:
-            return PartialMember(member_id, f"Usuário {member_id}")
 
     async def _try_restore_saved_guild_lobby(ctx: commands.Context):
         if not ctx.guild:
@@ -79,12 +62,12 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             delete_lobby_session(ctx.guild.id)
             return None
 
-        host = await _resolve_member(ctx.guild, row["host_id"])
+        host = await resolve_member(ctx.guild, row["host_id"])
         session = LobbySession(host=host, session_id=row["session_id"])
         session.message = message
-        session.players = [await _resolve_member(ctx.guild, pid) for pid in row["player_ids"]]
+        session.players = [await resolve_member(ctx.guild, pid) for pid in row["player_ids"]]
         session.player_ids = set(row["player_ids"])
-        session.waitlist = [await _resolve_member(ctx.guild, wid) for wid in row["waitlist_ids"]]
+        session.waitlist = [await resolve_member(ctx.guild, wid) for wid in row["waitlist_ids"]]
         session.waitlist_ids = set(row["waitlist_ids"])
         session.closed = bool(row["closed"])
         session.auto_close_at = datetime.fromisoformat(row["auto_close_at"]) if row["auto_close_at"] else None

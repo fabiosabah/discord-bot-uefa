@@ -33,7 +33,7 @@ from core.database import (
     get_match_created_at, count_match_deletions_today, get_streak_highlights_from_matches,
     get_all_hero_stats_from_matches, get_hero_match_history
 )
-from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team, _normalize_team
+from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team
 from core.utils.time import format_brazil_time, relative_time
 
 audit_logger = logging.getLogger("Audit")
