@@ -8,7 +8,7 @@ from core.config import IMAGE_CHANNEL_ID
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches
-from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player
+from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")
@@ -179,6 +179,29 @@ def setup_admin_commands(bot: commands.Bot):
 
         alias_list = '\n'.join(f"- `{alias}`" for alias in aliases)
         await ctx.send(f"📝 Aliases para {member.mention}:\n{alias_list}")
+
+    @bot.command(name="listaraliases", aliases=["listalias", "allaliases", "todosaliases"])
+    async def cmd_listar_aliases(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        rows = get_all_player_aliases()
+        if not rows:
+            await ctx.send("⚠️ Nenhum alias cadastrado.")
+            return
+
+        lines = [f"{r['alias']:<25} → {r['display_name'] or f'<@{r[\"discord_id\"]}>'}" for r in rows]
+
+        header = f"📋 **{len(lines)} alias(es) cadastrados:**"
+        chunk_size = 1800
+        text = "\n".join(lines)
+        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+
+        await ctx.send(header)
+        for chunk in chunks:
+            await ctx.send(f"```\n{chunk}\n```")
 
     @bot.command(name="jogadoresfaltando", aliases=["missingplayers", "faltando"])
     async def cmd_jogadores_faltando(ctx: commands.Context):

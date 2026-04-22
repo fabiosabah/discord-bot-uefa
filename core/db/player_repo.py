@@ -229,6 +229,17 @@ def get_player_aliases(discord_id: int) -> list[str]:
     return [row["alias"] for row in rows]
 
 
+def get_all_player_aliases() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT pa.alias, pa.discord_id, COALESCE(p.display_name, '') AS display_name
+            FROM player_aliases pa
+            LEFT JOIN players p ON p.discord_id = pa.discord_id
+            ORDER BY p.display_name, pa.alias
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
 def _get_player_alias_names(discord_id: int) -> list[str]:
     with get_connection() as conn:
         rows = conn.execute(

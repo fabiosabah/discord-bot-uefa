@@ -495,31 +495,35 @@ def setup_player_commands(bot: commands.Bot):
     @bot.command(name="ultimas", aliases=["ultimaspartidas", "recentes"])
     async def cmd_ultimas(ctx: commands.Context, member: discord.Member = None):
         target = member or ctx.author
-        history = get_player_match_history_from_matches(target.id, limit=30)
+        history = get_player_match_history_from_matches(target.id, limit=200)
 
         if not history:
             who = f"**{target.display_name}**" if member else "você"
             await ctx.send(f"📋 Nenhuma partida encontrada para {who}.")
             return
 
-        lines = []
-        for m in history:
-            icon  = "✅" if m["result"] == "win" else "❌"
-            hero  = m["hero"] or "?"
-            k, d, a = m.get("kills"), m.get("deaths"), m.get("assists")
-            kda   = f"{k}/{d}/{a}" if k is not None and d is not None else "?/?/?"
-            lines.append(f"{icon} **#{m['league_match_id']}** · {hero} · `{kda}`")
-
         wins   = sum(1 for m in history if m["result"] == "win")
         losses = len(history) - wins
 
-        embed = discord.Embed(
-            title=f"📈 Últimas {len(history)} partidas — {target.display_name}",
-            description="\n".join(lines),
-            color=discord.Color.gold(),
+        lines = []
+        for m in history:
+            icon  = "✅" if m["result"] == "win" else "❌"
+            hero  = (m["hero"] or "?").ljust(18)
+            k, d, a = m.get("kills"), m.get("deaths"), m.get("assists")
+            kda   = f"{k}/{d}/{a}" if k is not None and d is not None else "?/?/?"
+            lines.append(f"{icon} #{str(m['league_match_id']).ljust(4)} {hero} {kda}")
+
+        header = (
+            f"📈 **Últimas {len(history)} partidas — {target.display_name}** "
+            f"· {wins}V / {losses}D · use `!id <número>` para detalhes"
         )
-        embed.set_footer(text=f"{wins}V / {losses}D nas últimas {len(history)} partidas")
-        await ctx.send(embed=embed)
+        chunk_size = 1800
+        text = "\n".join(lines)
+        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+
+        await ctx.send(header)
+        for chunk in chunks:
+            await ctx.send(f"```\n{chunk}\n```")
 
     @bot.command(name="heroes", aliases=["herois", "herostat", "heropool"])
     async def cmd_heroes(ctx: commands.Context, *, hero: str = ""):
