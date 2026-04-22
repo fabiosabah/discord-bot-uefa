@@ -9,17 +9,17 @@ logger = logging.getLogger("LobbyService")
 
 async def close_session(
     session: LobbySession,
-    active_lobbies: dict
+    active_lobbies: dict,
+    view_factory,
 ):
-    from ui.views.lobby_view import LobbyView
     from services.state import get_next_id
-    
+
     session.closed = True
     session.cancel_auto_close()
     message = session.message
-    
+
     if message:
-        await message.edit(embed=session.build_embed(), view=LobbyView(session, active_lobbies))
+        await message.edit(embed=session.build_embed(), view=view_factory(session, active_lobbies))
         active_lobbies.pop(message.id, None)
         delete_lobby_session(message.guild.id)
 
@@ -54,7 +54,7 @@ async def close_session(
             for player in remaining_waitlist:
                 new_session.add_to_waitlist(player)
 
-            new_view = LobbyView(new_session, active_lobbies)
+            new_view = view_factory(new_session, active_lobbies)
             new_msg = await message.channel.send(
                 f"📋 **Nova lista criada automaticamente com a espera!**",
                 embed=new_session.build_embed(),
@@ -65,7 +65,7 @@ async def close_session(
             save_lobby_session(new_session, created_at=new_session.message.created_at.isoformat())
 
             if new_session.is_full():
-                new_session.schedule_auto_close(active_lobbies)
+                new_session.schedule_auto_close(active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory))
 
             mention_waitlist = " ".join(p.mention for p in next_players)
             await message.channel.send(

@@ -4,6 +4,7 @@ import logging
 from core.database import save_lobby_session
 from domain.models import LobbySession
 from core.config import ADMIN_IDS
+from services.lobby_service import close_session
 
 # Logger específico para auditoria de ações
 audit_logger = logging.getLogger("Audit")
@@ -105,7 +106,7 @@ class AddUserSelect(discord.ui.UserSelect):
         else:
             session.add_player(member)
             if session.is_full():
-                session.schedule_auto_close(self.active_lobbies)
+                session.schedule_auto_close(self.active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
             list_type = "lista"
             response = f"✅ {member.mention} foi adicionado à lista."
 
@@ -161,7 +162,7 @@ class LobbyView(discord.ui.View):
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na LISTA da Lista #{session.id}")
 
             if session.is_full():
-                session.schedule_auto_close(self.active_lobbies)
+                session.schedule_auto_close(self.active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
 
             await session.message.edit(embed=session.build_embed(), view=self)
             save_lobby_session(session)
@@ -236,7 +237,6 @@ class LobbyView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Encerrar lista", style=discord.ButtonStyle.primary, custom_id="encerrar")
     async def encerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from services.lobby_service import close_session
         from datetime import datetime
         session = self.session
 
@@ -266,4 +266,4 @@ class LobbyView(discord.ui.View):
             item.disabled = True
 
         await session.message.edit(embed=session.build_embed(), view=self)
-        await close_session(session, self.active_lobbies)
+        await close_session(session, self.active_lobbies, view_factory=lambda s, l: LobbyView(s, l))

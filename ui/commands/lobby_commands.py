@@ -6,6 +6,7 @@ from discord.ext import commands
 from core.utils.discord_helpers import resolve_member
 from domain.models import LobbySession
 from ui.views.lobby_view import LobbyView
+from services.lobby_service import close_session
 from services.state import get_next_id
 from core.config import ADMIN_IDS, is_admin
 from core.database import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session, get_lobby_sessions
@@ -80,7 +81,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         await message.edit(view=LobbyView(session, active_lobbies))
 
         if session.auto_close_at or session.is_full():
-            session.schedule_auto_close(active_lobbies)
+            session.schedule_auto_close(active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
 
         return session
 

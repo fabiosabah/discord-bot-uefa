@@ -34,7 +34,7 @@ class LobbySession:
         self.close_task = None
         self.auto_close_at = None
 
-    def schedule_auto_close(self, active_lobbies: dict, delay: int | None = None):
+    def schedule_auto_close(self, active_lobbies: dict, close_fn, delay: int | None = None):
         if self.closed:
             return
 
@@ -55,9 +55,9 @@ class LobbySession:
             return
 
         loop = asyncio.get_running_loop()
-        self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies, delay))
+        self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies, close_fn, delay))
 
-    async def _auto_close_countdown(self, active_lobbies: dict, delay: int):
+    async def _auto_close_countdown(self, active_lobbies: dict, close_fn, delay: int):
         try:
             if delay > 0:
                 await asyncio.sleep(delay)
@@ -67,8 +67,7 @@ class LobbySession:
             if self.message is None:
                 return
 
-            from services.lobby_service import close_session
-            await close_session(self, active_lobbies)
+            await close_fn(self, active_lobbies)
         except asyncio.CancelledError:
             pass
 

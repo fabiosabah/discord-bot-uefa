@@ -20,8 +20,11 @@ from core.database import (
 from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
 from core.utils.discord_helpers import resolve_member
 from domain.models import LobbySession
+from services.lobby_service import close_session
 from ui.commands.lobby_commands import setup_lobby_commands
-from ui.commands.score_commands import setup_score_commands, build_ocr_job_summary_text
+from ui.commands.score_commands import setup_score_commands
+from ui.commands.score_helpers import build_ocr_job_summary_text
+from ui.views.lobby_view import LobbyView
 
 # ─────────────────────────────────────────────
 # Configuração de Logging (Railway stdout)
@@ -86,7 +89,7 @@ async def restore_saved_lobby_sessions():
 
         active_lobbies[message.id] = session
         if session.auto_close_at or session.is_full():
-            session.schedule_auto_close(active_lobbies)
+            session.schedule_auto_close(active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
 
 
 @bot.event
