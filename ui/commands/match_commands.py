@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-import json
 import logging
-import re
 from datetime import datetime, timedelta
 
 import discord
@@ -9,35 +7,15 @@ from discord.ext import commands
 
 from core.db.audit_repo import (
     log_action,
-    get_last_admin_action,
-    delete_audit_log_entry,
     get_raw_match_audit_events,
     count_match_deletions_today,
 )
 from core.db.match_repo import (
-    delete_match_history,
     get_match_by_league_id,
-    create_or_replace_manual_match,
     delete_league_match,
     get_match_created_at,
 )
-from core.db.player_repo import (
-    upsert_player,
-    add_win,
-    add_loss,
-    remove_win,
-    remove_loss,
-    delete_player,
-    get_player,
-    get_ranking,
-)
-from ui.commands.score_helpers import (
-    is_admin,
-    points,
-    build_footer,
-    _resolve_command_members,
-    UndoConfirmView,
-)
+from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")
 
@@ -45,140 +23,6 @@ audit_logger = logging.getLogger("Audit")
 def setup_match_commands(bot: commands.Bot):
     logger = logging.getLogger("MatchCommands")
     logger.info("Carregando comandos de partidas...")
-
-    @bot.command(name="registrar")
-    async def cmd_registrar(ctx: commands.Context, member: discord.User, wins: int, losses: int):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
-            return
-
-        if wins < 0 or losses < 0:
-            await ctx.send("❌ Valores inválidos.", delete_after=5)
-            return
-
-        upsert_player(member.id, member.display_name, wins, losses)
-        pts = points(wins, losses)
-
-        audit_logger.info(f"[REGISTRO] {ctx.author.name} → {member.display_name} ({wins}W/{losses}L)")
-
-        log_action(
-            ctx.author.id, ctx.author.display_name,
-            "!registrar",
-            f"{member.display_name} → W:{wins} L:{losses} Pts:{pts}",
-            affected_ids=[member.id]
-        )
-
-        await ctx.message.delete()
-        await ctx.send(f"✅ **{member.display_name}** atualizado: `{wins}V / {losses}D` → **{pts} pts**")
-
-    @bot.command(name="venceu", aliases=["venceu_id", "venceuid"])
-    async def cmd_venceu(ctx: commands.Context, *member_tokens: str):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
-            return
-
-        members, error = _resolve_command_members(ctx, member_tokens)
-        if error:
-            await ctx.send(error, delete_after=15)
-            return
-
-        nomes, ids = [], []
-        for m in members:
-            add_win(m.id, m.display_name)
-            nomes.append(m.display_name)
-            ids.append(m.id)
-
-        log_action(
-            ctx.author.id,
-            ctx.author.display_name,
-            "!venceu",
-            f"Vitória para: {', '.join(nomes)}",
-            ids
-        )
-
-        await ctx.message.delete()
-        await ctx.send(f"🏆 Vitória registrada para {' '.join(getattr(m, 'mention', str(m.id)) for m in members)}")
-
-    @bot.command(name="perdeu", aliases=["perdeu_id", "perdeuid"])
-    async def cmd_perdeu(ctx: commands.Context, *member_tokens: str):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
-            return
-
-        members, error = _resolve_command_members(ctx, member_tokens)
-        if error:
-            await ctx.send(error, delete_after=15)
-            return
-
-        nomes, ids = [], []
-        for m in members:
-            add_loss(m.id, m.display_name)
-            nomes.append(m.display_name)
-            ids.append(m.id)
-
-        log_action(
-            ctx.author.id,
-            ctx.author.display_name,
-            "!perdeu",
-            f"Derrota para: {', '.join(nomes)}",
-            ids
-        )
-
-        await ctx.message.delete()
-        await ctx.send(f"💀 Derrota registrada para {' '.join(getattr(m, 'mention', str(m.id)) for m in members)}")
-
-    @bot.command(name="desfazer", aliases=["undo", "z"])
-    async def cmd_desfazer(ctx: commands.Context):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
-            return
-
-        action = get_last_admin_action(ctx.author.id)
-        if not action:
-            await ctx.send("⚠️ Nada para desfazer.", delete_after=5)
-            return
-
-        affected_ids = json.loads(action["affected_ids"]) if action["affected_ids"] else []
-        if action["command"] not in {"!venceu", "!perdeu"}:
-            await ctx.send("⚠️ A última ação não pode ser desfeita com este comando.", delete_after=10)
-            return
-
-        action_type = "remover vitória" if action["command"] == "!venceu" else "remover derrota"
-        affected_text = ", ".join(str(_id) for _id in affected_ids) if affected_ids else "nenhum"
-
-        await ctx.message.delete()
-        await ctx.send(
-            f"⚠️ Confirme o desfazer da ação `{action['command']}`.\n"
-            f"A ação irá {action_type} para os IDs: {affected_text}.",
-            view=UndoConfirmView(ctx.author.id, action["id"], action["command"], affected_ids)
-        )
-
-    @bot.command(name="deletar")
-    async def cmd_deletar(ctx: commands.Context, member: discord.User):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores podem usar esse comando.", delete_after=5)
-            return
-
-        player = get_player(member.id)
-        if not player:
-            await ctx.send("❌ Jogador não encontrado no ranking.", delete_after=5)
-            return
-
-        delete_player(member.id)
-        log_action(
-            ctx.author.id, ctx.author.display_name,
-            "!deletar",
-            f"Removido {member.display_name} ({member.id}) do ranking",
-            affected_ids=[member.id]
-        )
-
-        await ctx.message.delete()
-        await ctx.send(f"🗑️ **{member.display_name}** foi removido do ranking e do banco de dados.")
 
     @bot.command(name="debugpartidas", aliases=["debugmatches", "auditmatches"])
     async def cmd_debug_partidas(ctx: commands.Context, limit: int = 30):
@@ -189,7 +33,7 @@ def setup_match_commands(bot: commands.Bot):
 
         events = get_raw_match_audit_events(limit)
         if not events:
-            await ctx.send("📋 Nenhum evento de !venceu/!perdeu registrado.")
+            await ctx.send("📋 Nenhum evento registrado.")
             return
 
         lines = []
@@ -207,32 +51,6 @@ def setup_match_commands(bot: commands.Bot):
         )
         embed.set_footer(text=f"Últimos {min(len(lines), limit)} eventos")
         await ctx.send(embed=embed)
-
-    @bot.command(name="registrarmatch", aliases=["matchfix", "matchmanual"])
-    async def cmd_registrar_match(ctx: commands.Context, match_id: int, *, rest: str):
-        if not is_admin(ctx.author.id):
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
-            return
-
-        if "--" not in rest:
-            await ctx.send(
-                "❌ Use: `!registrarmatch <match_id> @win1 @win2 -- @loss1 @loss2`",
-                delete_after=15
-            )
-            return
-
-        winners_text, losers_text = [part.strip() for part in rest.split("--", 1)]
-        wins   = [int(m) for m in re.findall(r"<@!?(\d+)>", winners_text)]
-        losses = [int(m) for m in re.findall(r"<@!?(\d+)>", losers_text)]
-
-        if not wins and not losses:
-            await ctx.send("❌ Informe ao menos um vencedor ou um derrotado.", delete_after=15)
-            return
-
-        create_or_replace_manual_match(match_id, wins, losses, ctx.author.id, ctx.author.display_name)
-        await ctx.message.delete()
-        await ctx.send(f"✅ Match #{match_id:03d} registrado manualmente.")
 
     @bot.command(name="apagarid", aliases=["deleteid", "delmatch", "apagarmatch"])
     async def cmd_delete_match_by_id(ctx: commands.Context, league_match_id: int):

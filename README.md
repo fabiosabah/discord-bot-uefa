@@ -138,7 +138,6 @@ Under **Privileged Gateway Intents** in the Developer Portal, enable:
 | Command | Aliases | Description |
 |---|---|---|
 | `!tabela` | `!tabela2` | Standings based on real match history |
-| `!tabela1` | `!tabelamanual` | Manual standings (from `!venceu`/`!perdeu`) |
 | `!top [n]` | — | Top N players (default: 10, max: 15) |
 
 ### Profile & Stats
@@ -146,25 +145,17 @@ Under **Privileged Gateway Intents** in the Developer Portal, enable:
 | Command | Aliases | Description |
 |---|---|---|
 | `!perfil [@player]` | `!perfil2` | Full profile with OCR match stats |
-| `!perfil1 [@player]` | — | Profile based on manual data |
 | `!ultimas [@player]` | `!ultimaspartidas`, `!recentes` | Recent matches (up to 200) |
 | `!listarpartidas [@player] [limit]` | `!partidas` | Detailed match list with KDA and date |
-| `!historico [@player] [limit]` | `!history` | Match history (manual table) |
 | `!heroes [hero]` | `!herois`, `!heropool` | Global hero stats or details for a single hero |
 | `!duelo @a [@b]` | `!vs`, `!versus`, `!rivalidade` | Head-to-head between two players (if `@b` omitted, uses command author) |
 | `!recordes` | `!tempos`, `!duracoes` | 5 biggest stomps and 5 longest matches |
 | `!id <match_id>` | — | Full details for a match |
 
-### Match Registration (admin)
+### Matches (admin)
 
 | Command | Aliases | Description |
 |---|---|---|
-| `!registrar @user wins losses` | — | Manually set a player's record |
-| `!venceu @user...` | `!venceu_id` | Register a win |
-| `!perdeu @user...` | `!perdeu_id` | Register a loss |
-| `!desfazer` | `!undo`, `!z` | Undo last `!venceu`/`!perdeu` |
-| `!deletar @user` | — | Remove player from rankings |
-| `!registrarmatch <id> @wins -- @losses` | `!matchmanual`, `!matchfix` | Manually register a match |
 | `!apagarid <match_id>` | `!apagarmatch`, `!delmatch` | Delete a match (limit: 1/day, max 24h after creation) |
 | `!debugpartidas [limit]` | `!auditmatches` | Match event log |
 

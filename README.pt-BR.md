@@ -138,7 +138,6 @@ Nos **Privileged Gateway Intents** do Developer Portal, habilite:
 | Comando | Aliases | Descrição |
 |---|---|---|
 | `!tabela` | `!tabela2` | Tabela baseada no histórico real de partidas |
-| `!tabela1` | `!tabelamanual` | Tabela manual (vitórias/derrotas registradas com `!venceu`/`!perdeu`) |
 | `!top [n]` | — | Top N jogadores (padrão: 10, máx: 15) |
 
 ### Perfil e Estatísticas
@@ -146,25 +145,17 @@ Nos **Privileged Gateway Intents** do Developer Portal, habilite:
 | Comando | Aliases | Descrição |
 |---|---|---|
 | `!perfil [@jogador]` | `!perfil2` | Perfil completo com stats de partidas OCR |
-| `!perfil1 [@jogador]` | — | Perfil baseado em dados manuais |
 | `!ultimas [@jogador]` | `!ultimaspartidas`, `!recentes` | Últimas partidas (até 200) |
 | `!listarpartidas [@jogador] [limite]` | `!partidas` | Lista detalhada com KDA e data |
-| `!historico [@jogador] [limite]` | `!history` | Histórico de partidas (tabela manual) |
 | `!heroes [herói]` | `!herois`, `!heropool` | Stats globais de heróis ou detalhes de um herói |
 | `!duelo @a [@b]` | `!vs`, `!versus`, `!rivalidade` | Duelo entre dois jogadores (se `@b` omitido, usa quem digitou) |
 | `!recordes` | `!tempos`, `!duracoes` | 5 maiores stomps e 5 partidas mais longas |
 | `!id <match_id>` | — | Detalhes completos de uma partida |
 
-### Registro de Partidas (admin)
+### Partidas (admin)
 
 | Comando | Aliases | Descrição |
 |---|---|---|
-| `!registrar @usuario wins losses` | — | Define placar manual de um jogador |
-| `!venceu @usuario...` | `!venceu_id` | Registra vitória |
-| `!perdeu @usuario...` | `!perdeu_id` | Registra derrota |
-| `!desfazer` | `!undo`, `!z` | Desfaz última ação de `!venceu`/`!perdeu` |
-| `!deletar @usuario` | — | Remove jogador do ranking |
-| `!registrarmatch <id> @wins -- @losses` | `!matchmanual`, `!matchfix` | Registra partida manualmente |
 | `!apagarid <match_id>` | `!apagarmatch`, `!delmatch` | Apaga partida (limite: 1/dia, máx 24h após criação) |
 | `!debugpartidas [limite]` | `!auditmatches` | Log de eventos de partidas |
 

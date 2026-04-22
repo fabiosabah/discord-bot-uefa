@@ -7,9 +7,8 @@ import discord
 from discord.ext import commands
 
 from core.config import ADMIN_IDS
-from core.db.audit_repo import get_last_update, delete_audit_log_entry
+from core.db.audit_repo import get_last_update
 from core.db.ocr_repo import get_match_screenshot, set_match_screenshot_status
-from core.db.player_repo import remove_win, remove_loss
 from core.utils.time import format_brazil_time, relative_time
 
 
@@ -270,44 +269,6 @@ def parse_player_mapping(mapping_text: str) -> list[dict[str, object]]:
     return mappings
 
 
-def _resolve_command_members(ctx: commands.Context, tokens: tuple[str, ...]) -> tuple[list[discord.User], str | None]:
-    if not tokens:
-        return [], "⚠️ Mencione 5 jogadores ou passe 5 IDs de usuário."
-
-    if len(tokens) != 5:
-        return [], "⚠️ O comando exige exatamente 5 jogadores. Use menções de usuário ou IDs numéricos."
-
-    members: list[discord.User] = []
-    for token in tokens:
-        token = token.strip()
-        if not token:
-            return [], "⚠️ Foi fornecido um argumento vazio."
-
-        if re.match(r"^<@&\d+>$", token):
-            return [], "⚠️ Menção de cargo detectada. Use menção de usuário ou ID de usuário."
-
-        discord_id = None
-        mention_match = re.match(r"^<@!?(?P<id>\d+)>$", token)
-        if mention_match:
-            discord_id = int(mention_match.group("id"))
-        elif token.isdigit():
-            discord_id = int(token)
-        else:
-            return [], f"⚠️ Não foi possível resolver o jogador '{token}'. Use menção de usuário ou ID numérico."
-
-        user = None
-        if ctx.guild:
-            user = ctx.guild.get_member(discord_id)
-        if user is None:
-            user = ctx.bot.get_user(discord_id)
-        if user is None:
-            return [], f"⚠️ Usuário com ID {discord_id} não encontrado. Certifique-se de usar um ID válido ou uma menção de um usuário presente no servidor."
-
-        members.append(user)
-
-    return members, None
-
-
 async def _resolve_command_user_mentions(ctx: commands.Context, tokens: tuple[str, ...]) -> tuple[list[discord.User], str | None]:
     if not tokens:
         return [], "⚠️ Forneça pelo menos um usuário. Use menções de usuário ou IDs numéricos."
@@ -348,81 +309,3 @@ async def _resolve_command_user_mentions(ctx: commands.Context, tokens: tuple[st
     return members, None
 
 
-class UndoConfirmView(discord.ui.View):
-    def __init__(self, author_id: int, action_id: int, command: str, affected_ids: list[int]):
-        super().__init__(timeout=60)
-        self.author_id = author_id
-        self.action_id = action_id
-        self.command = command
-        self.affected_ids = affected_ids
-
-        action_name = "remover vitória" if command == "!venceu" else "remover derrota"
-        label = f"Confirmar {action_name} ({len(affected_ids)} IDs)"
-        for child in self.children:
-            if isinstance(child, discord.ui.Button) and child.custom_id == "undo_confirm":
-                child.label = label
-                break
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message(
-                "❌ Apenas quem solicitou o desfazer pode confirmar esta ação.",
-                ephemeral=True
-            )
-            return False
-        return True
-
-    async def _resolve_user_name(self, interaction: discord.Interaction, discord_id: int) -> str:
-        if interaction.guild:
-            member = interaction.guild.get_member(discord_id)
-            if member is not None:
-                return member.display_name
-
-        user = interaction.client.get_user(discord_id)
-        if user is not None:
-            return user.name
-
-        try:
-            user = await interaction.client.fetch_user(discord_id)
-            return user.name
-        except discord.NotFound:
-            return str(discord_id)
-
-    async def _format_affected_users(self, interaction: discord.Interaction) -> str:
-        if not self.affected_ids:
-            return "nenhum"
-        names = []
-        for discord_id in self.affected_ids:
-            names.append(await self._resolve_user_name(interaction, discord_id))
-        return ", ".join(names)
-
-    @discord.ui.button(label="Confirmar desfazer", style=discord.ButtonStyle.danger, custom_id="undo_confirm")
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.command == "!venceu":
-            for discord_id in self.affected_ids:
-                remove_win(discord_id)
-        elif self.command == "!perdeu":
-            for discord_id in self.affected_ids:
-                remove_loss(discord_id)
-
-        delete_audit_log_entry(self.action_id)
-        for child in self.children:
-            child.disabled = True
-
-        affected_users = await self._format_affected_users(interaction)
-        await interaction.response.edit_message(
-            content=(
-                f"✅ Ação `{self.command}` confirmada e desfeita."
-                f"\nUsuários afetados: {affected_users}"
-            ),
-            view=self
-        )
-
-    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, custom_id="undo_cancel")
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(
-            content="❌ Operação de desfazer cancelada.",
-            view=self
-        )
