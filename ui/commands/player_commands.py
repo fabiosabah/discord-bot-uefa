@@ -509,7 +509,9 @@ def setup_player_commands(bot: commands.Bot):
             await ctx.send(f"```\n{chunk}\n```")
 
     @bot.command(name="duelo", aliases=["vs", "versus", "rivalidade"])
-    async def cmd_duelo(ctx: commands.Context, player_a: discord.Member, player_b: discord.Member):
+    async def cmd_duelo(ctx: commands.Context, player_a: discord.Member, player_b: discord.Member = None):
+        if player_b is None:
+            player_a, player_b = ctx.author, player_a
         from collections import Counter
 
         matches = get_player_duo_stats(player_a.id, player_b.id)
