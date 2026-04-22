@@ -200,14 +200,6 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     await ctx.send("❌ Ocorreu um erro ao processar o comando.", delete_after=20)
 
 
-async def _schedule_ocr_summary_deletion(summary_msg, job_id: int):
-    await asyncio.sleep(180)  # 3 minutos
-    ocr_summary_messages.pop(job_id, None)
-    try:
-        await summary_msg.delete()
-    except Exception:
-        pass
-
 
 async def ocr_background_worker():
     await bot.wait_until_ready()
@@ -262,9 +254,6 @@ async def ocr_background_worker():
                         summary_msg = await channel.send(summary)
                         ocr_summary_messages[job["id"]] = summary_msg
                         logger.info(f"📤 OCR results sent to channel {job['channel_id']} for job {job_id}")
-                        bot.loop.create_task(
-                            _schedule_ocr_summary_deletion(summary_msg, job["id"])
-                        )
                 else:
                     logger.warning(f"❌ Could not find channel {job['channel_id']} to send OCR results")
                     
