@@ -612,25 +612,36 @@ def setup_player_commands(bot: commands.Bot):
             )
 
         # últimas partidas
-        recent = matches[:10]
+        recent = matches[:30]
         lines  = []
         for m in recent:
             same = m["team_a"] == m["team_b"]
-            ha   = m["hero_a"] or "?"
-            hb   = m["hero_b"] or "?"
+            ha   = (m["hero_a"] or "?")[:12]
+            hb   = (m["hero_b"] or "?")[:12]
+            mid  = str(m["league_match_id"]).ljust(3)
             if same:
                 icon = "✅" if m["winner_team"] == m["team_a"] else "❌"
-                lines.append(f"{icon} `#{m['league_match_id']}` **{ha}** + **{hb}** — juntos")
+                lines.append(f"{icon}`#{mid}` {ha}+{hb}")
             else:
-                a_won = m["winner_team"] == m["team_a"]
-                icon  = "🔵" if a_won else "🔴"
-                lines.append(f"{icon} `#{m['league_match_id']}` **{ha}** × **{hb}** — rivais")
+                icon = "🔵" if m["winner_team"] == m["team_a"] else "🔴"
+                lines.append(f"{icon}`#{mid}` {ha}×{hb}")
 
-        embed.add_field(
-            name=f"🕹️ Últimas {len(recent)} partidas",
-            value="\n".join(lines),
-            inline=False,
-        )
+        FIELD_LIMIT = 1000
+        chunks: list[list[str]] = []
+        current: list[str] = []
+        for line in lines:
+            if len("\n".join(current + [line])) > FIELD_LIMIT:
+                if current:
+                    chunks.append(current)
+                current = [line]
+            else:
+                current.append(line)
+        if current:
+            chunks.append(current)
+
+        for i, chunk in enumerate(chunks):
+            name = f"🕹️ Últimas {len(recent)} partidas" if i == 0 else "↪️ continuação"
+            embed.add_field(name=name, value="\n".join(chunk), inline=False)
         embed.set_footer(
             text=f"🔵 {player_a.display_name} venceu · 🔴 {player_b.display_name} venceu · ✅/❌ juntos"
         )
