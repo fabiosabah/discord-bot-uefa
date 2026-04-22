@@ -1127,6 +1127,42 @@ def get_player_duo_stats(discord_id_a: int, discord_id_b: int) -> list[dict]:
         rows = conn.execute(query, (discord_id_a, discord_id_b)).fetchall()
     return [dict(r) for r in rows]
 
+
+def _duration_to_seconds(d: str) -> int | None:
+    parts = d.strip().split(":")
+    try:
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def get_match_duration_extremes(min_seconds: int = 60) -> dict:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT league_match_id, duration, winner_team,
+                   score_radiant, score_dire, created_at
+            FROM matches
+            WHERE duration IS NOT NULL AND duration != ''
+        """).fetchall()
+
+    parsed = []
+    for row in rows:
+        secs = _duration_to_seconds(row["duration"])
+        if secs is None or secs < min_seconds:
+            continue
+        parsed.append({**dict(row), "seconds": secs})
+
+    parsed.sort(key=lambda x: x["seconds"])
+    return {
+        "fastest": parsed[:5],
+        "longest": list(reversed(parsed[-5:])),
+    }
+
+
 def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""

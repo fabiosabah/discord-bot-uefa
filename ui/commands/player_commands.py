@@ -21,6 +21,7 @@ from core.db.match_repo import (
     get_all_hero_stats_from_matches,
     get_hero_match_history,
     get_player_duo_stats,
+    get_match_duration_extremes,
 )
 from core.db.player_repo import get_player, get_ranking, find_player_by_display_name
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
@@ -507,6 +508,44 @@ def setup_player_commands(bot: commands.Bot):
         await ctx.send(header)
         for chunk in chunks:
             await ctx.send(f"```\n{chunk}\n```")
+
+    @bot.command(name="recordes", aliases=["tempos", "duracoes", "recordstime"])
+    async def cmd_recordes(ctx: commands.Context):
+        data = get_match_duration_extremes(min_seconds=60)
+        fastest = data["fastest"]
+        longest = data["longest"]
+
+        if not fastest and not longest:
+            await ctx.send("📋 Nenhuma partida com duração registrada ainda.")
+            return
+
+        def fmt(m: dict) -> str:
+            winner = (m["winner_team"] or "?").title()
+            score  = ""
+            if m.get("score_radiant") is not None and m.get("score_dire") is not None:
+                score = f" · {m['score_radiant']}×{m['score_dire']}"
+            return f"`#{m['league_match_id']}` **{m['duration']}** — {winner}{score}"
+
+        embed = discord.Embed(
+            title="⏱️ Recordes de duração",
+            color=discord.Color.teal(),
+        )
+
+        if fastest:
+            embed.add_field(
+                name="💥 5 maiores stomps",
+                value="\n".join(f"{i+1}. {fmt(m)}" for i, m in enumerate(fastest)),
+                inline=False,
+            )
+        if longest:
+            embed.add_field(
+                name="🐢 5 mais longas",
+                value="\n".join(f"{i+1}. {fmt(m)}" for i, m in enumerate(longest)),
+                inline=False,
+            )
+
+        embed.set_footer(text="Partidas com menos de 1 minuto ignoradas")
+        await ctx.send(embed=embed)
 
     @bot.command(name="duelo", aliases=["vs", "versus", "rivalidade"])
     async def cmd_duelo(ctx: commands.Context, player_a: discord.Member, player_b: discord.Member = None):
