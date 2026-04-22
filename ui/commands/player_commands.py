@@ -4,18 +4,15 @@ import logging
 from datetime import datetime as _dt
 from discord.ext import commands
 
-from core.database import (
-    get_player,
-    get_ranking,
-    get_player_streak,
-    get_player_match_history,
-    get_player_top_opponents,
+from core.db.match_repo import (
     get_match_summary,
-    find_player_by_display_name,
     get_ranking_from_matches,
     get_streak_highlights_from_matches,
     get_league_hero_winrates_from_matches,
     get_last_ocr_match_info,
+    get_player_match_history,
+    get_player_streak,
+    get_player_top_opponents,
     get_player_match_stats_from_matches,
     get_player_match_history_from_matches,
     get_player_streak_from_matches,
@@ -25,6 +22,7 @@ from core.database import (
     get_all_hero_stats_from_matches,
     get_hero_match_history,
 )
+from core.db.player_repo import get_player, get_ranking, find_player_by_display_name
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
 from core.utils.time import format_brazil_time
 from ui.commands.score_helpers import is_admin, points, winrate_tier, build_footer

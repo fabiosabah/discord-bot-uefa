@@ -9,7 +9,7 @@ from ui.views.lobby_view import LobbyView
 from services.lobby_service import close_session
 from services.state import get_next_id
 from core.config import ADMIN_IDS, is_admin
-from core.database import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session, get_lobby_sessions
+from core.db.lobby_repo import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session, get_lobby_sessions
 
 logger = logging.getLogger("LobbyCommands")
 

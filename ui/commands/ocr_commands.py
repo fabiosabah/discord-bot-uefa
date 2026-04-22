@@ -8,28 +8,27 @@ import discord
 from discord.ext import commands
 
 from core.config import IMAGE_CHANNEL_ID
-from core.database import (
-    get_pending_match_screenshots,
-    get_match_screenshot,
-    set_match_screenshot_status,
-    delete_match_screenshot,
-    delete_match_screenshots,
+from core.db.audit_repo import log_action
+from core.db.lobby_repo import get_image_channel
+from core.db.match_repo import (
     insert_ocr_match,
     get_match_by_league_id,
-    add_player_alias,
-    resolve_player_names_exact,
-    get_player,
-    upsert_player,
     update_league_match_hero_by_slot,
     update_league_match_heroes,
     update_league_match_player_name_by_slot,
     update_league_match_player_names,
     update_league_match_duration,
-    log_action,
-    get_image_channel,
+)
+from core.db.ocr_repo import (
+    get_pending_match_screenshots,
+    get_match_screenshot,
+    set_match_screenshot_status,
+    delete_match_screenshot,
+    delete_match_screenshots,
     is_match_screenshot_enqueued,
     enqueue_match_screenshot,
 )
+from core.db.player_repo import add_player_alias, resolve_player_names_exact, get_player, upsert_player
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team
 from ui.commands.score_helpers import (

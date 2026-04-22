@@ -3,7 +3,7 @@ import asyncio
 import discord
 from datetime import datetime, timedelta
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
-from core.database import get_captains_from_list
+from core.db.player_repo import get_captains_from_list
 
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0

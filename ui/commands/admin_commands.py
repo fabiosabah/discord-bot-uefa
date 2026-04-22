@@ -5,20 +5,10 @@ import discord
 from discord.ext import commands
 
 from core.config import IMAGE_CHANNEL_ID
-from core.database import (
-    get_image_channel,
-    set_image_channel,
-    clear_image_channel,
-    add_player_alias,
-    remove_player_alias,
-    get_player_aliases,
-    get_player,
-    upsert_player,
-    log_action,
-    find_unregistered_match_players,
-    diagnose_and_fix_kda_data,
-    get_ranking_from_matches,
-)
+from core.db.audit_repo import log_action
+from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
+from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches
+from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player
 from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")

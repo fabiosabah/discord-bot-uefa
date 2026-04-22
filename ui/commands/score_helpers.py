@@ -7,14 +7,9 @@ import discord
 from discord.ext import commands
 
 from core.config import ADMIN_IDS
-from core.database import (
-    get_last_update,
-    get_match_screenshot,
-    set_match_screenshot_status,
-    remove_win,
-    remove_loss,
-    delete_audit_log_entry,
-)
+from core.db.audit_repo import get_last_update, delete_audit_log_entry
+from core.db.ocr_repo import get_match_screenshot, set_match_screenshot_status
+from core.db.player_repo import remove_win, remove_loss
 from core.utils.time import format_brazil_time, relative_time
 
 

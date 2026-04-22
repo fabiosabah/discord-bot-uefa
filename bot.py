@@ -6,16 +6,17 @@ import sys
 from datetime import datetime
 from discord.ext import commands
 from core.config import TOKEN, IMAGE_CHANNEL_ID
-from core.database import (
-    init_db,
-    migrate_db,
+from core.db.connection import init_db, migrate_db
+from core.db.lobby_repo import (
     get_list_channel,
     get_image_channel,
+    get_lobby_sessions,
+    delete_lobby_session,
+)
+from core.db.ocr_repo import (
     enqueue_match_screenshot,
     get_pending_match_screenshots,
     set_match_screenshot_status,
-    get_lobby_sessions,
-    delete_lobby_session
 )
 from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
 from core.utils.discord_helpers import resolve_member

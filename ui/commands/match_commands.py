@@ -7,7 +7,21 @@ from datetime import datetime, timedelta
 import discord
 from discord.ext import commands
 
-from core.database import (
+from core.db.audit_repo import (
+    log_action,
+    get_last_admin_action,
+    delete_audit_log_entry,
+    get_raw_match_audit_events,
+    count_match_deletions_today,
+)
+from core.db.match_repo import (
+    delete_match_history,
+    get_match_by_league_id,
+    create_or_replace_manual_match,
+    delete_league_match,
+    get_match_created_at,
+)
+from core.db.player_repo import (
     upsert_player,
     add_win,
     add_loss,
@@ -16,16 +30,6 @@ from core.database import (
     delete_player,
     get_player,
     get_ranking,
-    log_action,
-    get_last_admin_action,
-    delete_audit_log_entry,
-    get_raw_match_audit_events,
-    delete_match_history,
-    get_match_by_league_id,
-    create_or_replace_manual_match,
-    delete_league_match,
-    get_match_created_at,
-    count_match_deletions_today,
 )
 from ui.commands.score_helpers import (
     is_admin,

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import discord
 import logging
-from core.database import save_lobby_session
+from core.db.lobby_repo import save_lobby_session
 from domain.models import LobbySession
 from core.config import ADMIN_IDS
 from services.lobby_service import close_session

@@ -1153,7 +1153,7 @@ def parse_dota_match_text(raw_text: str, image_url: str | None = None) -> dict[s
 
 
 def process_match_screenshot(job_id: int, job: dict | None = None) -> dict[str, Any]:
-    from core.database import get_match_screenshot, set_match_screenshot_status
+    from core.db.ocr_repo import get_match_screenshot, set_match_screenshot_status
 
     logger.info(f"[OCR] Starting processing of screenshot job {job_id}")
 

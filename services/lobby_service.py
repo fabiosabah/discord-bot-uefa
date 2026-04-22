@@ -2,7 +2,7 @@
 import discord
 import logging
 from core.config import MAX_PLAYERS
-from core.database import delete_lobby_session, save_lobby_session
+from core.db.lobby_repo import delete_lobby_session, save_lobby_session
 from domain.models import LobbySession
 
 logger = logging.getLogger("LobbyService")
