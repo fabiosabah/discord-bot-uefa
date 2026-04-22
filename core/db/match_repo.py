@@ -1175,6 +1175,25 @@ def get_match_duration_extremes(min_seconds: int = 60) -> dict:
     }
 
 
+def fix_malformed_durations() -> int:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT league_match_id, duration FROM matches WHERE duration IS NOT NULL AND duration != ''"
+        ).fetchall()
+        fixed = 0
+        for row in rows:
+            corrected = _format_duration(row["duration"])
+            if corrected != row["duration"]:
+                conn.execute(
+                    "UPDATE matches SET duration = ? WHERE league_match_id = ?",
+                    (corrected, row["league_match_id"])
+                )
+                fixed += 1
+        if fixed:
+            conn.commit()
+    return fixed
+
+
 def get_match_players_bulk(league_match_ids: list[int]) -> dict[int, list[dict]]:
     if not league_match_ids:
         return {}

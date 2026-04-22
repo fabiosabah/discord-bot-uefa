@@ -7,7 +7,7 @@ from discord.ext import commands
 from core.config import IMAGE_CHANNEL_ID
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
-from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches
+from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from ui.commands.score_helpers import is_admin
 
@@ -256,6 +256,19 @@ def setup_admin_commands(bot: commands.Bot):
             lines.append("\n💡 Use `!fixkda sim` para corrigir os valores para 0.")
 
         await ctx.send("\n".join(lines))
+
+    @bot.command(name="fixduracoes", aliases=["fixdurations", "corrigirduracoes"])
+    async def cmd_fix_duracoes(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        fixed = fix_malformed_durations()
+        if fixed:
+            await ctx.send(f"✅ {fixed} duração(ões) corrigida(s) no banco (ex: `74:01` → `1:14:01`).")
+        else:
+            await ctx.send("✅ Nenhuma duração malformada encontrada.")
 
     @bot.command(name="diagtabela2", aliases=["debugtabela2", "diagtab2"])
     async def cmd_diag_tabela2(ctx: commands.Context):
