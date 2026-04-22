@@ -63,7 +63,9 @@ def _split_chunks(text: str, max_size: int = 1900) -> list[str]:
     return chunks
 
 
-def setup_ocr_commands(bot: commands.Bot):
+def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
+    if ocr_summary_messages is None:
+        ocr_summary_messages = {}
     logger = logging.getLogger("OcrCommands")
     logger.info("Carregando comandos OCR...")
 
@@ -729,8 +731,15 @@ def setup_ocr_commands(bot: commands.Bot):
         if duration and re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", duration):
             update_league_match_duration(league_match_id, duration)
 
+        summary_msg = ocr_summary_messages.pop(job_id, None)
+        if summary_msg:
+            try:
+                await summary_msg.delete()
+            except Exception:
+                pass
+
         await ctx.message.delete()
-        await ctx.send(f"✅ Partida **#{league_match_id}** registrada com sucesso.")
+        await ctx.send(f"✅ Partida **#{league_match_id}** registrada com sucesso.", delete_after=180)
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
     async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):

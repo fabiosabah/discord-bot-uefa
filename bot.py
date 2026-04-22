@@ -47,6 +47,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None, case_insensitive=True)
 
 active_lobbies = {}
+ocr_summary_messages: dict[int, discord.Message] = {}
 
 
 async def restore_saved_lobby_sessions():
@@ -199,26 +200,13 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     await ctx.send("❌ Ocorreu um erro ao processar o comando.", delete_after=20)
 
 
-async def _schedule_ocr_summary_deletion(channel, summary_msg, job_id: int):
-    await asyncio.sleep(105)  # espera 1m45s antes de avisar
+async def _schedule_ocr_summary_deletion(summary_msg, job_id: int):
+    await asyncio.sleep(180)  # 3 minutos
+    ocr_summary_messages.pop(job_id, None)
     try:
-        warning_msg = await channel.send(
-            f"⏳ O resumo do job #{job_id} será apagado em **15 segundos**.\n"
-            f"Para consultar os dados depois da importação use `!detalhesimagem {job_id}`.",
-            delete_after=60
-        )
+        await summary_msg.delete()
     except Exception:
-        warning_msg = None
-
-    await asyncio.sleep(15)  # aviso fica 15s
-
-    for msg in (summary_msg, warning_msg):
-        if msg is None:
-            continue
-        try:
-            await msg.delete()
-        except Exception:
-            pass
+        pass
 
 
 async def ocr_background_worker():
@@ -272,9 +260,10 @@ async def ocr_background_worker():
                         logger.debug(f"📤 Sending OCR results to channel {job['channel_id']}")
                         summary = build_ocr_job_summary_text(job["id"], parsed)
                         summary_msg = await channel.send(summary)
+                        ocr_summary_messages[job["id"]] = summary_msg
                         logger.info(f"📤 OCR results sent to channel {job['channel_id']} for job {job_id}")
                         bot.loop.create_task(
-                            _schedule_ocr_summary_deletion(channel, summary_msg, job["id"])
+                            _schedule_ocr_summary_deletion(summary_msg, job["id"])
                         )
                 else:
                     logger.warning(f"❌ Could not find channel {job['channel_id']} to send OCR results")
@@ -291,7 +280,7 @@ async def ocr_background_worker():
 
 logger.info("Configurando comandos...")
 setup_lobby_commands(bot, active_lobbies)
-setup_score_commands(bot)
+setup_score_commands(bot, ocr_summary_messages)
 logger.info("Comandos configurados com sucesso.")
 
 if __name__ == "__main__":

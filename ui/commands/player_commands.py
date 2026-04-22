@@ -137,7 +137,7 @@ def setup_player_commands(bot: commands.Bot):
             await ctx.send("❌ Escolha um número entre 1 e 15.")
             return
 
-        ranking = get_ranking()
+        ranking = get_ranking_from_matches()
 
         if not ranking:
             await ctx.send("📋 Nenhum jogador registrado ainda.")

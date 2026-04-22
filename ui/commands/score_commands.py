@@ -8,8 +8,8 @@ from ui.commands.ocr_commands import setup_ocr_commands
 from ui.commands.admin_commands import setup_admin_commands
 
 
-def setup_score_commands(bot: commands.Bot):
+def setup_score_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
     setup_player_commands(bot)
     setup_match_commands(bot)
-    setup_ocr_commands(bot)
+    setup_ocr_commands(bot, ocr_summary_messages or {})
     setup_admin_commands(bot)
