@@ -7,7 +7,6 @@ from datetime import datetime
 from discord.ext import commands
 from core.config import TOKEN, IMAGE_CHANNEL_ID
 from core.db.connection import init_db, migrate_db
-from core.db.match_repo import fix_malformed_durations
 from core.db.lobby_repo import (
     get_list_channel,
     get_image_channel,
@@ -99,9 +98,6 @@ async def restore_saved_lobby_sessions():
 async def on_ready():
     init_db()
     migrate_db()
-    fixed = fix_malformed_durations()
-    if fixed:
-        logger.info(f"[DB] {fixed} duração(ões) malformada(s) corrigida(s) no banco.")
     logger.info(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
     print("-" * 40)
     for guild in bot.guilds:
