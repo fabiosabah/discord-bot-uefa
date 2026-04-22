@@ -20,6 +20,7 @@ from core.db.match_repo import (
     get_player_teammate_balance_from_matches,
     get_all_hero_stats_from_matches,
     get_hero_match_history,
+    get_player_duo_stats,
 )
 from core.db.player_repo import get_player, get_ranking, find_player_by_display_name
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
@@ -506,6 +507,132 @@ def setup_player_commands(bot: commands.Bot):
         await ctx.send(header)
         for chunk in chunks:
             await ctx.send(f"```\n{chunk}\n```")
+
+    @bot.command(name="duelo", aliases=["vs", "versus", "rivalidade"])
+    async def cmd_duelo(ctx: commands.Context, player_a: discord.Member, player_b: discord.Member):
+        from collections import Counter
+
+        matches = get_player_duo_stats(player_a.id, player_b.id)
+
+        if not matches:
+            await ctx.send(
+                f"❌ **{player_a.display_name}** e **{player_b.display_name}** "
+                f"ainda não jogaram nenhuma partida juntos."
+            )
+            return
+
+        together = [m for m in matches if m["team_a"] == m["team_b"]]
+        against  = [m for m in matches if m["team_a"] != m["team_b"]]
+
+        # parceiros
+        tog_wins   = sum(1 for m in together if m["winner_team"] == m["team_a"])
+        tog_losses = len(together) - tog_wins
+        tog_wr     = tog_wins * 100 / len(together) if together else 0
+
+        # rivais
+        a_wins = sum(1 for m in against if m["winner_team"] == m["team_a"])
+        b_wins = len(against) - a_wins
+
+        # sequência atual no confronto direto
+        streak_name  = ""
+        streak_count = 0
+        if against:
+            current = "a" if against[0]["winner_team"] == against[0]["team_a"] else "b"
+            for m in against:
+                w = "a" if m["winner_team"] == m["team_a"] else "b"
+                if w == current:
+                    streak_count += 1
+                else:
+                    break
+            streak_name = player_a.display_name if current == "a" else player_b.display_name
+
+        # par de heróis mais frequente
+        top_pair  = Counter(
+            (m["hero_a"] or "?", m["hero_b"] or "?") for m in together
+        ).most_common(1)
+        top_clash = Counter(
+            (m["hero_a"] or "?", m["hero_b"] or "?") for m in against
+        ).most_common(1)
+
+        if a_wins > b_wins:
+            color = discord.Color.blue()
+        elif b_wins > a_wins:
+            color = discord.Color.red()
+        else:
+            color = discord.Color.purple()
+
+        embed = discord.Embed(
+            title=f"⚔️  {player_a.display_name}  ×  {player_b.display_name}",
+            description=f"**{len(matches)}** partidas em que se encontraram",
+            color=color,
+        )
+
+        # campo parceiros
+        if together:
+            tog_lines = [f"**{len(together)}** jogos · {tog_wins}V / {tog_losses}D · {tog_wr:.0f}% WR"]
+            if top_pair and top_pair[0][1] >= 2:
+                (ha, hb), cnt = top_pair[0]
+                tog_lines.append(f"Par favorito: **{ha}** + **{hb}** ({cnt}×)")
+            embed.add_field(name="🤝 Como parceiros", value="\n".join(tog_lines), inline=True)
+        else:
+            embed.add_field(name="🤝 Como parceiros", value="Nunca jogaram juntos", inline=True)
+
+        # campo rivais
+        if against:
+            diff = abs(a_wins - b_wins)
+            if a_wins > b_wins:
+                advantage = f"Vantagem: **{player_a.display_name}** (+{diff})"
+            elif b_wins > a_wins:
+                advantage = f"Vantagem: **{player_b.display_name}** (+{diff})"
+            else:
+                advantage = "Placar zerado ⚖️"
+            a_wr = a_wins * 100 // len(against)
+            b_wr = b_wins * 100 // len(against)
+            against_lines = [
+                f"**{len(against)}** jogos",
+                f"**{player_a.display_name}**: {a_wins}V · {a_wr}% WR",
+                f"**{player_b.display_name}**: {b_wins}V · {b_wr}% WR",
+                advantage,
+            ]
+            if top_clash and top_clash[0][1] >= 2:
+                (ha, hb), cnt = top_clash[0]
+                against_lines.append(f"Duelo favorito: **{ha}** × **{hb}** ({cnt}×)")
+            embed.add_field(name="⚔️ Como rivais", value="\n".join(against_lines), inline=True)
+        else:
+            embed.add_field(name="⚔️ Como rivais", value="Nunca jogaram contra", inline=True)
+
+        # sequência
+        if streak_count >= 2:
+            embed.add_field(
+                name="🔥 Sequência atual",
+                value=f"**{streak_name}** venceu os últimos **{streak_count}** confrontos diretos",
+                inline=False,
+            )
+
+        # últimas partidas
+        recent = matches[:10]
+        lines  = []
+        for m in recent:
+            same = m["team_a"] == m["team_b"]
+            ha   = m["hero_a"] or "?"
+            hb   = m["hero_b"] or "?"
+            if same:
+                icon = "✅" if m["winner_team"] == m["team_a"] else "❌"
+                lines.append(f"{icon} `#{m['league_match_id']}` **{ha}** + **{hb}** — juntos")
+            else:
+                a_won = m["winner_team"] == m["team_a"]
+                icon  = "🔵" if a_won else "🔴"
+                lines.append(f"{icon} `#{m['league_match_id']}` **{ha}** × **{hb}** — rivais")
+
+        embed.add_field(
+            name=f"🕹️ Últimas {len(recent)} partidas",
+            value="\n".join(lines),
+            inline=False,
+        )
+        embed.set_footer(
+            text=f"🔵 {player_a.display_name} venceu · 🔴 {player_b.display_name} venceu · ✅/❌ juntos"
+        )
+        await ctx.send(embed=embed)
 
     @bot.command(name="heroes", aliases=["herois", "herostat", "heropool"])
     async def cmd_heroes(ctx: commands.Context, *, hero: str = ""):

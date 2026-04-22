@@ -1097,6 +1097,36 @@ def get_player_teammate_balance_from_matches(
     ]
 
 
+def get_player_duo_stats(discord_id_a: int, discord_id_b: int) -> list[dict]:
+    query = """
+        WITH a_games AS (
+            SELECT mp.league_match_id, mp.team AS team, mp.hero_name AS hero
+            FROM match_players mp
+            WHERE mp.discord_id = ?
+        ),
+        b_games AS (
+            SELECT mp.league_match_id, mp.team AS team, mp.hero_name AS hero
+            FROM match_players mp
+            WHERE mp.discord_id = ?
+        )
+        SELECT
+            m.league_match_id,
+            a.team      AS team_a,
+            b.team      AS team_b,
+            a.hero      AS hero_a,
+            b.hero      AS hero_b,
+            m.winner_team,
+            m.created_at,
+            m.duration
+        FROM a_games a
+        JOIN b_games b ON b.league_match_id = a.league_match_id
+        JOIN matches m ON m.league_match_id = a.league_match_id
+        ORDER BY m.league_match_id DESC
+    """
+    with get_connection() as conn:
+        rows = conn.execute(query, (discord_id_a, discord_id_b)).fetchall()
+    return [dict(r) for r in rows]
+
 def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
