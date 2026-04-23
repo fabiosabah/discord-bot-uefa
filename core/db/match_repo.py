@@ -564,6 +564,11 @@ def delete_league_match(league_match_id: int) -> bool:
             return False
         conn.execute("DELETE FROM match_players WHERE league_match_id = ?", (league_match_id,))
         conn.execute("DELETE FROM matches WHERE league_match_id = ?", (league_match_id,))
+        max_row = conn.execute("SELECT COALESCE(MAX(league_match_id), 0) FROM matches").fetchone()
+        conn.execute(
+            "INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('matches', ?)",
+            (max_row[0],)
+        )
         conn.commit()
     logger.info(f"[DB] Partida importada league_match_id {league_match_id} removida.")
     return True
@@ -858,6 +863,35 @@ def get_match_duration_extremes(min_seconds: int = 60) -> dict:
         "fastest": parsed[:5],
         "longest": list(reversed(parsed[-5:])),
     }
+
+
+def renumber_league_match(old_id: int, new_id: int) -> None:
+    with get_connection() as conn:
+        if not conn.execute("SELECT 1 FROM matches WHERE league_match_id = ?", (old_id,)).fetchone():
+            raise ValueError(f"Partida #{old_id} não encontrada.")
+        if conn.execute("SELECT 1 FROM matches WHERE league_match_id = ?", (new_id,)).fetchone():
+            raise ValueError(f"ID #{new_id} já está em uso.")
+        conn.execute("UPDATE matches SET league_match_id = ? WHERE league_match_id = ?", (new_id, old_id))
+        conn.execute("UPDATE match_players SET league_match_id = ? WHERE league_match_id = ?", (new_id, old_id))
+        max_row = conn.execute("SELECT COALESCE(MAX(league_match_id), 0) FROM matches").fetchone()
+        conn.execute(
+            "INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('matches', ?)",
+            (max_row[0],)
+        )
+        conn.commit()
+    logger.info(f"[DB] Partida renumerada: #{old_id} → #{new_id}")
+
+
+def fix_match_id_sequence() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COALESCE(MAX(league_match_id), 0) FROM matches").fetchone()
+        max_id = row[0]
+        conn.execute(
+            "INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('matches', ?)",
+            (max_id,)
+        )
+        conn.commit()
+    return max_id
 
 
 def fix_malformed_durations() -> int:

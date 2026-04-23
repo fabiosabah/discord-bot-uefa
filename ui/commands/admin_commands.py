@@ -7,7 +7,7 @@ from discord.ext import commands
 from core.config import IMAGE_CHANNEL_ID
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
-from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations
+from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from ui.commands.score_helpers import is_admin
 
@@ -269,6 +269,28 @@ def setup_admin_commands(bot: commands.Bot):
             await ctx.send(f"✅ {fixed} duração(ões) corrigida(s) no banco (ex: `74:01` → `1:14:01`).")
         else:
             await ctx.send("✅ Nenhuma duração malformada encontrada.")
+
+    @bot.command(name="renumerarpartida", aliases=["renamematch", "moveid"])
+    async def cmd_renumerar_partida(ctx: commands.Context, old_id: int, new_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        try:
+            renumber_league_match(old_id, new_id)
+            await ctx.send(f"✅ Partida `#{old_id}` renumerada para `#{new_id}`.")
+        except ValueError as e:
+            await ctx.send(f"❌ {e}")
+
+    @bot.command(name="fixsequencia", aliases=["fixseq", "resetsequencia"])
+    async def cmd_fix_sequencia(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        max_id = fix_match_id_sequence()
+        await ctx.send(f"✅ Sequência de IDs de partidas corrigida. Próxima partida será `#{max_id + 1}`.")
 
     @bot.command(name="diagtabela2", aliases=["debugtabela2", "diagtab2"])
     async def cmd_diag_tabela2(ctx: commands.Context):
