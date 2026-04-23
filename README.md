@@ -187,7 +187,7 @@ Under **Privileged Gateway Intents** in the Developer Portal, enable:
 | `!registrarcanalimagem` | `!registrarcanalocr` | Set current channel as OCR image channel |
 | `!limparcanalimagem` | `!limparcanalocr` | Remove configured OCR channel |
 | `!canalimagem` | — | Show current OCR channel |
-| `!cadastro <nick> @user` | — | Register a player's in-game nick |
+| `!cadastro @user <nick>` | — | Register a player's in-game nick |
 | `!addalias @user <alias>` | `!alias` | Add alias for a player |
 | `!removealias @user <alias>` | `!delalias` | Remove alias from a player |
 | `!aliases @user` | `!aliaslist` | List aliases for a player |

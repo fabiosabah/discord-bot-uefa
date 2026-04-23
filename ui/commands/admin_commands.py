@@ -109,19 +109,16 @@ def setup_admin_commands(bot: commands.Bot):
         await ctx.send(f"✅ Alias `{alias}` adicionado para {member.mention}.")
 
     @bot.command(name="cadastro")
-    async def cmd_cadastro(ctx: commands.Context, nick: str, member: discord.Member = None):
+    async def cmd_cadastro(ctx: commands.Context, member: discord.Member, *, nick: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        if member is None:
+        nick = nick.strip()
+        if not nick:
             await ctx.message.delete()
-            await ctx.send(
-                f"❌ Informe o usuário Discord.\n"
-                f"→ `!cadastro {nick} @usuario`",
-                delete_after=600
-            )
+            await ctx.send("❌ Informe o nick.\n→ `!cadastro @usuario <nick>`", delete_after=600)
             return
 
         existing = get_player(member.id)

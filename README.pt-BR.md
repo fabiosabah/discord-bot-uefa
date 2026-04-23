@@ -187,7 +187,7 @@ Nos **Privileged Gateway Intents** do Developer Portal, habilite:
 | `!registrarcanalimagem` | `!registrarcanalocr` | Configura o canal atual para leitura de imagens |
 | `!limparcanalimagem` | `!limparcanalocr` | Remove o canal OCR configurado |
 | `!canalimagem` | — | Mostra o canal OCR atual |
-| `!cadastro <nick> @usuario` | — | Cadastra nick de jogo e vincula ao Discord |
+| `!cadastro @usuario <nick>` | — | Cadastra nick de jogo e vincula ao Discord |
 | `!addalias @usuario <alias>` | `!alias` | Adiciona alias para um jogador |
 | `!removealias @usuario <alias>` | `!delalias` | Remove alias de um jogador |
 | `!aliases @usuario` | `!aliaslist` | Lista aliases de um jogador |
