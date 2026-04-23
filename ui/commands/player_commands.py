@@ -656,17 +656,11 @@ def setup_player_commands(bot: commands.Bot):
         total_picks = sum(h["picks"] for h in picked)
 
         if unpicked:
-            unpicked_chunks: list[list[str]] = [[]]
-            for hero in unpicked:
-                current_val = ", ".join(unpicked_chunks[-1])
-                sep = ", " if unpicked_chunks[-1] else ""
-                if len(current_val) + len(sep) + len(hero) > 1000:
-                    unpicked_chunks.append([])
-                unpicked_chunks[-1].append(hero)
-
-            for idx, chunk in enumerate(unpicked_chunks):
-                name = f"⛔ Nunca pickados ({len(unpicked)})" if idx == 0 else "​"
-                embed.add_field(name=name, value=", ".join(chunk), inline=False)
+            embed.add_field(
+                name=f"⛔ Nunca pickados ({len(unpicked)})",
+                value=", ".join(unpicked),
+                inline=False,
+            )
 
         embed.set_footer(text=f"{len(picked)} heróis pickados · {total_picks} picks totais · use !heroes <nome> para detalhes")
 
