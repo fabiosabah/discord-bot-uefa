@@ -137,14 +137,14 @@ def init_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS matches (
-                league_match_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_match_id   INTEGER PRIMARY KEY,
                 match_hash        TEXT    UNIQUE NOT NULL,
                 external_match_id TEXT,
                 winner_team       TEXT,
                 duration          TEXT,
                 match_datetime    TEXT,
                 score_radiant     INTEGER,
-                score_dire        INTEGER,
+                score_dire       INTEGER,
                 created_at        TEXT    NOT NULL
             )
         """)
@@ -212,14 +212,14 @@ def migrate_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS matches (
-                league_match_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_match_id   INTEGER PRIMARY KEY,
                 match_hash        TEXT    UNIQUE NOT NULL,
                 external_match_id TEXT,
                 winner_team       TEXT,
                 duration          TEXT,
                 match_datetime    TEXT,
                 score_radiant     INTEGER,
-                score_dire        INTEGER,
+                score_dire       INTEGER,
                 created_at        TEXT    NOT NULL
             )
         """)
@@ -269,6 +269,34 @@ def migrate_db() -> None:
         if "image_channel_id" not in [c["name"] for c in sc_columns]:
             conn.execute("ALTER TABLE server_config ADD COLUMN image_channel_id INTEGER")
             logger.info("[DB] Coluna 'image_channel_id' adicionada via migration ao server_config.")
+
+        # Migration: remove AUTOINCREMENT from matches so deleted IDs are reused
+        schema_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='matches'"
+        ).fetchone()
+        if schema_row and "AUTOINCREMENT" in (schema_row["sql"] or "").upper():
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("""
+                CREATE TABLE matches_new (
+                    league_match_id   INTEGER PRIMARY KEY,
+                    match_hash        TEXT    UNIQUE NOT NULL,
+                    external_match_id TEXT,
+                    winner_team       TEXT,
+                    duration          TEXT,
+                    match_datetime    TEXT,
+                    score_radiant     INTEGER,
+                    score_dire        INTEGER,
+                    created_at        TEXT    NOT NULL
+                )
+            """)
+            conn.execute("INSERT INTO matches_new SELECT * FROM matches")
+            conn.execute("DROP TABLE matches")
+            conn.execute("ALTER TABLE matches_new RENAME TO matches")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'matches'")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
+            conn.execute("PRAGMA foreign_keys = ON")
+            logger.info("[DB] Migration: AUTOINCREMENT removido da tabela matches — IDs serão reutilizados após delete.")
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_discord_id ON match_history(discord_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_created_at ON match_history(created_at)")

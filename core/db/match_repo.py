@@ -564,11 +564,6 @@ def delete_league_match(league_match_id: int) -> bool:
             return False
         conn.execute("DELETE FROM match_players WHERE league_match_id = ?", (league_match_id,))
         conn.execute("DELETE FROM matches WHERE league_match_id = ?", (league_match_id,))
-        max_row = conn.execute("SELECT COALESCE(MAX(league_match_id), 0) FROM matches").fetchone()
-        conn.execute(
-            "INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('matches', ?)",
-            (max_row[0],)
-        )
         conn.commit()
     logger.info(f"[DB] Partida importada league_match_id {league_match_id} removida.")
     return True
