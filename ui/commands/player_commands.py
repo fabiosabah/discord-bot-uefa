@@ -604,7 +604,17 @@ def setup_player_commands(bot: commands.Bot):
                     f"{icon} **#{m['league_match_id']}** · {m['display_name']} ({team}) · `{kda}`"
                 )
 
-            embed.add_field(name="Partidas", value="\n".join(lines) or "—", inline=False)
+            field_chunks: list[list[str]] = [[]]
+            for line in lines:
+                current_val = "\n".join(field_chunks[-1])
+                if len(current_val) + len(line) + 1 > 1000:
+                    field_chunks.append([])
+                field_chunks[-1].append(line)
+
+            for idx, chunk in enumerate(field_chunks):
+                name = "Partidas" if idx == 0 else "​"
+                embed.add_field(name=name, value="\n".join(chunk) or "—", inline=False)
+
             await ctx.send(embed=embed)
             return
 
@@ -646,11 +656,17 @@ def setup_player_commands(bot: commands.Bot):
         total_picks = sum(h["picks"] for h in picked)
 
         if unpicked:
-            embed.add_field(
-                name=f"⛔ Nunca pickados ({len(unpicked)})",
-                value=", ".join(unpicked),
-                inline=False,
-            )
+            unpicked_chunks: list[list[str]] = [[]]
+            for hero in unpicked:
+                current_val = ", ".join(unpicked_chunks[-1])
+                sep = ", " if unpicked_chunks[-1] else ""
+                if len(current_val) + len(sep) + len(hero) > 1000:
+                    unpicked_chunks.append([])
+                unpicked_chunks[-1].append(hero)
+
+            for idx, chunk in enumerate(unpicked_chunks):
+                name = f"⛔ Nunca pickados ({len(unpicked)})" if idx == 0 else "​"
+                embed.add_field(name=name, value=", ".join(chunk), inline=False)
 
         embed.set_footer(text=f"{len(picked)} heróis pickados · {total_picks} picks totais · use !heroes <nome> para detalhes")
 
