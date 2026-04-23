@@ -57,7 +57,7 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
         for name in player_names:
             if not name:
                 continue
-            normalized = " ".join(name.strip().split())
+            normalized = " ".join(name.strip().replace("`", "").split())
             row = conn.execute(
                 """
                 SELECT discord_id FROM players WHERE LOWER(display_name) = LOWER(?)
@@ -96,7 +96,7 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
 
 
 def add_player_alias(discord_id: int, alias: str) -> None:
-    alias = " ".join(alias.strip().split())
+    alias = " ".join(alias.strip().replace("`", "").split())
     if not alias:
         return
     with get_connection() as conn:
