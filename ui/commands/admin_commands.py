@@ -115,7 +115,7 @@ def setup_admin_commands(bot: commands.Bot):
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        nick = nick.strip()
+        nick = nick.strip().strip('"\'')
         if not nick:
             await ctx.message.delete()
             await ctx.send("❌ Informe o nick.\n→ `!cadastro @usuario <nick>`", delete_after=600)
