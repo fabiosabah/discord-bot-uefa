@@ -215,7 +215,7 @@ def build_ocr_job_summary_text(job_id: int, parsed: dict[str, Any]) -> str:
         "🛠️ **Correções antes de importar:**",
         f"• Herói errado? → `!ocrhero {job_id} <slot> <herói>`",
         f"• Nick errado? → `!ocrnick {job_id} <slot> <novo nick>`",
-        f"• Nick sem conta Discord vinculada? → `!cadastro <nick> @usuario`",
+        f"• Nick sem conta Discord vinculada? → `!cadastro @usuario <nick>`",
         f"• Vencedor errado? → `!setjobwinner {job_id} radiant|dire`",
     ])
 

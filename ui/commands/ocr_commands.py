@@ -697,7 +697,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             dur_hint = duration.strip() if duration.strip() else "MM:SS"
             lines = ["⚠️ Nicks não reconhecidos. Cadastre e tente novamente:\n"]
             for name in missing:
-                lines.append(f"`!cadastro {name} @usuario`")
+                lines.append(f"`!cadastro @usuario {name}`")
             lines.append(f"\nApós cadastrar:\n`!ok {job_id} {dur_hint}`")
             await ctx.message.delete()
             await ctx.send("\n".join(lines), delete_after=600)
@@ -715,7 +715,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             await ctx.send(
                 "❌ Limite de usuários por nick atingido:\n" +
                 "\n".join(f"• {e}" for e in alias_errors) +
-                "\nUse `!cadastro <nick> @usuario` para verificar ou remover associações.",
+                "\nUse `!cadastro @usuario <nick>` para verificar ou remover associações.",
                 delete_after=600
             )
             return
