@@ -193,20 +193,14 @@ def _is_rate_limit_exception(exc: Exception) -> bool:
 def extract_text_from_image_url(image_url: str) -> str:
     provider, client = _build_ai_client()
     model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
-    instructions = (
-        "Você é um assistente especializado em Dota 2."
-        "Não adicione explicações, marcações ou comentários. Retorne apenas o texto bruto sem interpretação adicional."
-    )
+    instructions = "Extract all visible text from image. Output raw text only, no comments."
 
     if provider == "gemini":
         from google.genai import types
-        # Configuração de Thinking conforme o Google AI Studio
         generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=False,
-            ),
+            thinking_config=types.ThinkingConfig(include_thoughts=False),
         )
-        
+
         mime_type = "image/jpeg" if image_url.lower().endswith((".jpg", ".jpeg")) else "image/png"
 
         def build_image_part(image_url: str):
@@ -346,20 +340,14 @@ def extract_text_from_image_data(image_data: bytes) -> str:
     
     provider, client = _build_ai_client()
     model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
-    instructions = (
-        "Você é um assistente especializado em Dota 2."
-        "Não adicione explicações, marcações ou comentários. Retorne apenas o texto bruto sem interpretação adicional."
-    )
+    instructions = "Extract all visible text from image. Output raw text only, no comments."
 
     logger.debug(f"[OCR] Using {provider} provider with model {model} for text extraction")
 
     if provider == "gemini":
         from google.genai import types
-        # Configuração de Thinking conforme o Google AI Studio
         generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=False,
-            ),
+            thinking_config=types.ThinkingConfig(include_thoughts=False),
         )
         
         mime_type = "image/png"  # Default to PNG
@@ -800,73 +788,32 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any] | None:
     return None
 
 
+_JSON_SCHEMA = (
+    '{"valid_dota_screenshot":true,'
+    '"match_info":{"game_mode":str,"duration":"MM:SS","winner":"Radiant|Dire","score":{"radiant":int,"dire":int}},'
+    '"players_data":[{"slot":1-10,"team":"radiant|dire","hero_name":str,"player_name":str,"networth":int,"kills":int,"deaths":int,"assists":int}]}'
+)
+
+_BASE_PROMPT = (
+    "Dota2 end-screen scoreboard→JSON. Output ONLY raw JSON, no markdown, no extra text.\n"
+    "Not Dota2 scoreboard: {\"valid_dota_screenshot\":false}\n"
+    "Read hero name from text on screen (English). "
+    "Per player: slot(1-10), team(radiant/dire), hero_name, player_name, networth(yellow number), kills/deaths/assists(K/D/A).\n"
+    f"Schema: {_JSON_SCHEMA}"
+)
+
+
 def _build_llm_prompt(raw_text: str | None = None, image_url: str | None = None) -> str:
-    prompt = (
-        "Você é uma Vision-LLM especialista em Dota 2. Sua tarefa é converter a imagem de um placar de partida em um objeto JSON estruturado para análise estatística.\n\n"
-        "Siga estas etapas rigorosamente:\n\n"
-        "1) IDENTIFICAÇÃO VISUAL DOS HERÓIS (Prioridade):\n"
-        "   - Divida a imagem mentalmente em 10 colunas verticais.\n"
-        "   - Identifique os 10 heróis por suas características visuais (silhueta, cores, rosto), ignorando itens cosméticos (skins).\n"
-        "   - As 5 colunas da esquerda são \"radiant\" e as 5 da direita são \"dire\".\n"
-        "   - Use o nome oficial do herói em INGLÊS (ex: \"Witch Doctor\", não \"Feiticeiro\"). Nunca retorne \"null\" para hero_name.\n"
-        "   - DIFERENCIAÇÃO POR ATRIBUTOS FIXOS:\n"
-        "       * ALCHEMIST: velhinho montado no pescoço de um humanoide um pouco barrigudo.\n"
-        "       * GYROCOPTER: personagem operando um veículo mecânico voador. Não confundir com Sniper.\n"
-        "       * LION: mão esquerda deformada (garra demoníaca) e rosto parecido com um felino.\n"
-        "       * PANGOLIER: silhueta de tatu/pangolim, uso de chapéu de mosqueteiro e florete.\n"
-        "       * SLARDAR: anatomia de criatura marinha/serpente. Não confundir com Naga Siren.\n"
-        "       * SNIPER: anao(kneen) sempre carrega uma arma longa que se assemelha a um rifle.\n"
-        "       * VENOMANCER: criatura insetoide/serpentina, tem skin que parece mecanica.\n"
-        "       * WITCH DOCTOR: postura muito curvada, aparência baseada na cultura africana, geralmente cor roxa. Não confundir com Shadow Shaman.\n"
-        "   - Se um herói for visualmente ambíguo devido a uma skin, procure por sua arma principal ou anatomia básica.\n"
-        "   - Skins podem alterar cores, mas não devem mudar a identificação do herói.\n\n"
-        "2) EXTRAÇÃO E DECOMPOSIÇÃO DE DADOS (OCR):\n"
-        "   - Mapeie cada coluna de herói aos seus dados: player_name (topo), networth (número amarelo) e KDA (números na base).\n"
-        "   - DECOMPOSIÇÃO DO KDA: Separe o formato \"Abates / Mortes / Assistências\" em três chaves inteiras distintas: \"kills\", \"deaths\" e \"assists\".\n"
-        "   - Ignore o nível de maestria (número dentro do diamante).\n"
-        "   - Capture as informações da partida (vencedor, duração, modo e placar total).\n\n"
-        "3) REGRAS DE SAÍDA:\n"
-        "   - Se a imagem não for um placar de Dota 2, retorne: {\"valid_dota_screenshot\": false}.\n"
-        "   - Retorne APENAS o JSON puro. Não use blocos de código markdown (```json), explicações ou introduções.\n\n"
-        "Estrutura do JSON:\n"
-        "{\n"
-        "  \"valid_dota_screenshot\": true,\n"
-        "  \"match_info\": {\n"
-        "    \"game_mode\": \"string\",\n"
-        "    \"duration\": \"string (MM:SS)\",\n"
-        "    \"winner\": \"Radiant ou Dire\",\n"
-        "    \"score\": {\"radiant\": int, \"dire\": int}\n"
-        "  },\n"
-        "  \"players_data\": [\n"
-        "    {\n"
-        "      \"slot\": int (1-10),\n"
-        "      \"team\": \"radiant ou dire\",\n"
-        "      \"hero_name\": \"string\",\n"
-        "      \"player_name\": \"string\",\n"
-        "      \"networth\": int,\n"
-        "      \"kills\": int,\n"
-        "      \"deaths\": int,\n"
-        "      \"assists\": int\n"
-        "    }\n"
-        "  ]\n"
-        "}"
-    )
-
+    prompt = _BASE_PROMPT
     if image_url:
-        prompt += f"\nImagem de origem: {image_url}."
-
+        prompt += f"\nSource image: {image_url}"
     if raw_text:
-        prompt += f"\nTexto OCR:\n{raw_text}"
+        prompt += f"\nOCR text:\n{raw_text}"
     return prompt
 
 
 def _build_image_llm_prompt(image_url: str) -> str:
-    prompt = _build_llm_prompt(None, image_url)
-    prompt += (
-        "\n\nUse apenas a imagem para extrair os dados da partida e retorne APENAS JSON válido com a estrutura esperada. "
-        "Não inclua explicações, nem texto adicional."
-    )
-    return prompt
+    return _BASE_PROMPT
 
 
 def _call_gemini_with_image(client, model: str, prompt: str, image_data: bytes, resize: bool = False) -> str:
