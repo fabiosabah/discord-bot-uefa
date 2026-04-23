@@ -697,7 +697,8 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             dur_hint = duration.strip() if duration.strip() else "MM:SS"
             lines = ["⚠️ Nicks não reconhecidos. Cadastre e tente novamente:\n"]
             for name in missing:
-                lines.append(f"`!cadastro @usuario {name}`")
+                nick_display = f'"{name}"' if " " in name else name
+                lines.append(f"`!cadastro @usuario {nick_display}`")
             lines.append(f"\nApós cadastrar:\n`!ok {job_id} {dur_hint}`")
             await ctx.message.delete()
             await ctx.send("\n".join(lines), delete_after=600)
