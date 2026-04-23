@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import secrets
 import discord
 import logging
 from datetime import datetime as _dt
@@ -83,6 +84,11 @@ def setup_player_commands(bot: commands.Bot):
         embed.set_footer(text=f"⚖️ Vitória +3 pts | Derrota -1 pt\n{last_text}")
 
         await ctx.send(embed=embed)
+
+    @bot.command(name="roll", aliases=["sortear"])
+    async def cmd_roll(ctx: commands.Context):
+        n = secrets.randbelow(100)
+        await ctx.send(f"🎲 {ctx.author.mention} tirou **{n}**")
 
     @bot.command(name="top")
     async def cmd_top(ctx: commands.Context, n: int = 10):
