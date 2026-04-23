@@ -296,17 +296,13 @@ def setup_player_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="listarpartidas", aliases=["partidas", "matchlist"])
-    async def cmd_listar_partidas(ctx, target: discord.Member = None, limit: int = 30):
+    async def cmd_listar_partidas(ctx, target: discord.Member = None):
         target = target or ctx.author
-        if limit < 1 or limit > 200:
-            limit = 30
 
-        history = get_player_match_history_from_matches(target.id, limit=limit)
+        history = get_player_match_history_from_matches(target.id, limit=None)
         if not history:
             await ctx.send(f"❌ Nenhuma partida OCR encontrada para **{target.display_name}**.")
             return
-
-        total = stats["matches"] if (stats := get_player_match_stats_from_matches(target.id)) else len(history)
 
         lines = []
         for r in history:
@@ -323,8 +319,8 @@ def setup_player_commands(bot: commands.Bot):
             lines.append(f"{icon} #{str(r['league_match_id']).ljust(4)} {hero} {kda.ljust(9)} {date}")
 
         header = (
-            f"📜 **Partidas de {target.display_name}** — {total} no total "
-            f"| mostrando últimas {len(history)} | `!id <número>` para detalhes"
+            f"📜 **Partidas de {target.display_name}** — {len(history)} partidas "
+            f"| `!id <número>` para detalhes"
         )
 
         chunk_size = 1800

@@ -927,8 +927,9 @@ def get_match_players_bulk(league_match_ids: list[int]) -> dict[int, list[dict]]
     return result
 
 
-def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> list[dict]:
+def get_player_match_history_from_matches(discord_id: int, limit: int | None = 20) -> list[dict]:
     membership_clause, params = _build_player_membership_clause(discord_id)
+    limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
     query = f"""
         SELECT m.league_match_id, mp.hero_name, mp.kills, mp.deaths, mp.assists,
                m.winner_team, mp.team, m.created_at
@@ -936,10 +937,10 @@ def get_player_match_history_from_matches(discord_id: int, limit: int = 20) -> l
         JOIN matches m ON m.league_match_id = mp.league_match_id
         WHERE {membership_clause}
         ORDER BY m.created_at DESC
-        LIMIT ?
+        {limit_clause}
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (limit,)).fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [
         {
             "league_match_id": row["league_match_id"],
