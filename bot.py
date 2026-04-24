@@ -133,7 +133,7 @@ async def on_message(message: discord.Message):
         if guild_image_channel:
             image_channel_id = guild_image_channel
 
-    if image_channel_id and message.channel.id == image_channel_id:
+    if is_bot_enabled() and image_channel_id and message.channel.id == image_channel_id:
         logger.debug(f"[BOT] Processing message in image channel {message.channel.id}")
         if message.attachments:
             added = 0
@@ -214,6 +214,10 @@ async def ocr_background_worker():
         if not can_process_ocr():
             logger.warning("OCR não configurado. Verifique as variáveis de ambiente.")
             await asyncio.sleep(60)
+            continue
+
+        if not is_bot_enabled():
+            await asyncio.sleep(5)
             continue
 
         logger.debug("🔍 Checking for pending OCR jobs...")
