@@ -4,7 +4,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from core.config import IMAGE_CHANNEL_ID
+from core.config import IMAGE_CHANNEL_ID, ADMIN_IDS
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match
@@ -12,6 +12,12 @@ from core.db.player_repo import add_player_alias, remove_player_alias, get_playe
 from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")
+
+BOT_STATE: dict = {"enabled": True}
+
+
+def is_bot_enabled() -> bool:
+    return BOT_STATE["enabled"]
 
 
 def setup_admin_commands(bot: commands.Bot):
@@ -308,3 +314,31 @@ def setup_admin_commands(bot: commands.Bot):
                 f"```\n{type(exc).__name__}: {exc}\n```\n"
                 f"```\n{short_tb}\n```"
             )
+
+    _SUPER_ADMINS = ADMIN_IDS[:2]
+
+    @bot.command(name="desligarbot", aliases=["botoff", "pausarbot"])
+    async def cmd_bot_off(ctx: commands.Context):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if not BOT_STATE["enabled"]:
+            await ctx.send("⚠️ O bot já está desativado.", delete_after=8)
+            return
+        BOT_STATE["enabled"] = False
+        await ctx.message.delete()
+        await ctx.send("🔴 Bot desativado. Comandos ignorados até `!ligarbot`.")
+
+    @bot.command(name="ligarbot", aliases=["boton", "ativarbot"])
+    async def cmd_bot_on(ctx: commands.Context):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if BOT_STATE["enabled"]:
+            await ctx.send("⚠️ O bot já está ativo.", delete_after=8)
+            return
+        BOT_STATE["enabled"] = True
+        await ctx.message.delete()
+        await ctx.send("🟢 Bot reativado. Comandos voltando ao normal.")

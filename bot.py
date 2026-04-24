@@ -22,6 +22,7 @@ from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
 from core.utils.discord_helpers import resolve_member
 from domain.models import LobbySession
 from services.lobby_service import close_session
+from ui.commands.admin_commands import is_bot_enabled
 from ui.commands.lobby_commands import setup_lobby_commands
 from ui.commands.score_commands import setup_score_commands
 from ui.commands.score_helpers import build_ocr_job_summary_text
@@ -163,6 +164,11 @@ async def on_message(message: discord.Message):
 
     if not message.content.startswith(bot.command_prefix):
         return
+
+    if not is_bot_enabled():
+        cmd = message.content.strip().lstrip("!").split()[0].lower() if message.content.strip() else ""
+        if cmd not in {"ligarbot", "boton", "ativarbot"}:
+            return
 
     if message.guild:
         allowed_channel = get_list_channel(message.guild.id)
