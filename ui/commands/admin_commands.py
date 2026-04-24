@@ -351,7 +351,7 @@ def setup_admin_commands(bot: commands.Bot):
         hoje = date.today().strftime("%d/%m/%Y")
 
         nomes = []
-        for aid in ADMIN_IDS:
+        for aid in ADMIN_IDS[:2]:
             member = ctx.guild.get_member(aid) if ctx.guild else None
             nomes.append(member.display_name if member else str(aid))
         investigados = ", ".join(nomes)
