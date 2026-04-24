@@ -342,3 +342,30 @@ def setup_admin_commands(bot: commands.Bot):
         BOT_STATE["enabled"] = True
         await ctx.message.delete()
         await ctx.send("🟢 Bot reativado. Comandos voltando ao normal.")
+
+    @bot.command(name="cpi")
+    async def cmd_cpi(ctx: commands.Context):
+        from datetime import date
+        await ctx.message.delete()
+
+        mencoes = " ".join(f"<@{aid}>" for aid in ADMIN_IDS if aid)
+        hoje = date.today().strftime("%d/%m/%Y")
+
+        msg = (
+            f"⚖️ **SUPREMO TRIBUNAL FEDERAL**\n"
+            f"*Brasília, {hoje} — Plenário Virtual*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"**INQUÉRITO Nº 0069/2025 — OPERAÇÃO FUMOS GATE**\n\n"
+            f"O Ministro Relator, após análise minuciosa e cautelosa dos autos, "
+            f"**determina a convocação imediata** dos seguintes investigados para prestar esclarecimentos "
+            f"sobre irregularidades gravíssimas na condução da liga interna de Dota 2:\n\n"
+            f"{mencoes}\n\n"
+            f"*\"As evidências são absolutamente contundentes. "
+            f"O réu sabia, o réu mandou, o réu pagou e o réu ainda perdeu de Sniper. "
+            f"Isso é inaceitável num Estado Democrático de Direito.\"*\n\n"
+            f"— **Min. Alexandre de Fumos**\n"
+            f"*Supremo Tribunal Federal — 1ª Turma da Derrota*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔨 *O silêncio pode ser usado contra você no ranking.*"
+        )
+        await ctx.send(msg)
