@@ -348,8 +348,13 @@ def setup_admin_commands(bot: commands.Bot):
         from datetime import date
         await ctx.message.delete()
 
-        mencoes = " ".join(f"<@{aid}>" for aid in ADMIN_IDS if aid)
         hoje = date.today().strftime("%d/%m/%Y")
+
+        nomes = []
+        for aid in ADMIN_IDS:
+            member = ctx.guild.get_member(aid) if ctx.guild else None
+            nomes.append(member.display_name if member else str(aid))
+        investigados = ", ".join(nomes)
 
         msg = (
             f"⚖️ **SUPREMO TRIBUNAL FEDERAL**\n"
@@ -359,7 +364,7 @@ def setup_admin_commands(bot: commands.Bot):
             f"O Ministro Relator, após análise minuciosa e cautelosa dos autos, "
             f"**determina a convocação imediata** dos seguintes investigados para prestar esclarecimentos "
             f"sobre irregularidades gravíssimas na condução da liga interna de Dota 2:\n\n"
-            f"{mencoes}\n\n"
+            f"**{investigados}**\n\n"
             f"*\"As evidências são absolutamente contundentes. "
             f"O réu sabia, o réu mandou, o réu pagou e o réu ainda perdeu de Sniper. "
             f"Isso é inaceitável num Estado Democrático de Direito.\"*\n\n"
