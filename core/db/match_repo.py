@@ -1208,16 +1208,52 @@ def get_mvp_award_stats() -> dict:
             LIMIT 1
         """).fetchone()
 
+        worst_winrate = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   COUNT(*) AS games,
+                   SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                   CAST(SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS REAL)
+                       / COUNT(*) * 100 AS winrate
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 5
+            ORDER BY winrate ASC, wins ASC
+            LIMIT 1
+        """).fetchone()
+
+        worst_kda = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   COUNT(*) AS games,
+                   SUM(mp.kills) AS total_kills,
+                   SUM(mp.deaths) AS total_deaths,
+                   SUM(mp.assists) AS total_assists,
+                   CAST(SUM(mp.kills) + SUM(mp.assists) AS REAL)
+                       / NULLIF(SUM(mp.deaths), 0) AS kda_ratio
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+              AND mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 5 AND SUM(mp.deaths) > 0
+            ORDER BY kda_ratio ASC
+            LIMIT 1
+        """).fetchone()
+
     def _make(row, **extra):
         if row is None:
             return None
         return {"display_name": str(row["display_name"]), "games": row["games"], **extra}
 
     return {
-        "top_killer":  _make(top_killer,  value=int(top_killer["total_value"] or 0))  if top_killer  else None,
-        "top_deaths":  _make(top_deaths,  value=int(top_deaths["total_value"] or 0))  if top_deaths  else None,
-        "top_assists": _make(top_assists, value=int(top_assists["total_value"] or 0)) if top_assists else None,
-        "top_winrate": _make(top_winrate, value=float(top_winrate["winrate"] or 0), wins=int(top_winrate["wins"] or 0)) if top_winrate else None,
+        "top_killer":    _make(top_killer,  value=int(top_killer["total_value"] or 0))  if top_killer  else None,
+        "top_deaths":    _make(top_deaths,  value=int(top_deaths["total_value"] or 0))  if top_deaths  else None,
+        "top_assists":   _make(top_assists, value=int(top_assists["total_value"] or 0)) if top_assists else None,
+        "top_winrate":   _make(top_winrate, value=float(top_winrate["winrate"] or 0), wins=int(top_winrate["wins"] or 0)) if top_winrate else None,
         "top_kda": _make(
             top_kda,
             kills=int(top_kda["total_kills"] or 0),
@@ -1225,6 +1261,14 @@ def get_mvp_award_stats() -> dict:
             assists=int(top_kda["total_assists"] or 0),
             kda_ratio=float(top_kda["kda_ratio"] or 0),
         ) if top_kda else None,
+        "worst_winrate": _make(worst_winrate, value=float(worst_winrate["winrate"] or 0), wins=int(worst_winrate["wins"] or 0)) if worst_winrate else None,
+        "worst_kda": _make(
+            worst_kda,
+            kills=int(worst_kda["total_kills"] or 0),
+            deaths=int(worst_kda["total_deaths"] or 0),
+            assists=int(worst_kda["total_assists"] or 0),
+            kda_ratio=float(worst_kda["kda_ratio"] or 0),
+        ) if worst_kda else None,
     }
 
 

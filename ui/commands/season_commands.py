@@ -11,6 +11,7 @@ from core.db.match_repo import (
     get_season_summary_stats,
     get_mvp_award_stats,
     get_pairwise_head_to_head,
+    get_match_duration_extremes,
 )
 from core.utils.time import format_brazil_time
 
@@ -94,6 +95,32 @@ def setup_season_commands(bot: commands.Bot):
                 inline=False,
             )
 
+        has_anti = awards["worst_winrate"] or awards["worst_kda"]
+        if has_anti:
+            embed.add_field(name="— — — — — — — — —", value="🚨 **Anti-Prêmios**", inline=False)
+
+        if awards["worst_winrate"]:
+            a = awards["worst_winrate"]
+            losses = a["games"] - a["wins"]
+            embed.add_field(
+                name="📉 Pior Winrate",
+                value=f"**{a['display_name']}** — {a['value']:.1f}% WR ({a['wins']}V/{losses}D em {a['games']} jogos)",
+                inline=False,
+            )
+
+        if awards["worst_kda"]:
+            a = awards["worst_kda"]
+            n = a["games"]
+            embed.add_field(
+                name="🪦 Pior KDA Médio",
+                value=(
+                    f"**{a['display_name']}** — "
+                    f"{a['kills']/n:.1f}/{a['deaths']/n:.1f}/{a['assists']/n:.1f} "
+                    f"em {n} jogos (ratio {a['kda_ratio']:.2f})"
+                ),
+                inline=False,
+            )
+
         embed.set_footer(text="Mínimo 3 jogos para kills/mortes/assists · mínimo 5 para winrate e KDA")
         await ctx.send(embed=embed)
 
@@ -152,6 +179,23 @@ def setup_season_commands(bot: commands.Bot):
                     f"{p['wins']}V/{p['losses']}D · {wr:.0f}% WR"
                 )
             embed.add_field(name="🏆 Pódio Final", value="\n".join(podium), inline=False)
+
+        durations = get_match_duration_extremes(min_seconds=60)
+        fastest = durations["fastest"][:1]
+        longest = durations["longest"][:1]
+        if fastest or longest:
+            dur_lines = []
+            if fastest:
+                m = fastest[0]
+                score = f" · {m['score_radiant']}×{m['score_dire']}" if m.get("score_radiant") is not None else ""
+                winner = (m["winner_team"] or "?").title()
+                dur_lines.append(f"💥 Maior stomp: `#{m['league_match_id']}` · **{m['display_duration']}** · {winner}{score}")
+            if longest:
+                m = longest[0]
+                score = f" · {m['score_radiant']}×{m['score_dire']}" if m.get("score_radiant") is not None else ""
+                winner = (m["winner_team"] or "?").title()
+                dur_lines.append(f"🐢 Partida épica: `#{m['league_match_id']}` · **{m['display_duration']}** · {winner}{score}")
+            embed.add_field(name="⏱️ Recordes de Duração", value="\n".join(dur_lines), inline=False)
 
         if stats["first_match"] and stats["last_match"]:
             try:
