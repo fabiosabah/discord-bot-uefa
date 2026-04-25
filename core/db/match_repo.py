@@ -1066,3 +1066,201 @@ def diagnose_and_fix_kda_data(fix: bool = False) -> dict:
                 conn.execute(f"UPDATE match_players SET {col} = 0 WHERE {col} IS NOT NULL AND typeof({col}) != 'integer'")
             conn.commit()
     return {"bad_rows": results, "fixed": fix and len(results) > 0}
+
+
+# ─────────────────────────────────────────────
+# Season summary / awards
+# ─────────────────────────────────────────────
+
+def get_season_summary_stats() -> dict:
+    with get_connection() as conn:
+        match_row = conn.execute("""
+            SELECT COUNT(*) AS total_matches,
+                   MIN(created_at) AS first_match,
+                   MAX(created_at) AS last_match
+            FROM matches
+        """).fetchone()
+
+        player_row = conn.execute("""
+            SELECT COUNT(DISTINCT discord_id) AS count
+            FROM match_players
+            WHERE discord_id IS NOT NULL
+        """).fetchone()
+
+        kda_row = conn.execute("""
+            SELECT SUM(kills) AS total_kills,
+                   SUM(deaths) AS total_deaths,
+                   SUM(assists) AS total_assists
+            FROM match_players
+            WHERE kills IS NOT NULL
+        """).fetchone()
+
+        hero_row = conn.execute("""
+            SELECT hero_name, COUNT(*) AS picks
+            FROM match_players
+            WHERE hero_name IS NOT NULL AND hero_name != ''
+            GROUP BY hero_name
+            ORDER BY picks DESC
+            LIMIT 1
+        """).fetchone()
+
+        duration_rows = conn.execute("""
+            SELECT duration FROM matches
+            WHERE duration IS NOT NULL AND duration != ''
+        """).fetchall()
+
+    total_seconds = sum(
+        s for d in duration_rows
+        if (s := _duration_to_seconds(d["duration"])) is not None
+    )
+
+    return {
+        "total_matches":  match_row["total_matches"] or 0,
+        "first_match":    match_row["first_match"],
+        "last_match":     match_row["last_match"],
+        "total_players":  player_row["count"] or 0,
+        "total_kills":    kda_row["total_kills"] or 0,
+        "total_deaths":   kda_row["total_deaths"] or 0,
+        "total_assists":  kda_row["total_assists"] or 0,
+        "top_hero":       hero_row["hero_name"] if hero_row else None,
+        "top_hero_picks": hero_row["picks"] if hero_row else 0,
+        "total_seconds":  total_seconds,
+    }
+
+
+def get_mvp_award_stats() -> dict:
+    with get_connection() as conn:
+        top_killer = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   SUM(mp.kills) AS total_value,
+                   COUNT(DISTINCT mp.league_match_id) AS games
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL AND mp.kills IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 3
+            ORDER BY total_value DESC
+            LIMIT 1
+        """).fetchone()
+
+        top_deaths = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   SUM(mp.deaths) AS total_value,
+                   COUNT(DISTINCT mp.league_match_id) AS games
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL AND mp.deaths IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 3
+            ORDER BY total_value DESC
+            LIMIT 1
+        """).fetchone()
+
+        top_assists = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   SUM(mp.assists) AS total_value,
+                   COUNT(DISTINCT mp.league_match_id) AS games
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL AND mp.assists IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 3
+            ORDER BY total_value DESC
+            LIMIT 1
+        """).fetchone()
+
+        top_winrate = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   COUNT(*) AS games,
+                   SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                   CAST(SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS REAL)
+                       / COUNT(*) * 100 AS winrate
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 5
+            ORDER BY winrate DESC, wins DESC
+            LIMIT 1
+        """).fetchone()
+
+        top_kda = conn.execute("""
+            SELECT mp.discord_id,
+                   COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                   COUNT(*) AS games,
+                   SUM(mp.kills) AS total_kills,
+                   SUM(mp.deaths) AS total_deaths,
+                   SUM(mp.assists) AS total_assists,
+                   CAST(SUM(mp.kills) + SUM(mp.assists) AS REAL)
+                       / NULLIF(SUM(mp.deaths), 0) AS kda_ratio
+            FROM match_players mp
+            LEFT JOIN players p ON p.discord_id = mp.discord_id
+            WHERE mp.discord_id IS NOT NULL
+              AND mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL
+            GROUP BY mp.discord_id
+            HAVING games >= 5
+            ORDER BY kda_ratio DESC
+            LIMIT 1
+        """).fetchone()
+
+    def _make(row, **extra):
+        if row is None:
+            return None
+        return {"display_name": str(row["display_name"]), "games": row["games"], **extra}
+
+    return {
+        "top_killer":  _make(top_killer,  value=int(top_killer["total_value"] or 0))  if top_killer  else None,
+        "top_deaths":  _make(top_deaths,  value=int(top_deaths["total_value"] or 0))  if top_deaths  else None,
+        "top_assists": _make(top_assists, value=int(top_assists["total_value"] or 0)) if top_assists else None,
+        "top_winrate": _make(top_winrate, value=float(top_winrate["winrate"] or 0), wins=int(top_winrate["wins"] or 0)) if top_winrate else None,
+        "top_kda": _make(
+            top_kda,
+            kills=int(top_kda["total_kills"] or 0),
+            deaths=int(top_kda["total_deaths"] or 0),
+            assists=int(top_kda["total_assists"] or 0),
+            kda_ratio=float(top_kda["kda_ratio"] or 0),
+        ) if top_kda else None,
+    }
+
+
+def get_pairwise_head_to_head(discord_ids: list[int]) -> dict:
+    """Returns head-to-head results for all pairs from discord_ids who faced each other.
+    Key: (id_low, id_high) where id_low < id_high.
+    Value: {wins_low, wins_high, total}.
+    """
+    if len(discord_ids) < 2:
+        return {}
+    placeholders = ",".join("?" * len(discord_ids))
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT
+                a.discord_id  AS id_low,
+                b.discord_id  AS id_high,
+                a.team        AS team_low,
+                m.winner_team
+            FROM match_players a
+            JOIN match_players b
+                ON  b.league_match_id = a.league_match_id
+                AND b.team           != a.team
+                AND a.discord_id      < b.discord_id
+            JOIN matches m ON m.league_match_id = a.league_match_id
+            WHERE a.discord_id IN ({placeholders})
+              AND b.discord_id IN ({placeholders})
+        """, discord_ids + discord_ids).fetchall()
+
+    result: dict = {}
+    for row in rows:
+        key = (row["id_low"], row["id_high"])
+        if key not in result:
+            result[key] = {"wins_low": 0, "wins_high": 0, "total": 0}
+        result[key]["total"] += 1
+        if row["winner_team"] == row["team_low"]:
+            result[key]["wins_low"] += 1
+        else:
+            result[key]["wins_high"] += 1
+    return result
