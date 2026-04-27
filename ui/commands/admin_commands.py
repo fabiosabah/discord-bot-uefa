@@ -16,10 +16,15 @@ from ui.commands.score_helpers import is_admin
 audit_logger = logging.getLogger("Audit")
 
 BOT_STATE: dict = {"enabled": True}
+SEASON_STATE: dict = {"active": True}
 
 
 def is_bot_enabled() -> bool:
     return BOT_STATE["enabled"]
+
+
+def is_season_active() -> bool:
+    return SEASON_STATE["active"]
 
 
 def setup_admin_commands(bot: commands.Bot):
@@ -344,6 +349,32 @@ def setup_admin_commands(bot: commands.Bot):
         BOT_STATE["enabled"] = True
         await ctx.message.delete()
         await ctx.send("🟢 Bot reativado. Comandos voltando ao normal.")
+
+    @bot.command(name="fechartemporada", aliases=["temporadaoff", "fimdetemporada"])
+    async def cmd_season_off(ctx: commands.Context):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if not SEASON_STATE["active"]:
+            await ctx.send("⚠️ A temporada já está encerrada.", delete_after=8)
+            return
+        SEASON_STATE["active"] = False
+        await ctx.message.delete()
+        await ctx.send("🏁 Temporada encerrada. Novas listas estão desativadas.")
+
+    @bot.command(name="abrirtemporada", aliases=["temporadaon", "novaTemporada"])
+    async def cmd_season_on(ctx: commands.Context):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if SEASON_STATE["active"]:
+            await ctx.send("⚠️ A temporada já está ativa.", delete_after=8)
+            return
+        SEASON_STATE["active"] = True
+        await ctx.message.delete()
+        await ctx.send("🟢 Nova temporada iniciada. Listas liberadas.")
 
     @bot.command(name="exportar", aliases=["exportarpartidas", "exportdb"])
     async def cmd_exportar(ctx: commands.Context):

@@ -9,6 +9,7 @@ from ui.views.lobby_view import LobbyView
 from services.lobby_service import close_session
 from services.state import get_next_id
 from core.config import ADMIN_IDS, is_admin
+from ui.commands.admin_commands import is_season_active
 from core.db.lobby_repo import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session, get_lobby_sessions
 
 logger = logging.getLogger("LobbyCommands")
@@ -173,6 +174,11 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
     @bot.command(name="lista", aliases=["lobby", "inhouse"])
     async def open_list(ctx: commands.Context):
+        if not is_season_active():
+            await ctx.message.delete()
+            await ctx.send("🏁 A temporada já encerrou. Novas listas estão desativadas.", delete_after=15)
+            return
+
         await _cleanup_stale_lobbies()
 
         restored_session = await _try_restore_saved_guild_lobby(ctx)
