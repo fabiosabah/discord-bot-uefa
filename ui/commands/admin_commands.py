@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+import io
 import logging
+from datetime import datetime
 
 import discord
 from discord.ext import commands
@@ -342,6 +344,108 @@ def setup_admin_commands(bot: commands.Bot):
         BOT_STATE["enabled"] = True
         await ctx.message.delete()
         await ctx.send("🟢 Bot reativado. Comandos voltando ao normal.")
+
+    @bot.command(name="exportar", aliases=["exportarpartidas", "exportdb"])
+    async def cmd_exportar(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            await ctx.send("❌ `openpyxl` não está instalado no servidor. Adicione ao requirements.txt e faça redeploy.")
+            return
+
+        await ctx.message.delete()
+        status_msg = await ctx.send("⏳ Gerando planilha...")
+
+        from core.db.connection import get_connection
+
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT
+                    m.league_match_id,
+                    m.external_match_id,
+                    m.match_datetime,
+                    m.winner_team,
+                    m.duration,
+                    m.score_radiant,
+                    m.score_dire,
+                    mp.slot,
+                    mp.player_name,
+                    COALESCE(p.display_name, mp.player_name) AS display_name,
+                    mp.team,
+                    mp.hero_name,
+                    mp.kills,
+                    mp.deaths,
+                    mp.assists,
+                    mp.networth,
+                    CASE WHEN mp.team = m.winner_team THEN 'win' ELSE 'loss' END AS resultado,
+                    m.created_at
+                FROM matches m
+                JOIN match_players mp ON mp.league_match_id = m.league_match_id
+                LEFT JOIN players p ON p.discord_id = mp.discord_id
+                ORDER BY m.league_match_id ASC, mp.slot ASC
+            """).fetchall()
+
+        HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
+        HEADER_FONT = Font(color="FFFFFF", bold=True)
+        ALT_FILL = PatternFill("solid", fgColor="D6E4F0")
+        WIN_FILL = PatternFill("solid", fgColor="C6EFCE")
+        LOSS_FILL = PatternFill("solid", fgColor="FFC7CE")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Partidas"
+
+        headers = [
+            "Partida #", "Match ID Externo", "Data/Hora", "Time Vencedor",
+            "Duração", "Placar Radiant", "Placar Dire",
+            "Slot", "Nick no jogo", "Nome Discord", "Time",
+            "Herói", "Kills", "Deaths", "Assists", "Networth", "Resultado", "Registrado em"
+        ]
+
+        for col_idx, header in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = Alignment(horizontal="center")
+
+        for row_idx, row in enumerate(rows, start=2):
+            values = list(row)
+            for col_idx, value in enumerate(values, start=1):
+                ws.cell(row=row_idx, column=col_idx, value=value)
+
+            resultado = row["resultado"]
+            fill = WIN_FILL if resultado == "win" else LOSS_FILL
+            result_col = headers.index("Resultado") + 1
+            ws.cell(row=row_idx, column=result_col).fill = fill
+
+            if row_idx % 2 == 0:
+                for col_idx in range(1, len(headers) + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    if not cell.fill or cell.fill.fgColor.rgb in ("00000000", "FFFFFFFF"):
+                        cell.fill = ALT_FILL
+
+        col_widths = [10, 18, 20, 15, 10, 14, 12, 6, 20, 20, 10, 20, 8, 8, 8, 12, 10, 20]
+        for col_idx, width in enumerate(col_widths, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        ws.freeze_panes = "A2"
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"partidas_{timestamp}.xlsx"
+
+        await status_msg.edit(content=f"✅ {len(rows)} registros exportados.")
+        await ctx.send(file=discord.File(buffer, filename=filename))
 
     @bot.command(name="cpi")
     async def cmd_cpi(ctx: commands.Context):
