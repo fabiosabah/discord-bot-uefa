@@ -3,7 +3,7 @@ import asyncio
 import discord
 from datetime import datetime, timedelta
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
-from core.db.player_repo import get_captains_from_list
+from core.db.player_repo import get_captains_from_list, _CAPTAIN_FALLBACK_THRESHOLD
 
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0
@@ -112,26 +112,30 @@ class LobbySession:
         return len(self.players) >= MAX_PLAYERS
 
     def _get_captains_field(self) -> str | None:
-        """
-        Retorna a string dos capitães se houver pelo menos 2 jogadores na lista.
-        Busca os 2 melhores no banco dentre os IDs presentes.
-        """
         if len(self.players) < 2:
             return None
 
         present_ids = list(self.player_ids)
-
-        captains_data = get_captains_from_list(present_ids)
+        result = get_captains_from_list(present_ids)
+        captains_data = result["captains"]
+        is_fallback = result["is_fallback"]
+        season_used = result["season_used"]
+        current_season = result["current_season"]
+        match_count = result["match_count"]
+        remaining = _CAPTAIN_FALLBACK_THRESHOLD - match_count
 
         if len(captains_data) < 2:
             captain_a = self.players[0]
             captain_b = self.players[1]
-            return (
-                f"👑 **Capitães Definidos:**\n"
-                f"🔵 Time A: {captain_a.mention}\n"
-                f"🔴 Time B: {captain_b.mention}\n"
-                f"*(Baseado em ordem de entrada - sem dados no banco)*"
-            )
+            lines = [
+                f"👑 **Capitães Definidos:**",
+                f"🔵 Time A: {captain_a.mention}",
+                f"🔴 Time B: {captain_b.mention}",
+                f"*(Baseado em ordem de entrada — sem dados no banco)*",
+            ]
+            if is_fallback:
+                lines.append(f"⚠️ *Usando dados da Temporada {season_used} — ainda faltam {remaining} partida(s) na T{current_season} para usar os dados desta temporada.*")
+            return "\n".join(lines)
 
         cap_a = captains_data[0]
         cap_b = captains_data[1]
@@ -142,11 +146,16 @@ class LobbySession:
         if not member_a or not member_b:
             return None
 
-        return (
-            f"👑 **Capitães Definidos:**\n"
-            f"🔵 Time A: {member_a.mention} ({cap_a['points']} pts | {cap_a['wins']}V)\n"
-            f"🔴 Time B: {member_b.mention} ({cap_b['points']} pts | {cap_b['wins']}V)"
-        )
+        lines = [
+            f"👑 **Capitães Definidos:**",
+            f"🔵 Time A: {member_a.mention} ({cap_a['points']} pts | {cap_a['wins']}V)",
+            f"🔴 Time B: {member_b.mention} ({cap_b['points']} pts | {cap_b['wins']}V)",
+        ]
+        if is_fallback:
+            lines.append(f"⚠️ *Usando dados da Temporada {season_used} — ainda faltam {remaining} partida(s) na T{current_season} para usar os dados desta temporada.*")
+        elif current_season > 1 and match_count == _CAPTAIN_FALLBACK_THRESHOLD:
+            lines.append(f"🎉 *A partir de agora os capitães são definidos pelos dados da Temporada {current_season}!*")
+        return "\n".join(lines)
 
     def build_embed(self) -> discord.Embed:
         filled = len(self.players)

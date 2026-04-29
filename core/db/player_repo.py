@@ -74,15 +74,25 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
 
 _CAPTAIN_FALLBACK_THRESHOLD = 5
 
-def get_captains_from_list(player_ids: list[int]) -> list[dict]:
-    if not player_ids:
-        return []
+def get_captains_from_list(player_ids: list[int]) -> dict:
+    """
+    Returns {
+        "captains": list[dict],
+        "season_used": int,
+        "current_season": int,
+        "match_count": int,   # matches in current season
+        "is_fallback": bool,
+    }
+    """
     from core.db.season_repo import get_current_season
-    season = get_current_season()
+    current_season = get_current_season()
+    if not player_ids:
+        return {"captains": [], "season_used": current_season, "current_season": current_season, "match_count": 0, "is_fallback": False}
     with get_connection() as conn:
         match_count = conn.execute(
-            "SELECT COUNT(*) FROM matches WHERE season = ?", (season,)
+            "SELECT COUNT(*) FROM matches WHERE season = ?", (current_season,)
         ).fetchone()[0]
+    season = current_season
     if match_count < _CAPTAIN_FALLBACK_THRESHOLD and season > 1:
         season = season - 1
     win_pts = 2 if season >= 2 else 3
@@ -103,7 +113,13 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
             ORDER BY points DESC, wins DESC
             LIMIT 2
         """, player_ids + [season]).fetchall()
-    return [dict(r) for r in rows]
+    return {
+        "captains": [dict(r) for r in rows],
+        "season_used": season,
+        "current_season": current_season,
+        "match_count": match_count,
+        "is_fallback": season != current_season,
+    }
 
 
 def add_player_alias(discord_id: int, alias: str) -> None:
