@@ -315,7 +315,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         admins_text = ", ".join(admin_mentions) if admin_mentions else "Nenhum administrador configurado no .env"
 
         embed.add_field(
-            name="👑 Administradores da Liga",
+            name="👑 Admininastores da Liga",
             value=f"Os seguintes usuários têm permissão administrativa:\n{admins_text}",
             inline=False
         )

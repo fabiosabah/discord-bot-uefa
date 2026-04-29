@@ -579,7 +579,7 @@ def setup_admin_commands(bot: commands.Bot):
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
         db_admins = list_admins_db()
-        embed = discord.Embed(title="🛡️ Administradores", color=discord.Color.blue())
+        embed = discord.Embed(title="🛡️ Admininastores", color=discord.Color.blue())
 
         original = "\n".join(f"⭐ <@{aid}>" for aid in ADMIN_IDS) or "Nenhum"
         embed.add_field(name="Originais (env)", value=original, inline=False)
