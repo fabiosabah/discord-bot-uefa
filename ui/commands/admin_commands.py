@@ -534,8 +534,8 @@ def setup_admin_commands(bot: commands.Bot):
 
     @bot.command(name="addadmin", aliases=["adicionaradmin"])
     async def cmd_add_admin(ctx: commands.Context, member: discord.Member):
-        if not is_admin(ctx.author.id):
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
+        if ctx.author.id not in ADMIN_IDS:
+            await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
             return
         if member.id in ADMIN_IDS:
             await ctx.send(f"⚠️ **{member.display_name}** já é um administrador original.", delete_after=5)
@@ -545,8 +545,8 @@ def setup_admin_commands(bot: commands.Bot):
 
     @bot.command(name="removeradmin", aliases=["removeadmin", "removadmin"])
     async def cmd_remover_admin(ctx: commands.Context, member: discord.Member):
-        if not is_admin(ctx.author.id):
-            await ctx.send("❌ Apenas administradores.", delete_after=5)
+        if ctx.author.id not in ADMIN_IDS:
+            await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
             return
         if member.id in ADMIN_IDS:
             await ctx.send(f"❌ Não é possível remover um administrador original via comando.", delete_after=5)
