@@ -142,6 +142,22 @@ def init_db() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_admins (
+                discord_id   INTEGER PRIMARY KEY,
+                display_name TEXT    NOT NULL,
+                added_at     TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pagantes (
+                discord_id   INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                season       INTEGER NOT NULL DEFAULT 1,
+                registered_at TEXT   NOT NULL,
+                PRIMARY KEY (discord_id, season)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS matches (
                 league_match_id   INTEGER PRIMARY KEY,
                 match_hash        TEXT    UNIQUE NOT NULL,
@@ -282,6 +298,22 @@ def migrate_db() -> None:
             CREATE TABLE IF NOT EXISTS bot_config (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_admins (
+                discord_id   INTEGER PRIMARY KEY,
+                display_name TEXT    NOT NULL,
+                added_at     TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pagantes (
+                discord_id   INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                season       INTEGER NOT NULL DEFAULT 1,
+                registered_at TEXT   NOT NULL,
+                PRIMARY KEY (discord_id, season)
             )
         """)
 

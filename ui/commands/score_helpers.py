@@ -7,13 +7,14 @@ import discord
 from discord.ext import commands
 
 from core.config import ADMIN_IDS
+from core.db.admins_repo import is_admin_db
 from core.db.audit_repo import get_last_update
 from core.db.ocr_repo import get_match_screenshot, set_match_screenshot_status
 from core.utils.time import format_brazil_time, relative_time
 
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    return user_id in ADMIN_IDS or is_admin_db(user_id)
 
 
 def winrate_tier(winrate: float) -> str:

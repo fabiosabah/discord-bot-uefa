@@ -7,9 +7,11 @@ import discord
 from discord.ext import commands
 
 from core.config import IMAGE_CHANNEL_ID, ADMIN_IDS
+from core.db.admins_repo import add_admin_db, remove_admin_db, list_admins_db
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match
+from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.season_repo import get_current_season, set_current_season
 from ui.commands.score_helpers import is_admin
@@ -481,6 +483,103 @@ def setup_admin_commands(bot: commands.Bot):
 
         await status_msg.edit(content=f"✅ {len(rows)} registros exportados.")
         await ctx.send(file=discord.File(buffer, filename=filename))
+
+    # ──────────────────────────────────────────────────────────
+    # !addpagante / !removerpagante / !pagantes
+    # ──────────────────────────────────────────────────────────
+
+    @bot.command(name="addpagante", aliases=["pagou", "registrarpagante"])
+    async def cmd_add_pagante(ctx: commands.Context, member: discord.Member):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        season = get_current_season()
+        add_pagante(member.id, member.display_name, season)
+        await ctx.send(f"✅ **{member.display_name}** registrado como pagante da Temporada {season}.")
+
+    @bot.command(name="removerpagante", aliases=["removepagante", "naopagou"])
+    async def cmd_remover_pagante(ctx: commands.Context, member: discord.Member):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        season = get_current_season()
+        removed = remove_pagante(member.id, season)
+        if removed:
+            await ctx.send(f"✅ **{member.display_name}** removido dos pagantes da Temporada {season}.")
+        else:
+            await ctx.send(f"⚠️ **{member.display_name}** não estava na lista de pagantes da Temporada {season}.")
+
+    @bot.command(name="pagantes", aliases=["listarpagantes", "quempagou"])
+    async def cmd_list_pagantes(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        season = get_current_season()
+        pagantes_list = list_pagantes(season)
+        embed = discord.Embed(
+            title=f"💰 Pagantes — Temporada {season}",
+            color=discord.Color.green(),
+        )
+        if not pagantes_list:
+            embed.description = "Nenhum pagante registrado nesta temporada."
+        else:
+            nomes = "\n".join(
+                f"{i+1}. <@{p['discord_id']}> ({p['display_name']})"
+                for i, p in enumerate(pagantes_list)
+            )
+            embed.description = nomes
+            embed.set_footer(text=f"{len(pagantes_list)} pagante(s) registrado(s)")
+        await ctx.send(embed=embed)
+
+    # ──────────────────────────────────────────────────────────
+    # !addadmin / !removeradmin / !admins  (apenas super admins)
+    # ──────────────────────────────────────────────────────────
+
+    @bot.command(name="addadmin", aliases=["adicionaradmin"])
+    async def cmd_add_admin(ctx: commands.Context, member: discord.Member):
+        if ctx.author.id not in ADMIN_IDS:
+            await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
+            return
+        if member.id in ADMIN_IDS:
+            await ctx.send(f"⚠️ **{member.display_name}** já é um administrador original.", delete_after=5)
+            return
+        add_admin_db(member.id, member.display_name)
+        await ctx.send(f"✅ **{member.display_name}** adicionado como administrador.")
+
+    @bot.command(name="removeradmin", aliases=["removeadmin", "removadmin"])
+    async def cmd_remover_admin(ctx: commands.Context, member: discord.Member):
+        if ctx.author.id not in ADMIN_IDS:
+            await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
+            return
+        if member.id in ADMIN_IDS:
+            await ctx.send(f"❌ Não é possível remover um administrador original via comando.", delete_after=5)
+            return
+        removed = remove_admin_db(member.id)
+        if removed:
+            await ctx.send(f"✅ **{member.display_name}** removido dos administradores.")
+        else:
+            await ctx.send(f"⚠️ **{member.display_name}** não era um administrador registrado.")
+
+    @bot.command(name="admins", aliases=["listaradmins", "administradores"])
+    async def cmd_list_admins(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        db_admins = list_admins_db()
+        embed = discord.Embed(title="🛡️ Administradores", color=discord.Color.blue())
+
+        original = "\n".join(f"⭐ <@{aid}>" for aid in ADMIN_IDS) or "Nenhum"
+        embed.add_field(name="Originais (env)", value=original, inline=False)
+
+        if db_admins:
+            extras = "\n".join(
+                f"<@{a['discord_id']}> ({a['display_name']})" for a in db_admins
+            )
+            embed.add_field(name="Adicionados via comando", value=extras, inline=False)
+        else:
+            embed.add_field(name="Adicionados via comando", value="Nenhum", inline=False)
+
+        await ctx.send(embed=embed)
 
     @bot.command(name="cpi")
     async def cmd_cpi(ctx: commands.Context):

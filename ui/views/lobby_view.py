@@ -2,6 +2,7 @@
 import discord
 import logging
 from core.db.lobby_repo import save_lobby_session
+from core.db.pagantes_repo import is_pagante
 from domain.models import LobbySession
 from core.config import ADMIN_IDS
 from services.lobby_service import close_session
@@ -144,6 +145,14 @@ class LobbyView(discord.ui.View):
 
         if interaction.user.id in session.player_ids or interaction.user.id in session.waitlist_ids:
             await interaction.response.send_message("⚠️ Você já está na lista ou na espera!", ephemeral=True)
+            return
+
+        if not is_pagante(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ Você não está na lista de pagantes desta temporada.\n"
+                "Fale com um administrador para regularizar sua situação.",
+                ephemeral=True,
+            )
             return
 
         await interaction.response.defer()

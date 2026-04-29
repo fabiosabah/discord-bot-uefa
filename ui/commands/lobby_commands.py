@@ -8,7 +8,8 @@ from domain.models import LobbySession
 from ui.views.lobby_view import LobbyView
 from services.lobby_service import close_session
 from services.state import get_next_id
-from core.config import ADMIN_IDS, is_admin
+from core.config import ADMIN_IDS
+from ui.commands.score_helpers import is_admin
 from ui.commands.admin_commands import is_season_active
 from core.db.lobby_repo import get_list_channel, set_list_channel, clear_list_channel, save_lobby_session, delete_lobby_session, get_lobby_sessions
 
