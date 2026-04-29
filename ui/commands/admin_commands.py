@@ -509,6 +509,22 @@ def setup_admin_commands(bot: commands.Bot):
         else:
             await ctx.send(f"⚠️ **{member.display_name}** não estava na lista de pagantes da Temporada {season}.")
 
+    @bot.command(name="pix", aliases=["pagamento", "comopagor", "comopagar"])
+    async def cmd_pix(ctx: commands.Context):
+        season = get_current_season()
+        embed = discord.Embed(
+            title="💸 Como pagar a temporada",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Chave Pix", value="**(71) 99137-2724**", inline=False)
+        embed.add_field(name="Nome", value="**Luciano Souza de Oliveira**", inline=False)
+        embed.add_field(
+            name="Após pagar",
+            value="Mande o comprovante para um administrador e peça para ser adicionado na lista de pagantes da Temporada {season}.".format(season=season),
+            inline=False,
+        )
+        await ctx.send(embed=embed)
+
     @bot.command(name="pagantes", aliases=["listarpagantes", "quempagou"])
     async def cmd_list_pagantes(ctx: commands.Context):
         season = get_current_season()
