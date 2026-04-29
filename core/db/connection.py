@@ -177,7 +177,6 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_id ON match_players(discord_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_hero_name ON match_players(hero_name)")

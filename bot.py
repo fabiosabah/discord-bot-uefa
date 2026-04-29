@@ -97,8 +97,14 @@ async def restore_saved_lobby_sessions():
 
 @bot.event
 async def on_ready():
-    init_db()
-    migrate_db()
+    try:
+        init_db()
+    except Exception as e:
+        logger.exception(f"[DB] ERRO CRÍTICO em init_db(): {e}")
+    try:
+        migrate_db()
+    except Exception as e:
+        logger.exception(f"[DB] ERRO CRÍTICO em migrate_db(): {e}")
     logger.info(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
     print("-" * 40)
     for guild in bot.guilds:
