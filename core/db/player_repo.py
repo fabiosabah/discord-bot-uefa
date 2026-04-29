@@ -85,6 +85,7 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
         ).fetchone()[0]
     if match_count < _CAPTAIN_FALLBACK_THRESHOLD and season > 1:
         season = season - 1
+    win_pts = 2 if season >= 2 else 3
     placeholders = ', '.join(['?'] * len(player_ids))
     with get_connection() as conn:
         rows = conn.execute(f"""
@@ -93,7 +94,7 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
                 COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
                 SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
                 SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
-                SUM(CASE WHEN mp.team = m.winner_team THEN 3 ELSE -1 END) AS points
+                SUM(CASE WHEN mp.team = m.winner_team THEN {win_pts} ELSE -1 END) AS points
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id

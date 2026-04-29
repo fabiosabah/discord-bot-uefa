@@ -456,8 +456,9 @@ def get_match_by_season_match_id(season_match_id: int, season: int | None = None
 
 def get_ranking_from_matches() -> list[dict]:
     season = get_current_season()
+    win_pts = 2 if season >= 2 else 3
     with get_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT
                 mp.discord_id,
                 COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
@@ -470,7 +471,7 @@ def get_ranking_from_matches() -> list[dict]:
             WHERE mp.discord_id IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             ORDER BY
-                (SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) * 3
+                (SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) * {win_pts}
                  - SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END)) DESC,
                 wins DESC
         """, (season,)).fetchall()
@@ -480,7 +481,7 @@ def get_ranking_from_matches() -> list[dict]:
             "display_name": str(row["display_name"]),
             "wins":         row["wins"],
             "losses":       row["losses"],
-            "points":       row["wins"] * 3 - row["losses"],
+            "points":       row["wins"] * win_pts - row["losses"],
             "games":        row["games"],
         }
         for row in rows
