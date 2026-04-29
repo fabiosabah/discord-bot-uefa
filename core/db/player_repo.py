@@ -72,11 +72,19 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
     return mapping
 
 
+_CAPTAIN_FALLBACK_THRESHOLD = 5
+
 def get_captains_from_list(player_ids: list[int]) -> list[dict]:
     if not player_ids:
         return []
     from core.db.season_repo import get_current_season
     season = get_current_season()
+    with get_connection() as conn:
+        match_count = conn.execute(
+            "SELECT COUNT(*) FROM matches WHERE season = ?", (season,)
+        ).fetchone()[0]
+    if match_count < _CAPTAIN_FALLBACK_THRESHOLD and season > 1:
+        season = season - 1
     placeholders = ', '.join(['?'] * len(player_ids))
     with get_connection() as conn:
         rows = conn.execute(f"""
