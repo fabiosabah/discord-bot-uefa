@@ -75,6 +75,8 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
 def get_captains_from_list(player_ids: list[int]) -> list[dict]:
     if not player_ids:
         return []
+    from core.db.season_repo import get_current_season
+    season = get_current_season()
     placeholders = ', '.join(['?'] * len(player_ids))
     with get_connection() as conn:
         rows = conn.execute(f"""
@@ -87,11 +89,11 @@ def get_captains_from_list(player_ids: list[int]) -> list[dict]:
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IN ({placeholders})
+            WHERE mp.discord_id IN ({placeholders}) AND m.season = ?
             GROUP BY mp.discord_id
             ORDER BY points DESC, wins DESC
             LIMIT 2
-        """, player_ids).fetchall()
+        """, player_ids + [season]).fetchall()
     return [dict(r) for r in rows]
 
 

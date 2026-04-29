@@ -189,12 +189,12 @@ def setup_season_commands(bot: commands.Bot):
                 m = fastest[0]
                 score = f" · {m['score_radiant']}×{m['score_dire']}" if m.get("score_radiant") is not None else ""
                 winner = (m["winner_team"] or "?").title()
-                dur_lines.append(f"💥 Maior stomp: `#{m['league_match_id']}` · **{m['display_duration']}** · {winner}{score}")
+                dur_lines.append(f"💥 Maior stomp: `#{m['season_match_id']}` · **{m['display_duration']}** · {winner}{score}")
             if longest:
                 m = longest[0]
                 score = f" · {m['score_radiant']}×{m['score_dire']}" if m.get("score_radiant") is not None else ""
                 winner = (m["winner_team"] or "?").title()
-                dur_lines.append(f"🐢 Partida épica: `#{m['league_match_id']}` · **{m['display_duration']}** · {winner}{score}")
+                dur_lines.append(f"🐢 Partida épica: `#{m['season_match_id']}` · **{m['display_duration']}** · {winner}{score}")
             embed.add_field(name="⏱️ Recordes de Duração", value="\n".join(dur_lines), inline=False)
 
         if stats["first_match"] and stats["last_match"]:

@@ -22,6 +22,7 @@ from core.db.match_repo import (
     get_match_players_bulk,
 )
 from core.db.player_repo import get_player, find_player_by_display_name
+from core.db.season_repo import get_current_season
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
 from core.utils.time import format_brazil_time
 from ui.commands.score_helpers import is_admin, winrate_tier, build_footer
@@ -39,11 +40,12 @@ def setup_player_commands(bot: commands.Bot):
             await ctx.send("📋 Nenhum jogador registrado ainda nas partidas importadas.")
             return
 
+        season = get_current_season()
         streaks = get_streak_highlights_from_matches()
         cur_win_id  = streaks["current_win"]["discord_id"]
         cur_loss_id = streaks["current_loss"]["discord_id"]
 
-        embed = discord.Embed(title="🏆 Tabela do Campeonato", color=discord.Color.dark_gold())
+        embed = discord.Embed(title=f"🏆 Tabela — Temporada {season}", color=discord.Color.dark_gold())
 
         linhas = []
         for i, p in enumerate(ranking):
@@ -75,9 +77,9 @@ def setup_player_commands(bot: commands.Bot):
         if last:
             try:
                 ts = _dt.fromisoformat(last["created_at"])
-                last_text = f"📌 Última partida: #{last['league_match_id']} • {format_brazil_time(ts.isoformat())}"
+                last_text = f"📌 Última partida: #{last['season_match_id']} • {format_brazil_time(ts.isoformat())}"
             except Exception:
-                last_text = f"📌 Última partida: #{last['league_match_id']}"
+                last_text = f"📌 Última partida: #{last['season_match_id']}"
         else:
             last_text = "🕹️ Nenhuma partida importada ainda"
 
@@ -289,7 +291,7 @@ def setup_player_commands(bot: commands.Bot):
                 hero  = r["hero"] or "?"
                 k, d, a = r.get("kills"), r.get("deaths"), r.get("assists")
                 kda   = f"{k}/{d}/{a}" if k is not None and d is not None and a is not None else "?/?/?"
-                lines.append(f"{icon} `#{r['league_match_id']}` {hero} · {kda}")
+                lines.append(f"{icon} `#{r['season_match_id']}` {hero} · {kda}")
             embed.add_field(name="🕹️ Últimas 5 partidas", value="\n".join(lines), inline=False)
 
         embed.set_footer(text="Perfil gerado a partir de partidas importadas via OCR")
@@ -316,7 +318,7 @@ def setup_player_commands(bot: commands.Bot):
                     date = _dt.fromisoformat(r["created_at"]).strftime("%d/%m")
                 except Exception:
                     pass
-            lines.append(f"{icon} #{str(r['league_match_id']).ljust(4)} {hero} {kda.ljust(9)} {date}")
+            lines.append(f"{icon} #{str(r['season_match_id']).ljust(4)} {hero} {kda.ljust(9)} {date}")
 
         header = (
             f"📜 **Partidas de {target.display_name}** — {len(history)} partidas "
@@ -350,7 +352,7 @@ def setup_player_commands(bot: commands.Bot):
             hero  = (m["hero"] or "?").ljust(18)
             k, d, a = m.get("kills"), m.get("deaths"), m.get("assists")
             kda   = f"{k}/{d}/{a}" if k is not None and d is not None else "?/?/?"
-            lines.append(f"{icon} #{str(m['league_match_id']).ljust(4)} {hero} {kda}")
+            lines.append(f"{icon} #{str(m['season_match_id']).ljust(4)} {hero} {kda}")
 
         header = (
             f"📈 **Últimas {len(history)} partidas — {target.display_name}** "
@@ -393,7 +395,7 @@ def setup_player_commands(bot: commands.Bot):
                 score = f" · {m['score_radiant']}×{m['score_dire']}"
             winner  = (m["winner_team"] or "?").title()
             dur     = m.get("display_duration") or m["duration"]
-            name    = f"{prefix} `#{m['league_match_id']}` · {dur} · {winner}{score}"
+            name    = f"{prefix} `#{m['season_match_id']}` · {dur} · {winner}{score}"
             players = players_map.get(m["league_match_id"], [])
             lines   = [l for l in [
                 team_line(players, "radiant", m["winner_team"]),
@@ -529,7 +531,7 @@ def setup_player_commands(bot: commands.Bot):
             same = m["team_a"] == m["team_b"]
             ha   = (m["hero_a"] or "?")[:12]
             hb   = (m["hero_b"] or "?")[:12]
-            mid  = str(m["league_match_id"]).ljust(3)
+            mid  = str(m["season_match_id"]).ljust(3)
             if same:
                 icon = "✅" if m["winner_team"] == m["team_a"] else "❌"
                 lines.append(f"{icon}`#{mid}` {ha}+{hb}")
@@ -597,7 +599,7 @@ def setup_player_commands(bot: commands.Bot):
                 kda   = f"{k}/{d}/{a}" if k is not None and d is not None else "?/?/?"
                 team  = m["team"].title() if m["team"] else "?"
                 lines.append(
-                    f"{icon} **#{m['league_match_id']}** · {m['display_name']} ({team}) · `{kda}`"
+                    f"{icon} **#{m['season_match_id']}** · {m['display_name']} ({team}) · `{kda}`"
                 )
 
             field_chunks: list[list[str]] = [[]]

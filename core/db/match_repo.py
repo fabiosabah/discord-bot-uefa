@@ -9,6 +9,7 @@ from core.db.audit_repo import log_action
 from core.db.connection import get_connection, _sanitize_hero_name
 from core.db.ocr_repo import get_match_screenshot, set_match_screenshot_status
 from core.db.player_repo import resolve_player_names_exact, _get_player_alias_names
+from core.db.season_repo import get_current_season, get_next_season_match_id
 
 logger = logging.getLogger("Database")
 
@@ -18,6 +19,7 @@ logger = logging.getLogger("Database")
 # ─────────────────────────────────────────────
 
 def get_all_hero_stats_from_matches() -> list[dict]:
+    season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -27,9 +29,10 @@ def get_all_hero_stats_from_matches() -> list[dict]:
             FROM heroes h
             LEFT JOIN match_players mp ON mp.hero_name = h.name
             LEFT JOIN matches m        ON m.league_match_id = mp.league_match_id
+                                      AND m.season = ?
             GROUP BY h.name
             ORDER BY picks DESC, wins * 1.0 / NULLIF(COUNT(mp.id), 0) DESC
-        """).fetchall()
+        """, (season,)).fetchall()
     return [
         {
             "hero":    row["hero"],
@@ -42,10 +45,12 @@ def get_all_hero_stats_from_matches() -> list[dict]:
 
 
 def get_hero_match_history(hero_name: str) -> list[dict]:
+    season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
                 mp.league_match_id,
+                m.season_match_id,
                 mp.player_name,
                 mp.discord_id,
                 COALESCE(p.display_name, mp.player_name) AS display_name,
@@ -58,20 +63,21 @@ def get_hero_match_history(hero_name: str) -> list[dict]:
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.hero_name = ?
+            WHERE mp.hero_name = ? AND m.season = ?
             ORDER BY mp.league_match_id DESC
-        """, (hero_name,)).fetchall()
+        """, (hero_name, season)).fetchall()
     return [
         {
-            "league_match_id": row["league_match_id"],
-            "player_name":     row["player_name"],
-            "display_name":    str(row["display_name"]),
-            "team":            row["team"],
-            "kills":           row["kills"],
-            "deaths":          row["deaths"],
-            "assists":         row["assists"],
-            "result":          "win" if row["team"] == row["winner_team"] else "loss",
-            "created_at":      row["created_at"],
+            "league_match_id":  row["league_match_id"],
+            "season_match_id":  row["season_match_id"],
+            "player_name":      row["player_name"],
+            "display_name":     str(row["display_name"]),
+            "team":             row["team"],
+            "kills":            row["kills"],
+            "deaths":           row["deaths"],
+            "assists":          row["assists"],
+            "result":           "win" if row["team"] == row["winner_team"] else "loss",
+            "created_at":       row["created_at"],
         }
         for row in rows
     ]
@@ -219,8 +225,15 @@ def insert_ocr_match(
     parsed["match_hash"] = match_hash
     parsed["mapping"] = player_mapping
     set_match_screenshot_status(job_id, "imported", metadata=json.dumps(parsed, ensure_ascii=False))
-    logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id} league_match_id {league_match_id}")
-    return league_match_id
+
+    with get_connection() as conn:
+        smid_row = conn.execute(
+            "SELECT season_match_id FROM matches WHERE league_match_id = ?", (league_match_id,)
+        ).fetchone()
+    season_match_id = smid_row["season_match_id"] if smid_row else league_match_id
+
+    logger.info(f"[DB] OCR match importado job {job_id} → match_id {match_id} league_match_id {league_match_id} season_match_id {season_match_id}")
+    return season_match_id
 
 
 def insert_match_import(
@@ -289,6 +302,9 @@ def insert_league_match(
 ) -> int:
     from core.ocr import _normalize_team
 
+    season = get_current_season()
+    season_match_id = get_next_season_match_id(season)
+
     match_info = parsed.get("match_info") or parsed.get("game_details") or {}
     winner_team = _normalize_team((match_info.get("winner_team") or match_info.get("winner") or "").strip())
     duration = match_info.get("duration")
@@ -310,9 +326,9 @@ def insert_league_match(
     with get_connection() as conn:
         cursor = conn.execute(
             "INSERT OR IGNORE INTO matches "
-            "(match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (match_hash, external_match_id, winner_team, duration, match_datetime, radiant_score, dire_score, created_at),
+            "(match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at, season, season_match_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (match_hash, external_match_id, winner_team, duration, match_datetime, radiant_score, dire_score, created_at, season, season_match_id),
         )
         if cursor.rowcount == 0:
             row = conn.execute(
@@ -383,7 +399,7 @@ def insert_league_match(
 def get_match_by_league_id(league_match_id: int) -> dict | None:
     with get_connection() as conn:
         match_row = conn.execute(
-            "SELECT league_match_id, match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at "
+            "SELECT league_match_id, season_match_id, season, match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at "
             "FROM matches WHERE league_match_id = ?",
             (league_match_id,),
         ).fetchone()
@@ -396,6 +412,8 @@ def get_match_by_league_id(league_match_id: int) -> dict | None:
         ).fetchall()
     return {
         "league_match_id":  match_row["league_match_id"],
+        "season_match_id":  match_row["season_match_id"],
+        "season":           match_row["season"],
         "match_hash":        match_row["match_hash"],
         "external_match_id": match_row["external_match_id"],
         "match_info": {
@@ -423,7 +441,21 @@ def get_match_by_league_id(league_match_id: int) -> dict | None:
     }
 
 
+def get_match_by_season_match_id(season_match_id: int, season: int | None = None) -> dict | None:
+    if season is None:
+        season = get_current_season()
+    with get_connection() as conn:
+        match_row = conn.execute(
+            "SELECT league_match_id FROM matches WHERE season_match_id = ? AND season = ?",
+            (season_match_id, season),
+        ).fetchone()
+    if not match_row:
+        return None
+    return get_match_by_league_id(match_row["league_match_id"])
+
+
 def get_ranking_from_matches() -> list[dict]:
+    season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -435,13 +467,13 @@ def get_ranking_from_matches() -> list[dict]:
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             ORDER BY
                 (SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) * 3
                  - SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END)) DESC,
                 wins DESC
-        """).fetchall()
+        """, (season,)).fetchall()
     return [
         {
             "discord_id":   row["discord_id"],
@@ -456,9 +488,11 @@ def get_ranking_from_matches() -> list[dict]:
 
 
 def get_last_ocr_match_info() -> dict | None:
+    season = get_current_season()
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT league_match_id, created_at FROM matches ORDER BY league_match_id DESC LIMIT 1"
+            "SELECT league_match_id, season_match_id, created_at FROM matches WHERE season = ? ORDER BY league_match_id DESC LIMIT 1",
+            (season,),
         ).fetchone()
     return dict(row) if row else None
 
@@ -588,14 +622,15 @@ def _build_player_membership_clause(discord_id: int) -> tuple[str, tuple]:
 
 
 def get_player_match_stats_from_matches(discord_id: int) -> dict:
+    season = get_current_season()
     query = """
         SELECT mp.kills, mp.deaths, mp.assists, m.winner_team, mp.team
         FROM match_players mp
         JOIN matches m ON m.league_match_id = mp.league_match_id
-        WHERE mp.discord_id = ?
+        WHERE mp.discord_id = ? AND m.season = ?
     """
     with get_connection() as conn:
-        rows = conn.execute(query, (discord_id,)).fetchall()
+        rows = conn.execute(query, (discord_id, season)).fetchall()
 
     wins = losses = total_kills = total_deaths = total_assists = kda_rows = 0
     for row in rows:
@@ -623,21 +658,24 @@ def get_player_match_stats_from_matches(discord_id: int) -> dict:
 
 
 def get_player_top_heroes_from_matches(discord_id: int, limit: int = 5) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
         SELECT mp.hero_name AS hero, COUNT(*) AS plays
         FROM match_players mp
-        WHERE {membership_clause} AND mp.hero_name IS NOT NULL AND mp.hero_name != ''
+        JOIN matches m ON m.league_match_id = mp.league_match_id
+        WHERE {membership_clause} AND mp.hero_name IS NOT NULL AND mp.hero_name != '' AND m.season = ?
         GROUP BY mp.hero_name
         ORDER BY plays DESC, mp.hero_name ASC
         LIMIT ?
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (limit,)).fetchall()
+        rows = conn.execute(query, params + (season, limit)).fetchall()
     return [{"hero": r["hero"], "plays": r["plays"]} for r in rows]
 
 
 def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
         SELECT
@@ -646,19 +684,26 @@ def get_player_top_teammates_from_matches(discord_id: int, limit: int = 3) -> li
             COUNT(DISTINCT mp2.league_match_id) AS matches
         FROM match_players mp2
         JOIN players p ON p.discord_id = mp2.discord_id
+        JOIN matches m ON m.league_match_id = mp2.league_match_id
         WHERE mp2.discord_id IS NOT NULL
-          AND mp2.league_match_id IN (SELECT league_match_id FROM match_players mp WHERE {membership_clause})
+          AND m.season = ?
+          AND mp2.league_match_id IN (
+              SELECT mp.league_match_id FROM match_players mp
+              JOIN matches mi ON mi.league_match_id = mp.league_match_id
+              WHERE {membership_clause} AND mi.season = ?
+          )
           AND mp2.discord_id != ?
         GROUP BY mp2.discord_id
         ORDER BY matches DESC, display_name ASC
         LIMIT ?
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (discord_id, limit)).fetchall()
+        rows = conn.execute(query, (season,) + params + (season, discord_id, limit)).fetchall()
     return [{"discord_id": r["discord_id"], "display_name": r["display_name"], "count": r["matches"]} for r in rows]
 
 
 def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: int = 3) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
         SELECT
@@ -669,7 +714,12 @@ def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: i
         JOIN matches m ON m.league_match_id = mp2.league_match_id
         LEFT JOIN players p ON p.discord_id = mp2.discord_id
         WHERE mp2.discord_id IS NOT NULL
-          AND mp2.league_match_id IN (SELECT league_match_id FROM match_players mp WHERE {membership_clause})
+          AND m.season = ?
+          AND mp2.league_match_id IN (
+              SELECT mp.league_match_id FROM match_players mp
+              JOIN matches mi ON mi.league_match_id = mp.league_match_id
+              WHERE {membership_clause} AND mi.season = ?
+          )
           AND mp2.discord_id != ?
           AND ((? = 'win' AND mp2.team != m.winner_team) OR (? = 'loss' AND mp2.team = m.winner_team))
         GROUP BY mp2.discord_id
@@ -677,11 +727,12 @@ def get_player_top_opponents_from_matches(discord_id: int, result: str, limit: i
         LIMIT ?
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (discord_id, result, result, limit)).fetchall()
+        rows = conn.execute(query, (season,) + params + (season, discord_id, result, result, limit)).fetchall()
     return [{"discord_id": r["discord_id"], "display_name": r["display_name"], "count": r["matches"]} for r in rows]
 
 
 def get_player_top_heroes_with_winrate_from_matches(discord_id: int, limit: int = 5) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
         SELECT
@@ -691,23 +742,25 @@ def get_player_top_heroes_with_winrate_from_matches(discord_id: int, limit: int 
             CAST(SUM(CASE WHEN m.winner_team = mp.team THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100.0 AS winrate
         FROM match_players mp
         JOIN matches m ON m.league_match_id = mp.league_match_id
-        WHERE {membership_clause} AND mp.hero_name IS NOT NULL AND mp.hero_name != ''
+        WHERE {membership_clause} AND mp.hero_name IS NOT NULL AND mp.hero_name != '' AND m.season = ?
         GROUP BY mp.hero_name
         ORDER BY plays DESC, winrate DESC
         LIMIT ?
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (limit,)).fetchall()
+        rows = conn.execute(query, params + (season, limit)).fetchall()
     return [{"hero": r["hero"], "plays": r["plays"], "wins": r["wins"], "winrate": r["winrate"] or 0.0} for r in rows]
 
 
 def get_player_head_to_head_from_matches(discord_id: int) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
         WITH player_matches AS (
             SELECT DISTINCT mp.league_match_id, mp.team AS player_team
             FROM match_players mp
-            WHERE {membership_clause}
+            JOIN matches mi ON mi.league_match_id = mp.league_match_id
+            WHERE {membership_clause} AND mi.season = ?
         )
         SELECT
             opp.discord_id,
@@ -726,7 +779,7 @@ def get_player_head_to_head_from_matches(discord_id: int) -> list[dict]:
         GROUP BY opp.discord_id
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (discord_id,)).fetchall()
+        rows = conn.execute(query, params + (season, discord_id)).fetchall()
     return [
         {
             "discord_id":    row["discord_id"],
@@ -742,12 +795,14 @@ def get_player_head_to_head_from_matches(discord_id: int) -> list[dict]:
 def get_player_teammate_balance_from_matches(
     discord_id: int, min_games: int = 3, limit: int = 3
 ) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     query = f"""
         WITH player_games AS (
             SELECT DISTINCT mp.league_match_id, mp.team AS player_team
             FROM match_players mp
-            WHERE {membership_clause}
+            JOIN matches mi ON mi.league_match_id = mp.league_match_id
+            WHERE {membership_clause} AND mi.season = ?
         )
         SELECT
             mp2.discord_id,
@@ -768,7 +823,7 @@ def get_player_teammate_balance_from_matches(
         ORDER BY balance DESC
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params + (discord_id, min_games)).fetchall()
+        rows = conn.execute(query, params + (season, discord_id, min_games)).fetchall()
     return [
         {
             "discord_id":  row["discord_id"],
@@ -783,19 +838,23 @@ def get_player_teammate_balance_from_matches(
 
 
 def get_player_duo_stats(discord_id_a: int, discord_id_b: int) -> list[dict]:
+    season = get_current_season()
     query = """
         WITH a_games AS (
             SELECT mp.league_match_id, mp.team AS team, mp.hero_name AS hero
             FROM match_players mp
-            WHERE mp.discord_id = ?
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.discord_id = ? AND m.season = ?
         ),
         b_games AS (
             SELECT mp.league_match_id, mp.team AS team, mp.hero_name AS hero
             FROM match_players mp
-            WHERE mp.discord_id = ?
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.discord_id = ? AND m.season = ?
         )
         SELECT
             m.league_match_id,
+            m.season_match_id,
             a.team      AS team_a,
             b.team      AS team_b,
             a.hero      AS hero_a,
@@ -809,7 +868,7 @@ def get_player_duo_stats(discord_id_a: int, discord_id_b: int) -> list[dict]:
         ORDER BY m.league_match_id DESC
     """
     with get_connection() as conn:
-        rows = conn.execute(query, (discord_id_a, discord_id_b)).fetchall()
+        rows = conn.execute(query, (discord_id_a, season, discord_id_b, season)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -838,13 +897,14 @@ def _format_duration(d: str) -> str:
 
 
 def get_match_duration_extremes(min_seconds: int = 60) -> dict:
+    season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT league_match_id, duration, winner_team,
+            SELECT league_match_id, season_match_id, duration, winner_team,
                    score_radiant, score_dire, created_at
             FROM matches
-            WHERE duration IS NOT NULL AND duration != ''
-        """).fetchall()
+            WHERE duration IS NOT NULL AND duration != '' AND season = ?
+        """, (season,)).fetchall()
 
     parsed = []
     for row in rows:
@@ -928,22 +988,24 @@ def get_match_players_bulk(league_match_ids: list[int]) -> dict[int, list[dict]]
 
 
 def get_player_match_history_from_matches(discord_id: int, limit: int | None = 20) -> list[dict]:
+    season = get_current_season()
     membership_clause, params = _build_player_membership_clause(discord_id)
     limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
     query = f"""
-        SELECT m.league_match_id, mp.hero_name, mp.kills, mp.deaths, mp.assists,
+        SELECT m.league_match_id, m.season_match_id, mp.hero_name, mp.kills, mp.deaths, mp.assists,
                m.winner_team, mp.team, m.created_at
         FROM match_players mp
         JOIN matches m ON m.league_match_id = mp.league_match_id
-        WHERE {membership_clause}
+        WHERE {membership_clause} AND m.season = ?
         ORDER BY m.created_at DESC
         {limit_clause}
     """
     with get_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query, params + (season,)).fetchall()
     return [
         {
-            "league_match_id": row["league_match_id"],
+            "league_match_id":  row["league_match_id"],
+            "season_match_id":  row["season_match_id"],
             "result":  "win" if row["team"] == row["winner_team"] else "loss",
             "hero":    row["hero_name"],
             "kills":   row["kills"],
@@ -969,6 +1031,7 @@ def get_player_streak_from_matches(discord_id: int, max_events: int = 50) -> dic
 
 
 def get_streak_highlights_from_matches() -> dict:
+    season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -979,9 +1042,9 @@ def get_streak_highlights_from_matches() -> dict:
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND m.season = ?
             ORDER BY mp.discord_id, m.created_at DESC
-        """).fetchall()
+        """, (season,)).fetchall()
 
     players_history: dict[int, tuple[str, list[str]]] = {}
     for discord_id, group in groupby(rows, key=lambda r: r["discord_id"]):
@@ -1073,41 +1136,46 @@ def diagnose_and_fix_kda_data(fix: bool = False) -> dict:
 # ─────────────────────────────────────────────
 
 def get_season_summary_stats() -> dict:
+    season = get_current_season()
     with get_connection() as conn:
         match_row = conn.execute("""
             SELECT COUNT(*) AS total_matches,
                    MIN(created_at) AS first_match,
                    MAX(created_at) AS last_match
             FROM matches
-        """).fetchone()
+            WHERE season = ?
+        """, (season,)).fetchone()
 
         player_row = conn.execute("""
-            SELECT COUNT(DISTINCT discord_id) AS count
-            FROM match_players
-            WHERE discord_id IS NOT NULL
-        """).fetchone()
+            SELECT COUNT(DISTINCT mp.discord_id) AS count
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.discord_id IS NOT NULL AND m.season = ?
+        """, (season,)).fetchone()
 
         kda_row = conn.execute("""
-            SELECT SUM(kills) AS total_kills,
-                   SUM(deaths) AS total_deaths,
-                   SUM(assists) AS total_assists
-            FROM match_players
-            WHERE kills IS NOT NULL
-        """).fetchone()
+            SELECT SUM(mp.kills) AS total_kills,
+                   SUM(mp.deaths) AS total_deaths,
+                   SUM(mp.assists) AS total_assists
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.kills IS NOT NULL AND m.season = ?
+        """, (season,)).fetchone()
 
         hero_row = conn.execute("""
-            SELECT hero_name, COUNT(*) AS picks
-            FROM match_players
-            WHERE hero_name IS NOT NULL AND hero_name != ''
-            GROUP BY hero_name
+            SELECT mp.hero_name, COUNT(*) AS picks
+            FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
+            WHERE mp.hero_name IS NOT NULL AND mp.hero_name != '' AND m.season = ?
+            GROUP BY mp.hero_name
             ORDER BY picks DESC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         duration_rows = conn.execute("""
             SELECT duration FROM matches
-            WHERE duration IS NOT NULL AND duration != ''
-        """).fetchall()
+            WHERE duration IS NOT NULL AND duration != '' AND season = ?
+        """, (season,)).fetchall()
 
     total_seconds = sum(
         s for d in duration_rows
@@ -1129,6 +1197,7 @@ def get_season_summary_stats() -> dict:
 
 
 def get_mvp_award_stats() -> dict:
+    season = get_current_season()
     with get_connection() as conn:
         top_killer = conn.execute("""
             SELECT mp.discord_id,
@@ -1136,13 +1205,14 @@ def get_mvp_award_stats() -> dict:
                    SUM(mp.kills) AS total_value,
                    COUNT(DISTINCT mp.league_match_id) AS games
             FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL AND mp.kills IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND mp.kills IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 3
             ORDER BY total_value DESC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         top_deaths = conn.execute("""
             SELECT mp.discord_id,
@@ -1150,13 +1220,14 @@ def get_mvp_award_stats() -> dict:
                    SUM(mp.deaths) AS total_value,
                    COUNT(DISTINCT mp.league_match_id) AS games
             FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL AND mp.deaths IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND mp.deaths IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 3
             ORDER BY total_value DESC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         top_assists = conn.execute("""
             SELECT mp.discord_id,
@@ -1164,13 +1235,14 @@ def get_mvp_award_stats() -> dict:
                    SUM(mp.assists) AS total_value,
                    COUNT(DISTINCT mp.league_match_id) AS games
             FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL AND mp.assists IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND mp.assists IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 3
             ORDER BY total_value DESC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         top_winrate = conn.execute("""
             SELECT mp.discord_id,
@@ -1182,12 +1254,12 @@ def get_mvp_award_stats() -> dict:
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 5
             ORDER BY winrate DESC, wins DESC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         top_kda = conn.execute("""
             SELECT mp.discord_id,
@@ -1199,14 +1271,16 @@ def get_mvp_award_stats() -> dict:
                    CAST(SUM(mp.kills) + SUM(mp.assists) AS REAL)
                        / NULLIF(SUM(mp.deaths), 0) AS kda_ratio
             FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
             WHERE mp.discord_id IS NOT NULL
               AND mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL
+              AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 5
             ORDER BY kda_ratio DESC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         worst_winrate = conn.execute("""
             SELECT mp.discord_id,
@@ -1218,12 +1292,12 @@ def get_mvp_award_stats() -> dict:
             FROM match_players mp
             JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IS NOT NULL
+            WHERE mp.discord_id IS NOT NULL AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 5
             ORDER BY winrate ASC, wins ASC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
         worst_kda = conn.execute("""
             SELECT mp.discord_id,
@@ -1235,14 +1309,16 @@ def get_mvp_award_stats() -> dict:
                    CAST(SUM(mp.kills) + SUM(mp.assists) AS REAL)
                        / NULLIF(SUM(mp.deaths), 0) AS kda_ratio
             FROM match_players mp
+            JOIN matches m ON m.league_match_id = mp.league_match_id
             LEFT JOIN players p ON p.discord_id = mp.discord_id
             WHERE mp.discord_id IS NOT NULL
               AND mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL
+              AND m.season = ?
             GROUP BY mp.discord_id
             HAVING games >= 5 AND SUM(mp.deaths) > 0
             ORDER BY kda_ratio ASC
             LIMIT 1
-        """).fetchone()
+        """, (season,)).fetchone()
 
     def _make(row, **extra):
         if row is None:
@@ -1279,6 +1355,7 @@ def get_pairwise_head_to_head(discord_ids: list[int]) -> dict:
     """
     if len(discord_ids) < 2:
         return {}
+    season = get_current_season()
     placeholders = ",".join("?" * len(discord_ids))
     with get_connection() as conn:
         rows = conn.execute(f"""
@@ -1295,7 +1372,8 @@ def get_pairwise_head_to_head(discord_ids: list[int]) -> dict:
             JOIN matches m ON m.league_match_id = a.league_match_id
             WHERE a.discord_id IN ({placeholders})
               AND b.discord_id IN ({placeholders})
-        """, discord_ids + discord_ids).fetchall()
+              AND m.season = ?
+        """, discord_ids + discord_ids + [season]).fetchall()
 
     result: dict = {}
     for row in rows:

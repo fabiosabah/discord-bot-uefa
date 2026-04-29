@@ -136,6 +136,12 @@ def init_db() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS matches (
                 league_match_id   INTEGER PRIMARY KEY,
                 match_hash        TEXT    UNIQUE NOT NULL,
@@ -144,8 +150,10 @@ def init_db() -> None:
                 duration          TEXT,
                 match_datetime    TEXT,
                 score_radiant     INTEGER,
-                score_dire       INTEGER,
-                created_at        TEXT    NOT NULL
+                score_dire        INTEGER,
+                created_at        TEXT    NOT NULL,
+                season            INTEGER NOT NULL DEFAULT 1,
+                season_match_id   INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.execute("""
@@ -169,6 +177,7 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_id ON match_players(discord_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_hero_name ON match_players(hero_name)")
@@ -270,6 +279,25 @@ def migrate_db() -> None:
             conn.execute("ALTER TABLE server_config ADD COLUMN image_channel_id INTEGER")
             logger.info("[DB] Coluna 'image_channel_id' adicionada via migration ao server_config.")
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
+        m_columns = conn.execute("PRAGMA table_info(matches)").fetchall()
+        m_column_names = [col["name"] for col in m_columns]
+        if "season" not in m_column_names:
+            conn.execute("ALTER TABLE matches ADD COLUMN season INTEGER NOT NULL DEFAULT 1")
+            logger.info("[DB] Coluna 'season' adicionada via migration ao matches.")
+        if "season_match_id" not in m_column_names:
+            conn.execute("ALTER TABLE matches ADD COLUMN season_match_id INTEGER NOT NULL DEFAULT 0")
+            conn.execute(
+                "UPDATE matches SET season_match_id = league_match_id WHERE season_match_id = 0"
+            )
+            logger.info("[DB] Coluna 'season_match_id' adicionada e backfill realizado ao matches.")
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_discord_id ON match_history(discord_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_created_at ON match_history(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_match_id ON match_history(match_id)")
@@ -277,6 +305,7 @@ def migrate_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_imports_steam_match_id ON match_imports(steam_match_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_imports_match_date ON match_imports(match_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_id ON match_players(discord_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_hero_name ON match_players(hero_name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_discord_hero ON match_players(discord_id, hero_name)")

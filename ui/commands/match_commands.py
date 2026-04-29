@@ -11,9 +11,8 @@ from core.db.audit_repo import (
     count_match_deletions_today,
 )
 from core.db.match_repo import (
-    get_match_by_league_id,
+    get_match_by_season_match_id,
     delete_league_match,
-    get_match_created_at,
 )
 from ui.commands.score_helpers import is_admin
 
@@ -53,7 +52,7 @@ def setup_match_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="apagarid", aliases=["deleteid", "delmatch", "apagarmatch"])
-    async def cmd_delete_match_by_id(ctx: commands.Context, league_match_id: int):
+    async def cmd_delete_match_by_id(ctx: commands.Context, match_num: int):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
@@ -63,10 +62,13 @@ def setup_match_commands(bot: commands.Bot):
             await ctx.send("❌ Você já apagou uma partida hoje. Limite: 1 por dia.", delete_after=60)
             return
 
-        created_at = get_match_created_at(league_match_id)
-        if created_at is None:
-            await ctx.send(f"❌ Partida `#{league_match_id}` não encontrada.", delete_after=30)
+        match = get_match_by_season_match_id(match_num)
+        if match is None:
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=30)
             return
+
+        created_at = match["created_at"]
+        internal_id = match["league_match_id"]
 
         try:
             match_dt = datetime.fromisoformat(created_at)
@@ -75,44 +77,46 @@ def setup_match_commands(bot: commands.Bot):
 
         if match_dt is None or datetime.now() - match_dt > timedelta(hours=24):
             await ctx.send(
-                f"❌ Partida `#{league_match_id}` foi adicionada há mais de 24h e não pode ser apagada.",
+                f"❌ Partida `#{match_num}` foi adicionada há mais de 24h e não pode ser apagada.",
                 delete_after=60
             )
             return
 
-        delete_league_match(league_match_id)
+        delete_league_match(internal_id)
         log_action(
             ctx.author.id, ctx.author.display_name,
             "!apagarmatch",
-            f"Apagou partida league_match_id={league_match_id} (criada em {created_at})",
-            affected_ids=[league_match_id]
+            f"Apagou partida #{match_num} (league_match_id={internal_id}, criada em {created_at})",
+            affected_ids=[internal_id]
         )
         await ctx.message.delete()
-        await ctx.send(f"🗑️ Partida `#{league_match_id}` apagada com sucesso.")
+        await ctx.send(f"🗑️ Partida `#{match_num}` apagada com sucesso.")
 
     @bot.command(name="id")
-    async def cmd_lookup_match(ctx: commands.Context, league_match_id: int):
-        match = get_match_by_league_id(league_match_id)
+    async def cmd_lookup_match(ctx: commands.Context, match_num: int):
+        match = get_match_by_season_match_id(match_num)
         if not match:
-            await ctx.send(f"❌ Partida `{league_match_id}` não encontrada.", delete_after=10)
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=10)
             return
 
+        season_match_id = match.get("season_match_id", match_num)
+        season = match.get("season", 1)
         info = match.get("match_info", {})
         score = info.get("score") or {}
         radiant_score = score.get("radiant")
-        dire_score = score.get("dire")
+        dire_score = score.get("die")
         date = info.get("datetime") or info.get("match_date") or "desconhecida"
         duration = info.get("duration") or "desconhecida"
         winner = info.get("winner_team") or info.get("winner") or "desconhecido"
 
         lines = [
-            f"🏆 Match ID: `{league_match_id}`",
+            f"🏆 Partida: `#{season_match_id}` (T{season})",
             f"🧾 Hash: `{match.get('match_hash')}`",
             f"🔗 External ID: `{match.get('external_match_id') or 'nenhum'}`",
             f"⏱️ Duração: {duration}",
             f"📅 Data: {date}",
             f"🎯 Vencedor: {winner.title() if isinstance(winner, str) else winner}",
-            f"📊 Placar: {radiant_score or 0} x {dire_score or 0}",
+            f"📊 Placar: {radiant_score or 0} x {score.get('dire') or 0}",
             "",
             "👥 Jogadores:",
         ]

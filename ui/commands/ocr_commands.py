@@ -13,6 +13,7 @@ from core.db.lobby_repo import get_image_channel
 from core.db.match_repo import (
     insert_ocr_match,
     get_match_by_league_id,
+    get_match_by_season_match_id,
     update_league_match_hero_by_slot,
     update_league_match_heroes,
     update_league_match_player_name_by_slot,
@@ -722,7 +723,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             return
 
         try:
-            league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
+            season_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
             delete_match_screenshot(job_id)
         except Exception as exc:
             await ctx.send(f"❌ Falha ao importar job {job_id}: {exc}", delete_after=600)
@@ -730,7 +731,9 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
         duration = duration.strip()
         if duration and re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", duration):
-            update_league_match_duration(league_match_id, duration)
+            match_info = get_match_by_season_match_id(season_match_id)
+            if match_info:
+                update_league_match_duration(match_info["league_match_id"], duration)
 
         summary_msg = ocr_summary_messages.pop(job_id, None)
         if summary_msg:
@@ -740,7 +743,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
                 pass
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Partida **#{league_match_id}** registrada com sucesso.", delete_after=180)
+        await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.", delete_after=180)
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
     async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):
@@ -860,34 +863,35 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             return
 
         try:
-            league_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
+            season_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
         except Exception as exc:
             await ctx.send(f"❌ Falha ao importar imagem: {exc}", delete_after=20)
             return
 
         await ctx.message.delete()
         await ctx.send(
-            f"✅ Imagem {job_id} importada como partida `#{league_match_id}` no banco. "
-            f"Use `!id {league_match_id}` para revisar e `!fixhero` / `!nick` para ajustes."
+            f"✅ Imagem {job_id} importada como partida `#{season_match_id}` no banco. "
+            f"Use `!id {season_match_id}` para revisar e `!fixhero` / `!nick` para ajustes."
         )
 
     @bot.command(name="fixhero", aliases=["corrigirhero"])
-    async def cmd_fix_hero(ctx: commands.Context, league_match_id: int, slot: int, *, hero: str):
+    async def cmd_fix_hero(ctx: commands.Context, match_num: int, slot: int, *, hero: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        match = get_match_by_league_id(league_match_id)
+        match = get_match_by_season_match_id(match_num)
         if not match:
-            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=10)
             return
 
+        internal_id = match["league_match_id"]
         players = match.get("players_data") or []
         player_entry = next((p for p in players if p.get("slot") == slot), None)
         if not player_entry:
             await ctx.send(
-                f"❌ Slot {slot} não foi encontrado para a partida {league_match_id}. Use o slot correto.",
+                f"❌ Slot {slot} não foi encontrado para a partida #{match_num}. Use o slot correto.",
                 delete_after=20
             )
             return
@@ -910,10 +914,10 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             )
             return
 
-        updated = update_league_match_hero_by_slot(league_match_id, slot, resolved_hero)
+        updated = update_league_match_hero_by_slot(internal_id, slot, resolved_hero)
         if not updated:
             await ctx.send(
-                f"❌ Não foi possível atualizar o herói do slot {slot} na partida {league_match_id}.",
+                f"❌ Não foi possível atualizar o herói do slot {slot} na partida #{match_num}.",
                 delete_after=20
             )
             return
@@ -922,26 +926,27 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             ctx.author.id,
             ctx.author.display_name,
             "!fixhero",
-            f"league_match_id={league_match_id} slot={slot} hero={resolved_hero}",
+            f"season_match_id={match_num} league_match_id={internal_id} slot={slot} hero={resolved_hero}",
         )
 
         await ctx.message.delete()
         await ctx.send(
-            f"✅ Herói do slot {slot} na partida {league_match_id} atualizado para **{resolved_hero}**."
+            f"✅ Herói do slot {slot} na partida #{match_num} atualizado para **{resolved_hero}**."
         )
 
     @bot.command(name="ocrtime", aliases=["settime", "definirtempo"])
-    async def cmd_ocr_time(ctx: commands.Context, league_match_id: int, *, duration: str):
+    async def cmd_ocr_time(ctx: commands.Context, match_num: int, *, duration: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        match = get_match_by_league_id(league_match_id)
+        match = get_match_by_season_match_id(match_num)
         if not match:
-            await ctx.send(f"❌ Partida `{league_match_id}` não encontrada.", delete_after=10)
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=10)
             return
 
+        internal_id = match["league_match_id"]
         duration = duration.strip()
         if not re.match(r"^\d{1,2}:\d{2}:\d{2}$|^\d{1,2}:\d{2}$", duration):
             await ctx.send(
@@ -950,33 +955,34 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             )
             return
 
-        updated = update_league_match_duration(league_match_id, duration)
+        updated = update_league_match_duration(internal_id, duration)
         if not updated:
-            await ctx.send(f"❌ Não foi possível atualizar a duração da partida `{league_match_id}`.", delete_after=10)
+            await ctx.send(f"❌ Não foi possível atualizar a duração da partida `#{match_num}`.", delete_after=10)
             return
 
         log_action(
             ctx.author.id,
             ctx.author.display_name,
             "!ocrtime",
-            f"league_match_id={league_match_id} duration={duration}",
+            f"season_match_id={match_num} league_match_id={internal_id} duration={duration}",
         )
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Duração da partida `#{league_match_id}` atualizada para **{duration}**.")
+        await ctx.send(f"✅ Duração da partida `#{match_num}` atualizada para **{duration}**.")
 
     @bot.command(name="definirherois", aliases=["setmatchheroes", "setherois"])
-    async def cmd_set_match_heroes(ctx: commands.Context, league_match_id: int, *, heroes_text: str):
+    async def cmd_set_match_heroes(ctx: commands.Context, match_num: int, *, heroes_text: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        match = get_match_by_league_id(league_match_id)
+        match = get_match_by_season_match_id(match_num)
         if not match:
-            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=10)
             return
 
+        internal_id = match["league_match_id"]
         heroes = [hero.strip() for hero in heroes_text.split(",") if hero.strip()]
         players = match.get("players_data") or []
         if len(heroes) != len(players):
@@ -1006,29 +1012,30 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
                 return
             resolved_heroes.append(resolved_hero)
 
-        updated = update_league_match_heroes(league_match_id, resolved_heroes)
+        updated = update_league_match_heroes(internal_id, resolved_heroes)
         if updated != len(players):
             await ctx.send(
-                f"⚠️ Atualizados {updated} de {len(players)} heróis para a partida {league_match_id}. Verifique o match_id e tente novamente.",
+                f"⚠️ Atualizados {updated} de {len(players)} heróis para a partida #{match_num}. Verifique o número e tente novamente.",
                 delete_after=20
             )
             return
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Heróis definidos para a partida {league_match_id}.")
+        await ctx.send(f"✅ Heróis definidos para a partida #{match_num}.")
 
     @bot.command(name="definirjogadores", aliases=["setmatchplayers", "setplayers"])
-    async def cmd_set_match_player_names(ctx: commands.Context, league_match_id: int, *members: discord.Member):
+    async def cmd_set_match_player_names(ctx: commands.Context, match_num: int, *members: discord.Member):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        match = get_match_by_league_id(league_match_id)
+        match = get_match_by_season_match_id(match_num)
         if not match:
-            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=10)
             return
 
+        internal_id = match["league_match_id"]
         players = match.get("players_data") or []
         if len(members) != len(players):
             await ctx.send(
@@ -1038,10 +1045,10 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             return
 
         player_names = [member.display_name for member in members]
-        updated = update_league_match_player_names(league_match_id, player_names)
+        updated = update_league_match_player_names(internal_id, player_names)
         if updated != len(players):
             await ctx.send(
-                f"⚠️ Atualizados {updated} de {len(players)} nomes para a partida {league_match_id}. Verifique o match_id e tente novamente.",
+                f"⚠️ Atualizados {updated} de {len(players)} nomes para a partida #{match_num}. Verifique o número e tente novamente.",
                 delete_after=20
             )
             return
@@ -1054,25 +1061,26 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
                 upsert_player(member.id, member.display_name, 0, 0)
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Nomes dos jogadores definidos para a partida {league_match_id}.")
+        await ctx.send(f"✅ Nomes dos jogadores definidos para a partida #{match_num}.")
 
     @bot.command(name="nick", aliases=["setnick", "renomear"])
-    async def cmd_set_match_player_nick(ctx: commands.Context, league_match_id: int, slot: int, *, rest: str):
+    async def cmd_set_match_player_nick(ctx: commands.Context, match_num: int, slot: int, *, rest: str):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
 
-        match = get_match_by_league_id(league_match_id)
+        match = get_match_by_season_match_id(match_num)
         if not match:
-            await ctx.send(f"❌ Partida da liga {league_match_id} não encontrada.", delete_after=10)
+            await ctx.send(f"❌ Partida `#{match_num}` não encontrada na temporada atual.", delete_after=10)
             return
 
+        internal_id = match["league_match_id"]
         players = match.get("players_data") or []
         player_entry = next((p for p in players if p.get("slot") == slot), None)
         if not player_entry:
             await ctx.send(
-                f"❌ Slot {slot} não encontrado para a partida {league_match_id}. Use o slot correto.",
+                f"❌ Slot {slot} não encontrado para a partida #{match_num}. Use o slot correto.",
                 delete_after=20
             )
             return
@@ -1080,7 +1088,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
         mention_match = re.search(r"<@!?(?P<id>\d+)>", rest)
         if not mention_match:
             await ctx.send(
-                "❌ Mencione o jogador do Discord com @ e informe o novo nick. Ex: `!nick 123 3, Shadow Blade @Player`",
+                "❌ Mencione o jogador do Discord com @ e informe o novo nick. Ex: `!nick 1 3, Shadow Blade @Player`",
                 delete_after=20
             )
             return
@@ -1095,10 +1103,10 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             )
             return
 
-        updated = update_league_match_player_name_by_slot(league_match_id, slot, new_nick)
+        updated = update_league_match_player_name_by_slot(internal_id, slot, new_nick)
         if not updated:
             await ctx.send(
-                f"❌ Não foi possível atualizar o nick no slot {slot} da partida {league_match_id}.",
+                f"❌ Não foi possível atualizar o nick no slot {slot} da partida #{match_num}.",
                 delete_after=20
             )
             return
@@ -1120,12 +1128,12 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             ctx.author.id,
             ctx.author.display_name,
             "!nick",
-            f"league_match_id={league_match_id} slot={slot} discord_id={discord_id} new_nick={new_nick}",
+            f"season_match_id={match_num} league_match_id={internal_id} slot={slot} discord_id={discord_id} new_nick={new_nick}",
             affected_ids=[discord_id]
         )
 
         await ctx.send(
-            f"✅ Nick do slot {slot} na partida {league_match_id} atualizado para **{new_nick}** (<@{discord_id}>)."
+            f"✅ Nick do slot {slot} na partida #{match_num} atualizado para **{new_nick}** (<@{discord_id}>)."
         )
 
     @bot.command(name="limparhistoricodeimagens", aliases=["clearimagehistory", "apagarhistoricodeimagens", "limparimagens"])

@@ -11,6 +11,7 @@ from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
+from core.db.season_repo import get_current_season, set_current_season
 from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")
@@ -359,9 +360,10 @@ def setup_admin_commands(bot: commands.Bot):
         if not SEASON_STATE["active"]:
             await ctx.send("⚠️ A temporada já está encerrada.", delete_after=8)
             return
+        current = get_current_season()
         SEASON_STATE["active"] = False
         await ctx.message.delete()
-        await ctx.send("🏁 Temporada encerrada. Novas listas estão desativadas.")
+        await ctx.send(f"🏁 Temporada {current} encerrada. Novas listas estão desativadas.")
 
     @bot.command(name="abrirtemporada", aliases=["temporadaon", "novaTemporada"])
     async def cmd_season_on(ctx: commands.Context):
@@ -372,9 +374,11 @@ def setup_admin_commands(bot: commands.Bot):
         if SEASON_STATE["active"]:
             await ctx.send("⚠️ A temporada já está ativa.", delete_after=8)
             return
+        new_season = get_current_season() + 1
+        set_current_season(new_season)
         SEASON_STATE["active"] = True
         await ctx.message.delete()
-        await ctx.send("🟢 Nova temporada iniciada. Listas liberadas.")
+        await ctx.send(f"🟢 **Temporada {new_season}** iniciada! Listas liberadas. Os IDs de partida começam do #1.")
 
     @bot.command(name="exportar", aliases=["exportarpartidas", "exportdb"])
     async def cmd_exportar(ctx: commands.Context):
