@@ -124,8 +124,11 @@ async def on_ready():
         logger.warning("LLM desativado: configure OPENAI_API_KEY ou GEMINI_API_KEY para usar a interpretação com IA.")
 
     if STEAM_USERNAME and STEAM_PASSWORD:
-        from gc.gc_client import init_gc_manager
-        init_gc_manager(STEAM_USERNAME, STEAM_PASSWORD, STEAM_SHARED_SECRET)
+        try:
+            from gc_client import init_gc_manager
+            init_gc_manager(STEAM_USERNAME, STEAM_PASSWORD, STEAM_SHARED_SECRET)
+        except ImportError:
+            logger.warning("[GC] Pacotes steam/dota2 não instalados — GC desativado.")
         logger.info("[GC] Dota Game Coordinator iniciando em background...")
     else:
         logger.warning("[GC] STEAM_USERNAME/STEAM_PASSWORD não configurados — GC desativado.")
