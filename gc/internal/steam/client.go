@@ -281,14 +281,9 @@ func (c *Client) onLobbyStateChanged(e devents.ClientStateChanged) {
 	oldLobby := e.OldState.Lobby
 	newLobby := e.NewState.Lobby
 
-	// Lobby foi criado
 	if oldLobby == nil && newLobby != nil {
 		c.logger.WithField("name", newLobby.GetGameName()).Info("[Lobby] Lobby criado")
-		return
-	}
-
-	// Lobby foi destruído
-	if oldLobby != nil && newLobby == nil {
+	} else if oldLobby != nil && newLobby == nil {
 		c.logger.Info("[Lobby] Lobby encerrado")
 		return
 	}
@@ -297,38 +292,52 @@ func (c *Client) onLobbyStateChanged(e devents.ClientStateChanged) {
 		return
 	}
 
-	// Indexa membros antigos por ID
+	// Indexa membros antigos por ID para detectar mudanças
 	oldMembers := make(map[uint64]*protocol.CSODOTALobbyMember, len(oldLobby.GetAllMembers()))
 	for _, m := range oldLobby.GetAllMembers() {
 		oldMembers[m.GetId()] = m
 	}
 
-	// Detecta entradas e mudanças de time
+	botID := c.raw.SteamId().ToUint64()
+
 	for _, m := range newLobby.GetAllMembers() {
 		id := m.GetId()
-		team := m.GetTeam().String()
-		slot := m.GetSlot()
+		team := m.GetTeam()
 
 		if old, ok := oldMembers[id]; !ok {
 			c.logger.WithFields(logrus.Fields{
 				"steamid": id,
-				"team":    team,
-				"slot":    slot,
+				"team":    team.String(),
+				"slot":    m.GetSlot(),
 			}).Info("[Lobby] Jogador entrou")
-		} else if old.GetTeam() != m.GetTeam() || old.GetSlot() != m.GetSlot() {
+		} else if old.GetTeam() != team || old.GetSlot() != m.GetSlot() {
 			c.logger.WithFields(logrus.Fields{
-				"steamid":   id,
-				"old_team":  old.GetTeam().String(),
-				"old_slot":  old.GetSlot(),
-				"new_team":  team,
-				"new_slot":  slot,
+				"steamid":  id,
+				"old_team": old.GetTeam().String(),
+				"old_slot": old.GetSlot(),
+				"new_team": team.String(),
+				"new_slot": m.GetSlot(),
 			}).Info("[Lobby] Jogador mudou de time/slot")
 		}
 
 		delete(oldMembers, id)
+
+		// Se o bot foi parar num slot de jogador, move para player pool
+		if id == botID {
+			if team == protocol.DOTA_GC_TEAM_DOTA_GC_TEAM_GOOD_GUYS ||
+				team == protocol.DOTA_GC_TEAM_DOTA_GC_TEAM_BAD_GUYS {
+				c.logger.WithField("team", team.String()).
+					Info("[Lobby] Bot detectado em slot de jogador — movendo para player pool...")
+				c.dotaMu.Lock()
+				d := c.dotaClient
+				c.dotaMu.Unlock()
+				if d != nil {
+					d.JoinPlayerPool()
+				}
+			}
+		}
 	}
 
-	// O que sobrou em oldMembers saiu do lobby
 	for id, m := range oldMembers {
 		c.logger.WithFields(logrus.Fields{
 			"steamid": id,
