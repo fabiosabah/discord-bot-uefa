@@ -23,6 +23,8 @@ DB_PATH = os.getenv("DB_PATH", "data/database.db")
 admin_ids_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(id.strip()) for id in admin_ids_raw.split(",") if id.strip().isdigit()]
 
+GC_API_URL = os.getenv("GC_API_URL", "").rstrip("/")
+
 def is_admin(user_id: int) -> bool:
     """Verifica se o ID do usuário está na lista de administradores."""
     return user_id in ADMIN_IDS
