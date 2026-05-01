@@ -133,6 +133,9 @@ func (c *Client) handleEvent(event interface{}) {
 	case *devents.GCConnectionStatusChanged:
 		c.onGCStatusChanged(e)
 
+	case devents.ClientStateChanged:
+		c.onLobbyStateChanged(e)
+
 	case error:
 		// FatalErrorEvent é `type FatalErrorEvent error`; steam desconecta automaticamente
 		c.logger.WithError(e).Error("[Steam] Erro recebido do cliente Steam")
@@ -271,6 +274,67 @@ func (c *Client) onGCStatusChanged(e *devents.GCConnectionStatusChanged) {
 		c.logger.WithField("state", e.NewState.String()).
 			Warn("[GC] Game Coordinator não disponível — aguardando reconexão")
 		c.app.SetGCReady(false)
+	}
+}
+
+func (c *Client) onLobbyStateChanged(e devents.ClientStateChanged) {
+	oldLobby := e.OldState.Lobby
+	newLobby := e.NewState.Lobby
+
+	// Lobby foi criado
+	if oldLobby == nil && newLobby != nil {
+		c.logger.WithField("name", newLobby.GetGameName()).Info("[Lobby] Lobby criado")
+		return
+	}
+
+	// Lobby foi destruído
+	if oldLobby != nil && newLobby == nil {
+		c.logger.Info("[Lobby] Lobby encerrado")
+		return
+	}
+
+	if newLobby == nil {
+		return
+	}
+
+	// Indexa membros antigos por ID
+	oldMembers := make(map[uint64]*protocol.CSODOTALobbyMember, len(oldLobby.GetAllMembers()))
+	for _, m := range oldLobby.GetAllMembers() {
+		oldMembers[m.GetId()] = m
+	}
+
+	// Detecta entradas e mudanças de time
+	for _, m := range newLobby.GetAllMembers() {
+		id := m.GetId()
+		team := m.GetTeam().String()
+		slot := m.GetSlot()
+
+		if old, ok := oldMembers[id]; !ok {
+			c.logger.WithFields(logrus.Fields{
+				"steamid": id,
+				"team":    team,
+				"slot":    slot,
+			}).Info("[Lobby] Jogador entrou")
+		} else if old.GetTeam() != m.GetTeam() || old.GetSlot() != m.GetSlot() {
+			c.logger.WithFields(logrus.Fields{
+				"steamid":   id,
+				"old_team":  old.GetTeam().String(),
+				"old_slot":  old.GetSlot(),
+				"new_team":  team,
+				"new_slot":  slot,
+			}).Info("[Lobby] Jogador mudou de time/slot")
+		}
+
+		delete(oldMembers, id)
+	}
+
+	// O que sobrou em oldMembers saiu do lobby
+	for id, m := range oldMembers {
+		c.logger.WithFields(logrus.Fields{
+			"steamid": id,
+			"team":    m.GetTeam().String(),
+			"slot":    m.GetSlot(),
+		}).Info("[Lobby] Jogador saiu")
 	}
 }
 

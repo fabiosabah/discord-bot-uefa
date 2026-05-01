@@ -122,10 +122,10 @@ func (c *Client) SetNotPlaying() {
 	c.d.SetPlaying(false)
 }
 
-func (c *Client) JoinAsSpectator() {
-	team := protocol.DOTA_GC_TEAM_DOTA_GC_TEAM_SPECTATOR
+func (c *Client) JoinPlayerPool() {
+	team := protocol.DOTA_GC_TEAM_DOTA_GC_TEAM_PLAYER_POOL
 	var slot uint32 = 0
-	c.logger.Info("[Dota] Movendo bot para slot de spectator no lobby...")
+	c.logger.Info("[Dota] Movendo bot para unassigned player pool...")
 	c.d.JoinLobbyTeam(team, slot)
 }
 

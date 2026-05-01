@@ -142,8 +142,8 @@ func (s *Server) handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 
 	// Aguarda o GC sincronizar o estado do lobby antes de mover o bot
 	time.Sleep(2 * time.Second)
-	s.logger.Info("[API] Movendo bot para slot de spectator...")
-	d.JoinAsSpectator()
+	s.logger.Info("[API] Movendo bot para unassigned player pool...")
+	d.JoinPlayerPool()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
