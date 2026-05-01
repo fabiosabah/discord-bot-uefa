@@ -103,6 +103,33 @@ def setup_dota_gc_commands(bot: commands.Bot):
         except Exception as e:
             await ctx.send(f"❌ Erro inesperado: `{e}`", delete_after=15)
 
+    @bot.command(name="leavelobby", aliases=["sairlobby"])
+    async def leave_lobby(ctx: commands.Context):
+        """Bot sai do lobby Dota 2 atual. Uso: !leavelobby"""
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores podem usar este comando.", delete_after=10)
+            return
+        if not GC_API_URL:
+            await ctx.send("❌ GC_API_URL não configurado.", delete_after=10)
+            return
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{GC_API_URL}/lobby/leave",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    data = await resp.json()
+
+            if resp.status == 200 and data.get("ok"):
+                await ctx.send("✅ Bot saiu do lobby.")
+            else:
+                await ctx.send(f"❌ Falha: `{data.get('error', 'Erro desconhecido')}`")
+        except (asyncio.TimeoutError, aiohttp.ClientConnectorError):
+            await ctx.send("❌ Não foi possível conectar ao serviço GC.", delete_after=15)
+        except Exception as e:
+            await ctx.send(f"❌ Erro inesperado: `{e}`", delete_after=15)
+
     @bot.command(name="statusgc", aliases=["gcstatus"])
     async def status_gc(ctx: commands.Context):
         """Mostra o status do Game Coordinator. Uso: !statusgc"""
