@@ -2,7 +2,7 @@
 import discord
 import logging
 from discord.ext import commands
-from dota_gc.gc_client import (
+from gc.gc_client import (
     get_gc_manager,
     GAME_MODE_LABELS,
     REGION_LABELS,
