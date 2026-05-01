@@ -52,6 +52,18 @@ func (c *Client) CreateLobby(ctx context.Context, req LobbyRequest) error {
 	return nil
 }
 
+func (c *Client) SetNotPlaying() {
+	c.logger.Info("[Dota] Notificando Steam que paramos de jogar Dota 2...")
+	c.d.SetPlaying(false)
+}
+
+func (c *Client) JoinAsSpectator() {
+	team := protocol.DOTA_GC_TEAM_DOTA_GC_TEAM_SPECTATOR
+	var slot uint32 = 0
+	c.logger.Info("[Dota] Movendo bot para slot de spectator no lobby...")
+	c.d.JoinLobbyTeam(team, slot)
+}
+
 func (c *Client) DestroyLobby(ctx context.Context) error {
 	c.logger.Info("[Dota] Destruindo lobby...")
 

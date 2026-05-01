@@ -144,6 +144,11 @@ func (s *Server) handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	s.app.SetLobby(&app.LobbyInfo{Name: req.Name, Password: req.Password})
 	s.logger.WithField("name", req.Name).Info("[API] Lobby criado e registrado no estado da app")
 
+	// Aguarda o GC sincronizar o estado do lobby antes de mover o bot
+	time.Sleep(2 * time.Second)
+	s.logger.Info("[API] Movendo bot para slot de spectator...")
+	d.JoinAsSpectator()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"ok":       true,

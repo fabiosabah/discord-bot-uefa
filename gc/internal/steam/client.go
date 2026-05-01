@@ -3,6 +3,7 @@ package steam
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dota2 "github.com/paralin/go-dota2"
@@ -20,6 +21,35 @@ import (
 // OnDotaReadyFunc is called when the Dota GC session is established.
 type OnDotaReadyFunc func(client *dota.Client)
 
+// retryState holds exponential backoff state for reconnections.
+type retryState struct {
+	current time.Duration
+	max     time.Duration
+}
+
+func newRetryState() *retryState {
+	return &retryState{current: 15 * time.Second, max: 5 * time.Minute}
+}
+
+func (r *retryState) Next() time.Duration {
+	d := r.current
+	r.current *= 2
+	if r.current > r.max {
+		r.current = r.max
+	}
+	return d
+}
+
+func (r *retryState) Reset() {
+	r.current = 15 * time.Second
+}
+
+// isSteamMaintenanceWindow returns true during the Steam Tuesday maintenance window (10:00-12:00 UTC).
+func isSteamMaintenanceWindow() bool {
+	now := time.Now().UTC()
+	return now.Weekday() == time.Tuesday && now.Hour() >= 10 && now.Hour() < 12
+}
+
 type Client struct {
 	cfg        *config.Config
 	app        *app.App
@@ -28,21 +58,21 @@ type Client struct {
 	dotaMu     sync.Mutex
 	dotaClient *dota.Client
 	onReady    OnDotaReadyFunc
+	retry      *retryState
+	stopping   atomic.Bool
+	shutdownCh chan struct{}
 }
 
 func New(cfg *config.Config, a *app.App, logger *logrus.Logger, onReady OnDotaReadyFunc) *Client {
 	return &Client{
-		cfg:     cfg,
-		app:     a,
-		logger:  logger,
-		raw:     gosteam.NewClient(),
-		onReady: onReady,
+		cfg:        cfg,
+		app:        a,
+		logger:     logger,
+		raw:        gosteam.NewClient(),
+		onReady:    onReady,
+		retry:      newRetryState(),
+		shutdownCh: make(chan struct{}),
 	}
-}
-
-// RawClient exposes the underlying steam client (needed by dota2.New).
-func (c *Client) RawClient() *gosteam.Client {
-	return c.raw
 }
 
 // Connect initiates the TCP connection to Steam.
@@ -51,9 +81,11 @@ func (c *Client) Connect() {
 	c.raw.Connect()
 }
 
-// Disconnect closes the Steam connection gracefully.
+// Disconnect closes the Steam connection gracefully and stops reconnect attempts.
 func (c *Client) Disconnect() {
-	c.logger.Info("[Steam] Desconectando...")
+	c.logger.Info("[Steam] Desconectando e parando reconexões...")
+	c.stopping.Store(true)
+	close(c.shutdownCh)
 
 	c.dotaMu.Lock()
 	d := c.dotaClient
@@ -61,11 +93,13 @@ func (c *Client) Disconnect() {
 
 	if d != nil {
 		c.logger.Info("[Steam] Notificando GC que paramos de jogar Dota 2...")
+		d.SetNotPlaying()
 	}
+
 	c.raw.Disconnect()
 }
 
-// RunEventLoop processes Steam + Dota GC events. Blocks until the Events channel is closed.
+// RunEventLoop processes Steam + Dota GC events. Blocks until the process shuts down.
 func (c *Client) RunEventLoop() {
 	c.logger.Info("[Steam] Loop de eventos iniciado — aguardando eventos do Steam...")
 
@@ -89,7 +123,8 @@ func (c *Client) handleEvent(event interface{}) {
 		c.logger.WithFields(logrus.Fields{
 			"result": e.Result.String(),
 			"code":   int(e.Result),
-		}).Fatal("[Steam] Login falhou — verifique usuário, senha e 2FA")
+		}).Error("[Steam] Login falhou — verifique usuário, senha e 2FA")
+		// Não usa Fatal para não matar o processo — reconexão vai tentar novamente
 
 	case *gosteam.MachineAuthUpdateEvent:
 		c.onMachineAuth(e)
@@ -104,7 +139,7 @@ func (c *Client) handleEvent(event interface{}) {
 		c.onGCStatusChanged(e)
 
 	case error:
-		// FatalErrorEvent is defined as `type FatalErrorEvent error`; steam auto-disconnects
+		// FatalErrorEvent é `type FatalErrorEvent error`; steam desconecta automaticamente
 		c.logger.WithError(e).Error("[Steam] Erro recebido do cliente Steam")
 	}
 }
@@ -120,7 +155,7 @@ func (c *Client) onConnected() {
 
 	if sentry, err := os.ReadFile("sentry.bin"); err == nil {
 		details.SentryFileHash = sentry
-		c.logger.Info("[Steam] Arquivo sentry.bin encontrado — será usado para evitar Steam Guard por e-mail")
+		c.logger.Info("[Steam] sentry.bin encontrado — Steam Guard por e-mail não será necessário")
 	} else {
 		c.logger.Info("[Steam] Nenhum sentry.bin — se Steam Guard estiver ativo, um e-mail será enviado")
 	}
@@ -135,6 +170,9 @@ func (c *Client) onLoggedOn(e *gosteam.LoggedOnEvent) {
 		"public_ip": e.Body.GetPublicIp(),
 	}).Info("[Steam] Login realizado com sucesso")
 
+	c.retry.Reset()
+	c.logger.Info("[Steam] Contador de reconexão resetado após login bem-sucedido")
+
 	c.logger.Info("[Steam] Definindo estado de persona para Online...")
 	c.raw.Social.SetPersonaState(steamlang.EPersonaState_Online)
 
@@ -144,7 +182,7 @@ func (c *Client) onLoggedOn(e *gosteam.LoggedOnEvent) {
 	c.logger.Info("[GC] Notificando Steam que estamos jogando Dota 2 (AppID 570)...")
 	rawDota.SetPlaying(true)
 
-	c.logger.Info("[GC] Aguardando 3s antes de enviar SayHello (Steam precisa processar SetPlaying)...")
+	c.logger.Info("[GC] Aguardando 3s antes de enviar SayHello...")
 	time.Sleep(3 * time.Second)
 
 	c.logger.Info("[GC] Enviando SayHello ao Game Coordinator — aguardando sessão GC...")
@@ -158,11 +196,11 @@ func (c *Client) onLoggedOn(e *gosteam.LoggedOnEvent) {
 }
 
 func (c *Client) onMachineAuth(e *gosteam.MachineAuthUpdateEvent) {
-	c.logger.Info("[Steam] Steam Guard por e-mail: salvando sentry.bin para próximos logins...")
+	c.logger.Info("[Steam] Steam Guard: salvando sentry.bin para próximos logins...")
 	if err := os.WriteFile("sentry.bin", e.Hash, 0600); err != nil {
-		c.logger.WithError(err).Warn("[Steam] Falha ao salvar sentry.bin — próximos logins podem pedir código por e-mail novamente")
+		c.logger.WithError(err).Warn("[Steam] Falha ao salvar sentry.bin")
 	} else {
-		c.logger.Info("[Steam] sentry.bin salvo com sucesso — próximos logins serão automáticos sem Steam Guard por e-mail")
+		c.logger.Info("[Steam] sentry.bin salvo — próximos logins serão automáticos")
 	}
 }
 
@@ -177,6 +215,48 @@ func (c *Client) onDisconnected() {
 	c.app.SetLobby(nil)
 
 	c.logger.Info("[Steam] Estado GC resetado — lobby e sessão limpos")
+
+	if !c.stopping.Load() {
+		go c.reconnectLoop()
+	}
+}
+
+func (c *Client) reconnectLoop() {
+	for {
+		if c.stopping.Load() {
+			c.logger.Info("[Reconnect] Shutdown em andamento — cancelando reconexão")
+			return
+		}
+
+		if isSteamMaintenanceWindow() {
+			wait := 15 * time.Minute
+			c.logger.WithField("wait", wait).
+				Warn("[Reconnect] Janela de manutenção Steam (Terça 10-12 UTC) — aguardando antes de tentar")
+			select {
+			case <-c.shutdownCh:
+				return
+			case <-time.After(wait):
+			}
+			continue
+		}
+
+		delay := c.retry.Next()
+		c.logger.WithFields(logrus.Fields{
+			"delay":      delay.String(),
+			"next_max":   c.retry.max.String(),
+		}).Info("[Reconnect] Aguardando antes de reconectar ao Steam...")
+
+		select {
+		case <-c.shutdownCh:
+			c.logger.Info("[Reconnect] Shutdown recebido durante espera — cancelando")
+			return
+		case <-time.After(delay):
+		}
+
+		c.logger.Info("[Reconnect] Tentando reconectar ao Steam...")
+		c.raw.Connect()
+		return // sai do loop — próxima desconexão vai chamar reconnectLoop novamente
+	}
 }
 
 func (c *Client) onGCWelcomed(e *devents.ClientWelcomed) {
