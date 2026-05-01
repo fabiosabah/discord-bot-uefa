@@ -5,3 +5,6 @@ openai
 Pillow
 requests
 openpyxl
+# Dota 2 Game Coordinator
+steam>=1.4.4,<2
+dota2>=0.4,<1

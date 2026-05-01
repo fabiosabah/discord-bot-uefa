@@ -21,7 +21,7 @@ from core.db.match_repo import (
     get_match_duration_extremes,
     get_match_players_bulk,
 )
-from core.db.player_repo import get_player, find_player_by_display_name
+from core.db.player_repo import get_player, find_player_by_display_name, set_steam_friend_id, get_steam_friend_id
 from core.db.season_repo import get_current_season
 from core.dota_heroes import resolve_hero_name, format_hero_suggestions
 from core.utils.time import format_brazil_time
@@ -663,3 +663,33 @@ def setup_player_commands(bot: commands.Bot):
         embed.set_footer(text=f"{len(picked)} heróis pickados · {total_picks} picks totais · use !heroes <nome> para detalhes")
 
         await ctx.send(embed=embed)
+
+    @bot.command(name="steamid")
+    async def cmd_steamid(ctx: commands.Context, friend_id: str = None):
+        if friend_id is None:
+            current = get_steam_friend_id(ctx.author.id)
+            if current is None:
+                await ctx.send(
+                    f"❌ Você ainda não cadastrou seu Steam ID.\n"
+                    f"Use `!steamid <seu_friend_id>` para cadastrar."
+                )
+            else:
+                await ctx.send(f"🎮 Seu Steam Friend ID cadastrado: `{current}`")
+            return
+
+        try:
+            fid = int(friend_id.strip())
+        except ValueError:
+            await ctx.send("❌ Friend ID inválido. Use apenas números.")
+            return
+
+        if fid <= 0:
+            await ctx.send("❌ Friend ID inválido.")
+            return
+
+        try:
+            set_steam_friend_id(ctx.author.id, fid)
+            await ctx.send(f"✅ Steam Friend ID `{fid}` cadastrado com sucesso!")
+            logger.info(f"[Steam] {ctx.author} ({ctx.author.id}) cadastrou friend_id={fid}")
+        except ValueError as e:
+            await ctx.send(f"❌ {e}")

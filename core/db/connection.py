@@ -191,6 +191,13 @@ def init_db() -> None:
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_steam (
+                discord_id     INTEGER PRIMARY KEY,
+                steam_friend_id INTEGER NOT NULL UNIQUE,
+                registered_at  TEXT NOT NULL
+            )
+        """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)")
@@ -346,6 +353,13 @@ def migrate_db() -> None:
             CREATE TABLE IF NOT EXISTS heroes (
                 id   INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_steam (
+                discord_id      INTEGER PRIMARY KEY,
+                steam_friend_id INTEGER NOT NULL UNIQUE,
+                registered_at   TEXT NOT NULL
             )
         """)
         logger.info("[DB] Índices e tabela heroes criados ou já existentes.")

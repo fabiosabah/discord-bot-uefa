@@ -165,6 +165,45 @@ def get_player_aliases(discord_id: int) -> list[str]:
     return [row["alias"] for row in rows]
 
 
+def set_steam_friend_id(discord_id: int, steam_friend_id: int) -> None:
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT discord_id FROM player_steam WHERE steam_friend_id = ? AND discord_id != ?",
+            (steam_friend_id, discord_id)
+        ).fetchone()
+        if existing:
+            raise ValueError(f"Este Steam ID já está cadastrado por outro jogador ({existing['discord_id']}).")
+        conn.execute("""
+            INSERT INTO player_steam (discord_id, steam_friend_id, registered_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(discord_id) DO UPDATE SET
+                steam_friend_id = excluded.steam_friend_id,
+                registered_at   = excluded.registered_at
+        """, (discord_id, steam_friend_id, now))
+        conn.commit()
+
+
+def get_steam_friend_id(discord_id: int) -> int | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT steam_friend_id FROM player_steam WHERE discord_id = ?",
+            (discord_id,)
+        ).fetchone()
+    return row["steam_friend_id"] if row else None
+
+
+def get_all_steam_ids() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT ps.discord_id, ps.steam_friend_id, COALESCE(p.display_name, '') AS display_name
+            FROM player_steam ps
+            LEFT JOIN players p ON p.discord_id = ps.discord_id
+            ORDER BY p.display_name
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_all_player_aliases() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
