@@ -71,6 +71,12 @@ func (c *Client) CreateLobby(ctx context.Context, req LobbyRequest) error {
 		password = "1234"
 	}
 
+	// Destrói lobby existente antes de criar um novo
+	c.logger.Info("[Dota] Destruindo lobby anterior (se existir)...")
+	if _, err := c.d.DestroyLobby(ctx); err != nil {
+		c.logger.WithError(err).Debug("[Dota] Nenhum lobby ativo para destruir (normal)")
+	}
+
 	c.logger.WithFields(logrus.Fields{
 		"preset":   req.Preset,
 		"name":     name,
