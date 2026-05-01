@@ -44,11 +44,6 @@ func (r *retryState) Reset() {
 	r.current = 15 * time.Second
 }
 
-// isSteamMaintenanceWindow returns true during the Steam Tuesday maintenance window (10:00-12:00 UTC).
-func isSteamMaintenanceWindow() bool {
-	now := time.Now().UTC()
-	return now.Weekday() == time.Tuesday && now.Hour() >= 10 && now.Hour() < 12
-}
 
 type Client struct {
 	cfg        *config.Config
@@ -226,18 +221,6 @@ func (c *Client) reconnectLoop() {
 		if c.stopping.Load() {
 			c.logger.Info("[Reconnect] Shutdown em andamento — cancelando reconexão")
 			return
-		}
-
-		if isSteamMaintenanceWindow() {
-			wait := 15 * time.Minute
-			c.logger.WithField("wait", wait).
-				Warn("[Reconnect] Janela de manutenção Steam (Terça 10-12 UTC) — aguardando antes de tentar")
-			select {
-			case <-c.shutdownCh:
-				return
-			case <-time.After(wait):
-			}
-			continue
 		}
 
 		delay := c.retry.Next()

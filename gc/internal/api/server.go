@@ -100,13 +100,11 @@ func (s *Server) handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		Preset   string `json:"preset"`   // "inhouse" ou "1v1"
 		Name     string `json:"name"`
 		Password string `json:"password"`
-		Mode     uint32 `json:"mode"`
-		Region   uint32 `json:"region"`
 	}
-	req.Mode = 1
-	req.Region = 7
+	req.Preset = string(dota.PresetInhouse) // padrão
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
 		s.logger.WithError(err).Warn("[API] POST /lobby — body inválido")
@@ -115,25 +113,23 @@ func (s *Server) handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "body JSON inválido"})
 		return
 	}
-	if req.Name == "" {
-		req.Name = "Liga Fumos"
-	}
 
 	s.logger.WithFields(logrus.Fields{
-		"name":   req.Name,
-		"mode":   req.Mode,
-		"region": req.Region,
+		"preset":   req.Preset,
+		"name":     req.Name,
+		"password": req.Password,
 	}).Info("[API] Encaminhando criação de lobby ao cliente Dota...")
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	if err := d.CreateLobby(ctx, dota.LobbyRequest{
+	lobbyReq := dota.LobbyRequest{
+		Preset:   dota.Preset(req.Preset),
 		Name:     req.Name,
 		Password: req.Password,
-		Mode:     req.Mode,
-		Region:   req.Region,
-	}); err != nil {
+	}
+
+	if err := d.CreateLobby(ctx, lobbyReq); err != nil {
 		s.logger.WithError(err).Error("[API] POST /lobby falhou")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -141,7 +137,7 @@ func (s *Server) handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.app.SetLobby(&app.LobbyInfo{Name: req.Name, Password: req.Password})
+	s.app.SetLobby(&app.LobbyInfo{Name: req.Name, Password: req.Password, Preset: req.Preset})
 	s.logger.WithField("name", req.Name).Info("[API] Lobby criado e registrado no estado da app")
 
 	// Aguarda o GC sincronizar o estado do lobby antes de mover o bot

@@ -7,8 +7,8 @@ from core.config import GC_API_URL, is_admin
 
 def setup_dota_gc_commands(bot: commands.Bot):
     @bot.command(name="criarlobby", aliases=["newlobby", "createlobby"])
-    async def criar_lobby(ctx: commands.Context, nome: str = "Liga Fumos", senha: str = ""):
-        """Cria um lobby Dota 2 via Game Coordinator. Uso: !criarlobby [nome] [senha]"""
+    async def criar_lobby(ctx: commands.Context, preset: str = "inhouse", senha: str = "1234"):
+        """Cria um lobby Dota 2. Uso: !criarlobby [inhouse|1v1] [senha]"""
         if not is_admin(ctx.author.id):
             await ctx.send("❌ Apenas administradores podem criar lobbies.", delete_after=10)
             return
@@ -17,11 +17,17 @@ def setup_dota_gc_commands(bot: commands.Bot):
             await ctx.send("❌ GC_API_URL não configurado.", delete_after=10)
             return
 
-        msg = await ctx.send("⏳ Criando lobby no Dota 2...")
+        preset = preset.lower()
+        if preset not in ("inhouse", "1v1"):
+            await ctx.send("❌ Preset inválido. Use `inhouse` (CM 10j) ou `1v1` (Solo Mid).", delete_after=10)
+            return
+
+        label = "Captains Mode (10 jogadores)" if preset == "inhouse" else "1v1 Solo Mid"
+        msg = await ctx.send(f"⏳ Criando lobby **{label}**...")
 
         try:
             async with aiohttp.ClientSession() as session:
-                payload = {"name": nome, "password": senha, "mode": 1, "region": 7}
+                payload = {"preset": preset, "password": senha}
                 async with session.post(
                     f"{GC_API_URL}/lobby",
                     json=payload,
@@ -30,11 +36,13 @@ def setup_dota_gc_commands(bot: commands.Bot):
                     data = await resp.json()
 
             if resp.status == 200 and data.get("ok"):
-                lobby_name = data.get("name", nome)
+                lobby_name = data.get("name", "UEFA FUMOS LEAGUE")
                 lobby_pass = data.get("password", senha)
-                lines = [f"✅ **Lobby criado!**", f"**Nome:** `{lobby_name}`"]
-                if lobby_pass:
-                    lines.append(f"**Senha:** `{lobby_pass}`")
+                lines = [
+                    f"✅ **Lobby criado!** ({label})",
+                    f"**Nome:** `{lobby_name}`",
+                    f"**Senha:** `{lobby_pass}`",
+                ]
                 await msg.edit(content="\n".join(lines))
             else:
                 err = data.get("error", "Erro desconhecido")

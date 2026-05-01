@@ -5,6 +5,7 @@ import "sync"
 type LobbyInfo struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
+	Preset   string `json:"preset"`
 }
 
 // App holds shared runtime state accessible by all layers.
