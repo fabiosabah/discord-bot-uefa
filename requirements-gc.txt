@@ -1,5 +1,0 @@
-# Dependências do Dota 2 Game Coordinator
-# Instalar separadamente: pip install -r requirements-gc.txt
-# Requer compilação C (gevent) — não incluso no requirements.txt principal
-steam>=1.4.4,<2
-dota2>=0.4,<1

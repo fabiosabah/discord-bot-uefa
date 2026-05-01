@@ -5,7 +5,7 @@ import logging
 import sys
 from datetime import datetime
 from discord.ext import commands
-from core.config import TOKEN, IMAGE_CHANNEL_ID, STEAM_USERNAME, STEAM_PASSWORD, STEAM_SHARED_SECRET
+from core.config import TOKEN, IMAGE_CHANNEL_ID
 from core.db.connection import init_db, migrate_db
 from core.db.lobby_repo import (
     get_list_channel,
@@ -25,7 +25,6 @@ from services.lobby_service import close_session
 from ui.commands.admin_commands import is_bot_enabled
 from ui.commands.lobby_commands import setup_lobby_commands
 from ui.commands.score_commands import setup_score_commands
-from ui.commands.dota_gc_commands import setup_dota_gc_commands
 from ui.commands.score_helpers import build_ocr_job_summary_text
 from ui.views.lobby_view import LobbyView
 
@@ -123,15 +122,6 @@ async def on_ready():
     if not can_process_llm():
         logger.warning("LLM desativado: configure OPENAI_API_KEY ou GEMINI_API_KEY para usar a interpretação com IA.")
 
-    if STEAM_USERNAME and STEAM_PASSWORD:
-        try:
-            from gc_client import init_gc_manager
-            init_gc_manager(STEAM_USERNAME, STEAM_PASSWORD, STEAM_SHARED_SECRET)
-        except ImportError:
-            logger.warning("[GC] Pacotes steam/dota2 não instalados — GC desativado.")
-        logger.info("[GC] Dota Game Coordinator iniciando em background...")
-    else:
-        logger.warning("[GC] STEAM_USERNAME/STEAM_PASSWORD não configurados — GC desativado.")
 
 @bot.event
 async def on_command(ctx: commands.Context):
@@ -297,7 +287,6 @@ async def ocr_background_worker():
 logger.info("Configurando comandos...")
 setup_lobby_commands(bot, active_lobbies)
 setup_score_commands(bot, ocr_summary_messages)
-setup_dota_gc_commands(bot)
 logger.info("Comandos configurados com sucesso.")
 
 if __name__ == "__main__":

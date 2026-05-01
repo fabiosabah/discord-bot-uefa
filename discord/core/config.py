@@ -26,8 +26,3 @@ ADMIN_IDS = [int(id.strip()) for id in admin_ids_raw.split(",") if id.strip().is
 def is_admin(user_id: int) -> bool:
     """Verifica se o ID do usuário está na lista de administradores."""
     return user_id in ADMIN_IDS
-
-# Dota 2 Game Coordinator (conta Steam dedicada ao bot)
-STEAM_USERNAME = os.getenv("STEAM_USERNAME")
-STEAM_PASSWORD = os.getenv("STEAM_PASSWORD")
-STEAM_SHARED_SECRET = os.getenv("STEAM_SHARED_SECRET")  # opcional, para 2FA mobile authenticator
