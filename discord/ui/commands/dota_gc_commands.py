@@ -20,7 +20,7 @@ async def _criar_lobby_request(preset: str, senha: str) -> dict:
 
 def setup_dota_gc_commands(bot: commands.Bot):
 
-    @bot.command(name="criarlobby", aliases=["inhouse", "lobby"])
+    @bot.command(name="criarlobby", aliases=["createlobby", "newlobby"])
     async def criar_lobby(ctx: commands.Context, senha: str = DEFAULT_PASSWORD):
         """Cria lobby Captains Mode (10 jogadores). Uso: !criarlobby [senha]"""
         if not is_admin(ctx.author.id):
@@ -48,7 +48,7 @@ def setup_dota_gc_commands(bot: commands.Bot):
         except Exception as e:
             await msg.edit(content=f"❌ Erro inesperado: `{e}`")
 
-    @bot.command(name="criarlobby1x1", aliases=["lobby1v1", "1v1"])
+    @bot.command(name="criarlobby1x1", aliases=["createlobby1v1"])
     async def criar_lobby_1v1(ctx: commands.Context, senha: str = DEFAULT_PASSWORD):
         """Cria lobby 1v1 Solo Mid (teste). Uso: !criarlobby1x1 [senha]"""
         if not is_admin(ctx.author.id):
