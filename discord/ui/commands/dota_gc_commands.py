@@ -4,54 +4,75 @@ import aiohttp
 from discord.ext import commands
 from core.config import GC_API_URL, is_admin
 
+DEFAULT_PASSWORD = "1234"
+
+
+async def _criar_lobby_request(preset: str, senha: str) -> dict:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{GC_API_URL}/lobby",
+            json={"preset": preset, "password": senha},
+            timeout=aiohttp.ClientTimeout(total=35),
+        ) as resp:
+            data = await resp.json()
+            return resp.status, data
+
 
 def setup_dota_gc_commands(bot: commands.Bot):
-    @bot.command(name="criarlobby", aliases=["newlobby", "createlobby"])
-    async def criar_lobby(ctx: commands.Context, preset: str = "inhouse", senha: str = "1234"):
-        """Cria um lobby Dota 2. Uso: !criarlobby [inhouse|1v1] [senha]"""
+
+    @bot.command(name="criarlobby", aliases=["inhouse", "lobby"])
+    async def criar_lobby(ctx: commands.Context, senha: str = DEFAULT_PASSWORD):
+        """Cria lobby Captains Mode (10 jogadores). Uso: !criarlobby [senha]"""
         if not is_admin(ctx.author.id):
             await ctx.send("❌ Apenas administradores podem criar lobbies.", delete_after=10)
             return
-
         if not GC_API_URL:
             await ctx.send("❌ GC_API_URL não configurado.", delete_after=10)
             return
 
-        preset = preset.lower()
-        if preset not in ("inhouse", "1v1"):
-            await ctx.send("❌ Preset inválido. Use `inhouse` (CM 10j) ou `1v1` (Solo Mid).", delete_after=10)
+        msg = await ctx.send("⏳ Criando lobby **Captains Mode** (10 jogadores)...")
+        try:
+            status, data = await _criar_lobby_request("inhouse", senha)
+            if status == 200 and data.get("ok"):
+                await msg.edit(content="\n".join([
+                    "✅ **Lobby criado!** — Captains Mode",
+                    f"**Nome:** `{data.get('name', 'UEFA FUMOS LEAGUE')}`",
+                    f"**Senha:** `{data.get('password', senha)}`",
+                ]))
+            else:
+                await msg.edit(content=f"❌ Falha ao criar lobby: `{data.get('error', 'Erro desconhecido')}`")
+        except asyncio.TimeoutError:
+            await msg.edit(content="❌ Timeout — verifique se o serviço GC está rodando.")
+        except aiohttp.ClientConnectorError:
+            await msg.edit(content="❌ Não foi possível conectar ao serviço GC.")
+        except Exception as e:
+            await msg.edit(content=f"❌ Erro inesperado: `{e}`")
+
+    @bot.command(name="criarlobby1x1", aliases=["lobby1v1", "1v1"])
+    async def criar_lobby_1v1(ctx: commands.Context, senha: str = DEFAULT_PASSWORD):
+        """Cria lobby 1v1 Solo Mid (teste). Uso: !criarlobby1x1 [senha]"""
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores podem criar lobbies.", delete_after=10)
+            return
+        if not GC_API_URL:
+            await ctx.send("❌ GC_API_URL não configurado.", delete_after=10)
             return
 
-        label = "Captains Mode (10 jogadores)" if preset == "inhouse" else "1v1 Solo Mid"
-        msg = await ctx.send(f"⏳ Criando lobby **{label}**...")
-
+        msg = await ctx.send("⏳ Criando lobby **1v1 Solo Mid**...")
         try:
-            async with aiohttp.ClientSession() as session:
-                payload = {"preset": preset, "password": senha}
-                async with session.post(
-                    f"{GC_API_URL}/lobby",
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=35),
-                ) as resp:
-                    data = await resp.json()
-
-            if resp.status == 200 and data.get("ok"):
-                lobby_name = data.get("name", "UEFA FUMOS LEAGUE")
-                lobby_pass = data.get("password", senha)
-                lines = [
-                    f"✅ **Lobby criado!** ({label})",
-                    f"**Nome:** `{lobby_name}`",
-                    f"**Senha:** `{lobby_pass}`",
-                ]
-                await msg.edit(content="\n".join(lines))
+            status, data = await _criar_lobby_request("1v1", senha)
+            if status == 200 and data.get("ok"):
+                await msg.edit(content="\n".join([
+                    "✅ **Lobby criado!** — 1v1 Solo Mid",
+                    f"**Nome:** `{data.get('name', 'UEFA FUMOS 1v1')}`",
+                    f"**Senha:** `{data.get('password', senha)}`",
+                ]))
             else:
-                err = data.get("error", "Erro desconhecido")
-                await msg.edit(content=f"❌ Falha ao criar lobby: `{err}`")
-
+                await msg.edit(content=f"❌ Falha ao criar lobby: `{data.get('error', 'Erro desconhecido')}`")
         except asyncio.TimeoutError:
-            await msg.edit(content="❌ Timeout ao conectar ao GC. Verifique se o serviço está rodando.")
+            await msg.edit(content="❌ Timeout — verifique se o serviço GC está rodando.")
         except aiohttp.ClientConnectorError:
-            await msg.edit(content="❌ Não foi possível conectar ao serviço GC. Verifique `GC_API_URL`.")
+            await msg.edit(content="❌ Não foi possível conectar ao serviço GC.")
         except Exception as e:
             await msg.edit(content=f"❌ Erro inesperado: `{e}`")
 
@@ -61,7 +82,6 @@ def setup_dota_gc_commands(bot: commands.Bot):
         if not is_admin(ctx.author.id):
             await ctx.send("❌ Apenas administradores podem fechar lobbies.", delete_after=10)
             return
-
         if not GC_API_URL:
             await ctx.send("❌ GC_API_URL não configurado.", delete_after=10)
             return
@@ -77,9 +97,7 @@ def setup_dota_gc_commands(bot: commands.Bot):
             if resp.status == 200 and data.get("ok"):
                 await ctx.send("✅ Lobby encerrado.")
             else:
-                err = data.get("error", "Erro desconhecido")
-                await ctx.send(f"❌ Falha ao encerrar lobby: `{err}`")
-
+                await ctx.send(f"❌ Falha: `{data.get('error', 'Erro desconhecido')}`")
         except (asyncio.TimeoutError, aiohttp.ClientConnectorError):
             await ctx.send("❌ Não foi possível conectar ao serviço GC.", delete_after=15)
         except Exception as e:
@@ -102,16 +120,14 @@ def setup_dota_gc_commands(bot: commands.Bot):
 
             gc_ready = data.get("gc_ready", False)
             lobby = data.get("lobby")
-
             status_icon = "🟢" if gc_ready else "🔴"
             lines = [f"{status_icon} **GC:** {'Pronto' if gc_ready else 'Não disponível'}"]
             if lobby:
-                lines.append(f"**Lobby ativo:** `{lobby['name']}`")
-                if lobby.get("password"):
-                    lines.append(f"**Senha:** `{lobby['password']}`")
+                preset_label = {"inhouse": "CM 10j", "1v1": "Solo Mid"}.get(lobby.get("preset", ""), "")
+                lines.append(f"**Lobby ativo:** `{lobby['name']}`" + (f" ({preset_label})" if preset_label else ""))
+                lines.append(f"**Senha:** `{lobby.get('password', '—')}`")
             else:
                 lines.append("**Lobby:** nenhum ativo")
-
             await ctx.send("\n".join(lines))
 
         except (asyncio.TimeoutError, aiohttp.ClientConnectorError):
