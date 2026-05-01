@@ -2,3 +2,5 @@
 \.env
 __pycache__/
 .claude
+gc/*.exe
+gc/liga-discord-gc
