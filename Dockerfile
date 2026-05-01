@@ -9,12 +9,10 @@ COPY requirements.txt requirements-gc.txt ./
 # Instala dependências principais do bot
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instala steam e dota2 com --no-deps para contornar a constraint quebrada:
-# steam==1.4.4 declara dota2>=0.4,<1, mas dota2 pulou de 0.3.3 direto para 1.0.0
-RUN pip install --no-cache-dir --no-deps dota2 steam
-
-# Instala as dependências comuns manualmente
-RUN pip install --no-cache-dir vdf gevent protobuf six
+# steam==1.4.4 tem constraint quebrada: requer dota2>=0.4,<1, mas dota2 pulou de 0.3.3→1.0.0
+# Solução: instalar deps de steam/dota2 manualmente e ambos com --no-deps
+RUN pip install --no-cache-dir eventemitter vdf gevent protobuf six cachetools
+RUN pip install --no-cache-dir --no-deps steam dota2
 
 COPY . .
 
