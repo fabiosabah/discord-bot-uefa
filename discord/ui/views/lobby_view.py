@@ -3,6 +3,8 @@ import discord
 import logging
 from core.db.lobby_repo import save_lobby_session
 from core.db.pagantes_repo import is_pagante
+from core.db.bot_config_repo import is_lobby_integration_enabled
+from core.db.player_repo import get_steam_friend_id
 from domain.models import LobbySession
 from core.config import ADMIN_IDS
 from services.lobby_service import close_session
@@ -152,6 +154,15 @@ class LobbyView(discord.ui.View):
                 "❌ Você não está na lista de pagantes desta temporada.\n"
                 "Para participar, faça um Pix para **(71) 99137-2724** "
                 "no nome de **Luciano Souza de Oliveira** e avise um administrador.",
+                ephemeral=True,
+            )
+            return
+
+        if is_lobby_integration_enabled() and not get_steam_friend_id(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ A integração com o lobby Dota 2 está ativa — você precisa cadastrar seu **Steam Friend ID** antes de entrar na lista.\n\n"
+                "**Como encontrar:** Steam → seu Perfil → Editar Perfil → role até o final → **Steam Friend ID** (só números).\n"
+                "Depois use `!friendid <número>` para cadastrar.",
                 ephemeral=True,
             )
             return
