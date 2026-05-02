@@ -664,14 +664,15 @@ def setup_player_commands(bot: commands.Bot):
 
         await ctx.send(embed=embed)
 
-    @bot.command(name="steamid")
-    async def cmd_steamid(ctx: commands.Context, friend_id: str = None):
+    @bot.command(name="friendid", aliases=["steamid", "meusteam"])
+    async def cmd_friendid(ctx: commands.Context, friend_id: str = None):
         if friend_id is None:
             current = get_steam_friend_id(ctx.author.id)
             if current is None:
                 await ctx.send(
-                    f"❌ Você ainda não cadastrou seu Steam ID.\n"
-                    f"Use `!steamid <seu_friend_id>` para cadastrar."
+                    "❌ Você ainda não cadastrou seu Friend ID.\n"
+                    "Use `!friendid <seu_friend_id>` para cadastrar.\n"
+                    "Encontre seu Friend ID em: Steam → Perfil → Editar Perfil → Steam Friend ID."
                 )
             else:
                 await ctx.send(f"🎮 Seu Steam Friend ID cadastrado: `{current}`")
@@ -689,7 +690,7 @@ def setup_player_commands(bot: commands.Bot):
 
         try:
             set_steam_friend_id(ctx.author.id, fid)
-            await ctx.send(f"✅ Steam Friend ID `{fid}` cadastrado com sucesso!")
+            await ctx.send(f"✅ Steam Friend ID `{fid}` cadastrado! Use `!friendid` para confirmar.")
             logger.info(f"[Steam] {ctx.author} ({ctx.author.id}) cadastrou friend_id={fid}")
         except ValueError as e:
             await ctx.send(f"❌ {e}")

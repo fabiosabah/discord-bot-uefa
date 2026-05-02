@@ -1,11 +1,24 @@
 # -*- coding: utf-8 -*-
-import discord
+import asyncio
 import logging
-from core.config import MAX_PLAYERS
+
+import discord
+import requests
+
+from core.config import MAX_PLAYERS, GC_API_URL
+from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.lobby_repo import delete_lobby_session, save_lobby_session
+from core.db.player_repo import get_steam_friend_id
 from domain.models import LobbySession
 
 logger = logging.getLogger("LobbyService")
+
+_FRIEND_ID_GUIDE = (
+    "Para encontrar seu Friend ID: abra o Steam → seu Perfil → "
+    "Editar Perfil → role até o final → **Steam Friend ID** (só números).\n"
+    "Depois use `!friendid <número>` para cadastrar."
+)
+
 
 async def close_session(
     session: LobbySession,
@@ -41,22 +54,24 @@ async def close_session(
             f"🔒 **Lista confirmada!** Jogadores finais ({filled}/{MAX_PLAYERS}):\n{mention_list}"
         )
 
+        if is_lobby_integration_enabled() and GC_API_URL:
+            asyncio.create_task(
+                _trigger_dota_lobby(session, message.channel)
+            )
+
         if session.waitlist:
-            # Pega os próximos 10 da espera
             next_players = session.waitlist[:MAX_PLAYERS]
             remaining_waitlist = session.waitlist[MAX_PLAYERS:]
 
             new_session = LobbySession(host=session.host, session_id=get_next_id())
-            
             for player in next_players:
                 new_session.add_player(player)
-            
             for player in remaining_waitlist:
                 new_session.add_to_waitlist(player)
 
             new_view = view_factory(new_session, active_lobbies)
             new_msg = await message.channel.send(
-                f"📋 **Nova lista criada automaticamente com a espera!**",
+                "📋 **Nova lista criada automaticamente com a espera!**",
                 embed=new_session.build_embed(),
                 view=new_view
             )
@@ -78,3 +93,52 @@ async def close_session(
                 )
         else:
             await message.channel.send("✅ Lista concluída! Nenhuma espera.")
+
+
+async def _trigger_dota_lobby(session: LobbySession, channel: discord.TextChannel):
+    players = []
+    missing_steam = []
+
+    for member in session.players:
+        fid = get_steam_friend_id(member.id)
+        if fid:
+            players.append({"steam_friend_id": fid, "discord_name": member.display_name})
+        else:
+            missing_steam.append(member)
+
+    if missing_steam:
+        names = ", ".join(m.mention for m in missing_steam)
+        await channel.send(
+            f"⚠️ Os seguintes jogadores **não têm Friend ID cadastrado** e não receberão convite automático:\n"
+            f"{names}\n\n"
+            f"🎮 {_FRIEND_ID_GUIDE}",
+        )
+
+    if not players:
+        await channel.send("❌ Nenhum jogador com Friend ID cadastrado — lobby Dota não criado.")
+        return
+
+    try:
+        resp = await asyncio.to_thread(
+            requests.post,
+            f"{GC_API_URL}/lobby",
+            json={"preset": "inhouse", "players": players},
+            timeout=35,
+        )
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"[LobbyService] Erro ao criar lobby no GC: {e}")
+        await channel.send("❌ Erro ao comunicar com o serviço GC. Crie o lobby manualmente.")
+        return
+
+    if not resp.ok:
+        await channel.send(f"❌ GC recusou o lobby: `{data.get('error', resp.status_code)}`")
+        return
+
+    await channel.send(
+        f"🎮 **Lobby Dota 2 criado!**\n"
+        f"Senha: `{data.get('password', '1234')}`\n"
+        f"Convites enviados para {len(players)} jogadores. "
+        f"Use `!status` para ver quem ainda falta entrar."
+    )
+    logger.info(f"[LobbyService] Lobby criado para lista #{session.id} com {len(players)} jogadores")

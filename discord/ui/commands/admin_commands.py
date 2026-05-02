@@ -13,6 +13,7 @@ from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match
 from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
+from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
 from core.db.season_repo import get_current_season, set_current_season
 from ui.commands.score_helpers import is_admin
 
@@ -33,6 +34,33 @@ def is_season_active() -> bool:
 def setup_admin_commands(bot: commands.Bot):
     logger = logging.getLogger("AdminCommands")
     logger.info("Carregando comandos administrativos...")
+
+    @bot.command(name="lobbyintegracao", aliases=["lobbyintegration", "dotaintegracao"])
+    async def cmd_lobby_integration(ctx: commands.Context, estado: str = None):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if estado is None:
+            atual = is_lobby_integration_enabled()
+            status = "✅ ativada" if atual else "❌ desativada"
+            await ctx.send(
+                f"🎮 Integração com lobby Dota 2: **{status}**\n"
+                f"Use `!lobbyintegracao on` ou `!lobbyintegracao off` para alterar.",
+                delete_after=20
+            )
+            return
+
+        if estado.lower() in ("on", "ativar", "ligar", "1", "true"):
+            set_lobby_integration_enabled(True)
+            await ctx.send("✅ Integração com lobby Dota 2 **ativada** — quando a lista fechar com 10 players, o bot criará a sala automaticamente.", delete_after=20)
+        elif estado.lower() in ("off", "desativar", "desligar", "0", "false"):
+            set_lobby_integration_enabled(False)
+            await ctx.send("❌ Integração com lobby Dota 2 **desativada**.", delete_after=20)
+        else:
+            await ctx.send("❌ Use `on` ou `off`.", delete_after=10)
+        await ctx.message.delete()
 
     @bot.command(name="registrarcanalimagem", aliases=["registrarcanalocr"])
     async def cmd_register_image_channel(ctx: commands.Context):
