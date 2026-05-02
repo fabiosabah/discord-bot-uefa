@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	dota2 "github.com/paralin/go-dota2"
+	"github.com/paralin/go-dota2/cso"
 	"github.com/paralin/go-dota2/protocol"
+	"github.com/paralin/go-dota2/socache"
 	"github.com/sirupsen/logrus"
 )
 
@@ -144,5 +146,33 @@ func (c *Client) DestroyLobby(ctx context.Context) error {
 	}
 
 	c.logger.Info("[Dota] Lobby destruído")
+	return nil
+}
+
+// WatchLobby subscribes to lobby SOCache events and calls onChange for each one.
+// Runs in a background goroutine; returns error only if subscription fails immediately.
+func (c *Client) WatchLobby(ctx context.Context, onChange func(socache.EventType, *protocol.CSODOTALobby)) error {
+	ch, unsub, err := c.d.GetCache().SubscribeType(cso.Lobby)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer unsub()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-ch:
+				if !ok {
+					return
+				}
+				if lobby, ok := ev.Object.(*protocol.CSODOTALobby); ok {
+					onChange(ev.EventType, lobby)
+				}
+			}
+		}
+	}()
+
 	return nil
 }

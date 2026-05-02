@@ -1,6 +1,7 @@
 package steam
 
 import (
+	"context"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 	dota2 "github.com/paralin/go-dota2"
 	devents "github.com/paralin/go-dota2/events"
 	"github.com/paralin/go-dota2/protocol"
+	"github.com/paralin/go-dota2/socache"
 	gosteam "github.com/paralin/go-steam"
 	"github.com/paralin/go-steam/protocol/steamlang"
 	"github.com/sirupsen/logrus"

@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import logging
+import requests
 from datetime import datetime, timedelta
 
 import discord
 from discord.ext import commands
 
+from core.config import GC_API_URL
 from core.db.audit_repo import (
     log_action,
     get_raw_match_audit_events,
@@ -142,3 +144,39 @@ def setup_match_commands(bot: commands.Bot):
             )
 
         await ctx.send(f"```\n{chr(10).join(lines)}\n```")
+
+    @bot.command(name="apikeyid", aliases=["steampartida", "dotamatch"])
+    async def cmd_steam_match(ctx: commands.Context, match_id: int):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if not GC_API_URL:
+            await ctx.send("❌ `GC_API_URL` não configurada.", delete_after=10)
+            return
+
+        await ctx.send(f"🔍 Buscando partida `{match_id}`...", delete_after=10)
+
+        try:
+            resp = requests.get(f"{GC_API_URL}/match/{match_id}", timeout=20)
+            data = resp.json()
+        except requests.RequestException as e:
+            logger.error(f"[SteamAPI] Erro ao chamar GC: {e}")
+            await ctx.send(f"❌ Erro ao chamar o serviço GC: `{e}`", delete_after=20)
+            return
+
+        if not resp.ok:
+            await ctx.send(f"❌ GC retornou erro: `{data.get('error', resp.status_code)}`", delete_after=20)
+            return
+
+        result = data.get("result", {})
+        if not result:
+            await ctx.send("❌ Nenhum dado retornado. Verifique se o match ID é válido.", delete_after=15)
+            return
+
+        players = result.get("players", [])
+        await ctx.send(
+            f"✅ Partida `{match_id}` buscada — veja o log do Railway (serviço GC) para os detalhes completos.\n"
+            f"Duração: `{result.get('duration')}s` | Vencedor: `{'Radiant' if result.get('radiant_win') else 'Dire'}` | Jogadores: `{len(players)}`"
+        )
