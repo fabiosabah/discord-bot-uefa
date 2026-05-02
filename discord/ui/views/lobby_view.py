@@ -160,7 +160,7 @@ class LobbyView(discord.ui.View):
 
         if is_lobby_integration_enabled() and not get_steam_friend_id(interaction.user.id):
             await interaction.response.send_message(
-                "❌ A integração com o lobby Dota 2 está ativa — você precisa cadastrar seu **Steam Friend ID** antes de entrar na lista.\n\n"
+                "🎮 **O bot agora te convida direto pro lobby do Dota!** Cadastre seu Steam Friend ID antes de entrar na lista.\n\n"
                 "**Como encontrar seu Friend ID:**\n"
                 "1. Abra o Steam\n"
                 "2. Clique em **Amigos e conversas** (canto inferior direito)\n"
