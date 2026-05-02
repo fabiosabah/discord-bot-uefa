@@ -166,7 +166,7 @@ class LobbyView(discord.ui.View):
                 "2. Clique em **Amigos e conversas** (canto inferior direito)\n"
                 "3. Clique no botão **Adicionar Amigo** (ícone de pessoa com +)\n"
                 "4. Seu **Friend Code** aparecerá em destaque — clique em Copiar\n"
-                "5. Digite aqui no Discord: `!friendid <seu friend code>`",
+                "5. Digite aqui no Discord: `!meusteam <seu friend code>`",
                 ephemeral=True,
             )
             return
