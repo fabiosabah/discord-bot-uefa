@@ -90,7 +90,8 @@ def _format_ocr_player_line(player: dict[str, Any], index: int) -> str:
     assists = player.get("assists")
     kda = ""
     if kills is not None or deaths is not None or assists is not None:
-        kda = f"{kills or '?'} / {deaths or '?'} / {assists or '?'}"
+        fmt = lambda v: '?' if v is None else v
+        kda = f"{fmt(kills)} / {fmt(deaths)} / {fmt(assists)}"
 
     networth = player.get("networth") or player.get("net_worth")
     networth_text = f"NW {networth}" if networth is not None and str(networth).strip() else ""
