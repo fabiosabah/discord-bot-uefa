@@ -185,7 +185,7 @@ async def on_message(message: discord.Message):
         if allowed_channel and message.channel.id == allowed_channel:
             content = message.content.strip()
             command_name = content.split()[0][1:].lower() if content else ""
-            allowed = command_name in {"lista", "lobby", "inhouse"}
+            allowed = command_name in {"lista", "lobby", "inhouse", "friendid", "steamid", "meusteam"}
             if not allowed:
                 await message.channel.send(
                     "❌ Neste canal só é permitido usar `!lista` para abrir a lista.",
