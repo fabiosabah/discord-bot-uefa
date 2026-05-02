@@ -95,6 +95,23 @@ async def close_session(
             await message.channel.send("✅ Lista concluída! Nenhuma espera.")
 
 
+async def _poll_lobby_id(retries: int = 8, delay: float = 2.0) -> int | None:
+    for _ in range(retries):
+        await asyncio.sleep(delay)
+        try:
+            resp = await asyncio.to_thread(
+                requests.get, f"{GC_API_URL}/status", timeout=5
+            )
+            if resp.ok:
+                lobby = resp.json().get("lobby") or {}
+                lid = lobby.get("lobby_id", 0)
+                if lid:
+                    return lid
+        except Exception:
+            pass
+    return None
+
+
 async def _trigger_dota_lobby(session: LobbySession, channel: discord.TextChannel):
     players = []
     missing_steam = []
@@ -135,10 +152,19 @@ async def _trigger_dota_lobby(session: LobbySession, channel: discord.TextChanne
         await channel.send(f"❌ GC recusou o lobby: `{data.get('error', resp.status_code)}`")
         return
 
+    password = data.get('password', '1234')
     await channel.send(
         f"🎮 **Lobby Dota 2 criado!**\n"
-        f"Senha: `{data.get('password', '1234')}`\n"
-        f"Convites enviados para {len(players)} jogadores. "
-        f"Use `!status` para ver quem ainda falta entrar."
+        f"Senha: `{password}`\n"
+        f"Convites enviados para {len(players)} jogadores."
     )
     logger.info(f"[LobbyService] Lobby criado para lista #{session.id} com {len(players)} jogadores")
+
+    lobby_id = await _poll_lobby_id()
+    if lobby_id:
+        await channel.send(
+            f"🔗 **Entrar no lobby:** `steam://joinlobby/570/{lobby_id}`\n"
+            f"_(clique no link ou copie para o navegador/Steam)_"
+        )
+    else:
+        logger.warning("[LobbyService] lobby_id não disponível após polling — link não enviado")
