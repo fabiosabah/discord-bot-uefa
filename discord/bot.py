@@ -27,7 +27,6 @@ from services.lobby_service import close_session
 from ui.commands.admin_commands import is_bot_enabled
 from ui.commands.dota_gc_commands import setup_dota_gc_commands
 from ui.commands.lobby_commands import setup_lobby_commands
-from ui.commands.match_commands import setup_match_commands
 from ui.commands.score_commands import setup_score_commands
 from ui.commands.score_helpers import build_ocr_job_summary_text
 from ui.views.lobby_view import LobbyView
@@ -295,7 +294,6 @@ logger.info("Configurando comandos...")
 setup_lobby_commands(bot, active_lobbies)
 setup_score_commands(bot, ocr_summary_messages)
 setup_dota_gc_commands(bot)
-setup_match_commands(bot)
 logger.info("Comandos configurados com sucesso.")
 
 if __name__ == "__main__":
