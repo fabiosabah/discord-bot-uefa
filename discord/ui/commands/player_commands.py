@@ -206,7 +206,7 @@ def setup_player_commands(bot: commands.Bot):
             embed.add_field(name="📉 Sequência", value=f"{s_count} derrotas seguidas", inline=True)
 
         top5_played   = all_heroes[:5]
-        eligible_wr   = [h for h in all_heroes if h["plays"] >= 3]
+        eligible_wr   = [h for h in all_heroes if h["plays"] >= 3] or [h for h in all_heroes if h["plays"] >= 1]
         top3_best_wr  = sorted(eligible_wr, key=lambda x: (-x["winrate"], -x["plays"]))[:3]
         best_heroes   = {h["hero"] for h in top3_best_wr}
         top3_worst_wr = sorted(
