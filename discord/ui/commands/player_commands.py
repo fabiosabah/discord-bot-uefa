@@ -83,7 +83,7 @@ def setup_player_commands(bot: commands.Bot):
         else:
             last_text = "🕹️ Nenhuma partida importada ainda"
 
-        embed.set_footer(text=f"⚖️ Vitória +3 pts | Derrota -1 pt\n{last_text}")
+        embed.set_footer(text=f"⚖️ Vitória +2 pts | Derrota -1 pt\n{last_text}")
 
         await ctx.send(embed=embed)
 

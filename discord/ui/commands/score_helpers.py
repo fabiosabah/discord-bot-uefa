@@ -47,7 +47,7 @@ def build_footer(include_rules=True):
     else:
         update_text = "🕹️ Nenhuma partida registrada ainda"
     if include_rules:
-        return f"⚖️ Vitória +3 pts | Derrota -1 pt\n{update_text}"
+        return f"⚖️ Vitória +2 pts | Derrota -1 pt\n{update_text}"
     return update_text
 
 

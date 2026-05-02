@@ -14,7 +14,9 @@ from core.db.lobby_repo import (
     delete_lobby_session,
 )
 from core.db.ocr_repo import (
+    clear_image_data,
     enqueue_match_screenshot,
+    get_match_screenshot,
     get_pending_match_screenshots,
     set_match_screenshot_status,
 )
@@ -253,6 +255,9 @@ async def ocr_background_worker():
 
                 logger.debug(f"🤖 Starting OCR processing for job {job_id}")
                 result = await asyncio.to_thread(process_match_screenshot, job["id"], job)
+                updated = get_match_screenshot(job_id)
+                if updated and updated["status"] == "processed":
+                    clear_image_data(job_id)
                 parsed = result.get("parsed", {})
 
                 logger.info(f"✅ OCR completed for job {job_id}: duration={parsed.get('duration', 'unknown')}, valid={parsed.get('valid_dota_screenshot', 'unknown')}")

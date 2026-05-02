@@ -80,6 +80,13 @@ def get_match_screenshot(job_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def clear_image_data(job_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE match_screenshots SET image_data = NULL WHERE id = ?", (job_id,))
+        conn.commit()
+    logger.debug(f"[DB] image_data cleared for job {job_id}")
+
+
 def delete_match_screenshot(job_id: int) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM match_screenshots WHERE id = ?", (job_id,))
