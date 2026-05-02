@@ -670,9 +670,13 @@ def setup_player_commands(bot: commands.Bot):
             current = get_steam_friend_id(ctx.author.id)
             if current is None:
                 await ctx.send(
-                    "❌ Você ainda não cadastrou seu Friend ID.\n"
-                    "Use `!friendid <seu_friend_id>` para cadastrar.\n"
-                    "Encontre seu Friend ID em: Steam → Perfil → Editar Perfil → Steam Friend ID."
+                    "❌ Você ainda não cadastrou seu Friend ID.\n\n"
+                    "**Como encontrar:**\n"
+                    "1. Abra o Steam\n"
+                    "2. Clique em **Amigos e Chat** (canto inferior direito)\n"
+                    "3. Clique no botão **Adicionar Amigo** (ícone de pessoa com +)\n"
+                    "4. Seu **Friend Code** aparecerá em destaque — clique em Copiar\n"
+                    "5. Use `!friendid <seu friend code>` para cadastrar."
                 )
             else:
                 await ctx.send(f"🎮 Seu Steam Friend ID cadastrado: `{current}`")

@@ -14,9 +14,12 @@ from domain.models import LobbySession
 logger = logging.getLogger("LobbyService")
 
 _FRIEND_ID_GUIDE = (
-    "Para encontrar seu Friend ID: abra o Steam → seu Perfil → "
-    "Editar Perfil → role até o final → **Steam Friend ID** (só números).\n"
-    "Depois use `!friendid <número>` para cadastrar."
+    "**Como encontrar seu Friend ID:**\n"
+    "1. Abra o Steam\n"
+    "2. Clique em **Amigos e Chat** (canto inferior direito)\n"
+    "3. Clique no botão **Adicionar Amigo** (ícone de pessoa com +)\n"
+    "4. Seu **Friend Code** aparecerá em destaque — clique em Copiar\n"
+    "5. Digite no Discord: `!friendid <seu friend code>`"
 )
 
 
