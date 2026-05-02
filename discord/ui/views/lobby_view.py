@@ -163,7 +163,7 @@ class LobbyView(discord.ui.View):
                 "❌ A integração com o lobby Dota 2 está ativa — você precisa cadastrar seu **Steam Friend ID** antes de entrar na lista.\n\n"
                 "**Como encontrar seu Friend ID:**\n"
                 "1. Abra o Steam\n"
-                "2. Clique em **Amigos e Chat** (canto inferior direito)\n"
+                "2. Clique em **Amigos e conversas** (canto inferior direito)\n"
                 "3. Clique no botão **Adicionar Amigo** (ícone de pessoa com +)\n"
                 "4. Seu **Friend Code** aparecerá em destaque — clique em Copiar\n"
                 "5. Digite aqui no Discord: `!friendid <seu friend code>`",

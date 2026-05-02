@@ -673,7 +673,7 @@ def setup_player_commands(bot: commands.Bot):
                     "❌ Você ainda não cadastrou seu Friend ID.\n\n"
                     "**Como encontrar:**\n"
                     "1. Abra o Steam\n"
-                    "2. Clique em **Amigos e Chat** (canto inferior direito)\n"
+                    "2. Clique em **Amigos e conversas** (canto inferior direito)\n"
                     "3. Clique no botão **Adicionar Amigo** (ícone de pessoa com +)\n"
                     "4. Seu **Friend Code** aparecerá em destaque — clique em Copiar\n"
                     "5. Use `!friendid <seu friend code>` para cadastrar."

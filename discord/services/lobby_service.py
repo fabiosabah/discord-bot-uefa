@@ -16,7 +16,7 @@ logger = logging.getLogger("LobbyService")
 _FRIEND_ID_GUIDE = (
     "**Como encontrar seu Friend ID:**\n"
     "1. Abra o Steam\n"
-    "2. Clique em **Amigos e Chat** (canto inferior direito)\n"
+    "2. Clique em **Amigos e conversas** (canto inferior direito)\n"
     "3. Clique no botão **Adicionar Amigo** (ícone de pessoa com +)\n"
     "4. Seu **Friend Code** aparecerá em destaque — clique em Copiar\n"
     "5. Digite no Discord: `!friendid <seu friend code>`"
