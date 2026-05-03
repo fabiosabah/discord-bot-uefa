@@ -82,7 +82,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         active_lobbies[message.id] = session
         await message.edit(view=LobbyView(session, active_lobbies))
 
-        if session.auto_close_at or session.is_full():
+        if session.auto_close_at:
             session.schedule_auto_close(active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
 
         return session

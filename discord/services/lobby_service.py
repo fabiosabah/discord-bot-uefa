@@ -57,7 +57,7 @@ async def close_session(
             f"🔒 **Lista confirmada!** Jogadores finais ({filled}/{MAX_PLAYERS}):\n{mention_list}"
         )
 
-        if is_lobby_integration_enabled() and GC_API_URL:
+        if is_lobby_integration_enabled() and GC_API_URL and not session.dota_lobby_triggered:
             asyncio.create_task(
                 _trigger_dota_lobby(session, message.channel)
             )

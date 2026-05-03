@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import discord
 import logging
 from core.db.lobby_repo import save_lobby_session
@@ -6,8 +7,8 @@ from core.db.pagantes_repo import is_pagante
 from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.player_repo import get_steam_friend_id
 from domain.models import LobbySession
-from core.config import ADMIN_IDS
-from services.lobby_service import close_session
+from core.config import ADMIN_IDS, GC_API_URL
+from services.lobby_service import close_session, _trigger_dota_lobby
 
 # Logger específico para auditoria de ações
 audit_logger = logging.getLogger("Audit")
@@ -108,8 +109,10 @@ class AddUserSelect(discord.ui.UserSelect):
             response = f"🔔 {member.mention} foi adicionado à espera (posição {len(session.waitlist)})."
         else:
             session.add_player(member)
-            if session.is_full():
-                session.schedule_auto_close(self.active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
+            if session.is_full() and not session.dota_lobby_triggered:
+                session.dota_lobby_triggered = True
+                if is_lobby_integration_enabled() and GC_API_URL:
+                    asyncio.create_task(_trigger_dota_lobby(session, session.message.channel))
             list_type = "lista"
             response = f"✅ {member.mention} foi adicionado à lista."
 
@@ -186,8 +189,10 @@ class LobbyView(discord.ui.View):
             session.add_player(interaction.user)
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na LISTA da Lista #{session.id}")
 
-            if session.is_full():
-                session.schedule_auto_close(self.active_lobbies, close_fn=lambda s, l: close_session(s, l, view_factory=lambda sv, lv: LobbyView(sv, lv)))
+            if session.is_full() and not session.dota_lobby_triggered:
+                session.dota_lobby_triggered = True
+                if is_lobby_integration_enabled() and GC_API_URL:
+                    asyncio.create_task(_trigger_dota_lobby(session, session.message.channel))
 
             await session.message.edit(embed=session.build_embed(), view=self)
             save_lobby_session(session)

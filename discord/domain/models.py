@@ -21,6 +21,7 @@ class LobbySession:
         self.close_task: asyncio.Task | None = None
         self.auto_close_at: datetime | None = None
         self.created_at: datetime = datetime.now()
+        self.dota_lobby_triggered: bool = False
 
     def can_any_user_close(self) -> bool:
         """Verifica se já passaram os minutos necessários para qualquer um encerrar a lista."""
