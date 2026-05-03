@@ -106,9 +106,6 @@ def setup_dota_gc_commands(bot: commands.Bot):
     @bot.command(name="leavelobby", aliases=["sairlobby"])
     async def leave_lobby(ctx: commands.Context):
         """Bot sai do lobby Dota 2 atual. Uso: !leavelobby"""
-        if not is_admin(ctx.author.id):
-            await ctx.send("❌ Apenas administradores podem usar este comando.", delete_after=10)
-            return
         if not GC_API_URL:
             await ctx.send("❌ GC_API_URL não configurado.", delete_after=10)
             return

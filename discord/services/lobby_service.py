@@ -142,7 +142,7 @@ async def _trigger_dota_lobby(session: LobbySession, channel: discord.TextChanne
         resp = await asyncio.to_thread(
             requests.post,
             f"{GC_API_URL}/lobby",
-            json={"preset": "inhouse", "players": players},
+            json={"preset": "inhouse", "password": "1234", "players": players},
             timeout=35,
         )
         data = resp.json()

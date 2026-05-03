@@ -51,9 +51,6 @@ class LobbySession:
         else:
             self.auto_close_at = now + timedelta(seconds=delay)
 
-        if delay == 0:
-            return
-
         loop = asyncio.get_running_loop()
         self.close_task = loop.create_task(self._auto_close_countdown(active_lobbies, close_fn, delay))
 
