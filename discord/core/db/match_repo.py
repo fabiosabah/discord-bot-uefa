@@ -23,15 +23,18 @@ def get_all_hero_stats_from_matches() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                h.name                                                                  AS hero,
-                COUNT(mp.id)                                                            AS picks,
-                COALESCE(SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END), 0)  AS wins
+                h.name                                                                          AS hero,
+                COUNT(s.id)                                                                     AS picks,
+                COALESCE(SUM(CASE WHEN s.team = s.winner_team THEN 1 ELSE 0 END), 0)           AS wins
             FROM heroes h
-            LEFT JOIN match_players mp ON mp.hero_name = h.name
-            LEFT JOIN matches m        ON m.league_match_id = mp.league_match_id
-                                      AND m.season = ?
+            LEFT JOIN (
+                SELECT mp.id, mp.hero_name, mp.team, m.winner_team
+                FROM match_players mp
+                JOIN matches m ON m.league_match_id = mp.league_match_id
+                WHERE m.season = ?
+            ) s ON s.hero_name = h.name
             GROUP BY h.name
-            ORDER BY picks DESC, wins * 1.0 / NULLIF(COUNT(mp.id), 0) DESC
+            ORDER BY picks DESC, wins * 1.0 / NULLIF(COUNT(s.id), 0) DESC
         """, (season,)).fetchall()
     return [
         {
