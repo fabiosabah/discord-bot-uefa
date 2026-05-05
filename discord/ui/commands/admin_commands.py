@@ -10,7 +10,7 @@ from core.config import IMAGE_CHANNEL_ID, ADMIN_IDS
 from core.db.admins_repo import add_admin_db, remove_admin_db, list_admins_db
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
-from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match
+from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
 from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
@@ -297,6 +297,32 @@ def setup_admin_commands(bot: commands.Bot):
             lines.append("\n💡 Use `!fixkda sim` para corrigir os valores para 0.")
 
         await ctx.send("\n".join(lines))
+
+    @bot.command(name="editarkda", aliases=["setkda", "corrigirkdapartida"])
+    async def cmd_editar_kda(ctx: commands.Context, partida: int, jogador: str, kills: int, deaths: int, assists: int):
+        """!editarkda <#partida> <@jogador ou nome_ingame> <kills> <deaths> <assists>"""
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        discord_id = None
+        player_name_fragment = None
+
+        if ctx.message.mentions:
+            discord_id = ctx.message.mentions[0].id
+        else:
+            player_name_fragment = jogador
+
+        result = update_player_kda(partida, discord_id, player_name_fragment, kills, deaths, assists)
+
+        if not result["updated"]:
+            await ctx.send(f"❌ {result['reason']}")
+            return
+
+        await ctx.send(
+            f"✅ KDA de **{result['display_name']}** na partida **#{partida}** atualizado para `{kills}/{deaths}/{assists}`."
+        )
 
     @bot.command(name="fixduracoes", aliases=["fixdurations", "corrigirduracoes"])
     async def cmd_fix_duracoes(ctx: commands.Context):

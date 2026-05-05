@@ -593,6 +593,51 @@ def update_league_match_duration(league_match_id: int, duration: str) -> bool:
     return updated > 0
 
 
+def update_player_kda(season_match_id: int, discord_id: int | None, player_name_fragment: str | None,
+                      kills: int, deaths: int, assists: int) -> dict:
+    """
+    Atualiza KDA de um jogador numa partida da temporada atual.
+    Identifica o jogador por discord_id (preferencial) ou por fragment do player_name.
+    Retorna dict com 'updated' (bool), 'display_name' e 'league_match_id'.
+    """
+    season = get_current_season()
+    with get_connection() as conn:
+        match_row = conn.execute(
+            "SELECT league_match_id FROM matches WHERE season_match_id = ? AND season = ?",
+            (season_match_id, season),
+        ).fetchone()
+        if not match_row:
+            return {"updated": False, "reason": f"Partida #{season_match_id} não encontrada na temporada {season}."}
+
+        league_match_id = match_row["league_match_id"]
+
+        if discord_id is not None:
+            target = conn.execute(
+                "SELECT slot, player_name, discord_id FROM match_players WHERE league_match_id = ? AND discord_id = ?",
+                (league_match_id, discord_id),
+            ).fetchone()
+        else:
+            fragment = f"%{player_name_fragment}%"
+            target = conn.execute(
+                "SELECT slot, player_name, discord_id FROM match_players WHERE league_match_id = ? AND player_name LIKE ?",
+                (league_match_id, fragment),
+            ).fetchone()
+
+        if not target:
+            who = f"discord_id {discord_id}" if discord_id else f"'{player_name_fragment}'"
+            return {"updated": False, "reason": f"Jogador {who} não encontrado na partida #{season_match_id}."}
+
+        conn.execute(
+            "UPDATE match_players SET kills = ?, deaths = ?, assists = ? WHERE league_match_id = ? AND slot = ?",
+            (kills, deaths, assists, league_match_id, target["slot"]),
+        )
+        conn.commit()
+
+    display = target["player_name"] or str(discord_id)
+    logger.info(f"[DB] KDA atualizado: partida #{season_match_id} (league {league_match_id}), {display} → {kills}/{deaths}/{assists}")
+    return {"updated": True, "display_name": display, "league_match_id": league_match_id}
+
+
 def delete_league_match(league_match_id: int) -> bool:
     with get_connection() as conn:
         exists = conn.execute(
