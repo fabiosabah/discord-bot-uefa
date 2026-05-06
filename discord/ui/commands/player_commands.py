@@ -71,7 +71,7 @@ def setup_player_commands(bot: commands.Bot):
             records_lines.append(f"🏅 Recorde winstreak: {nomes_w} ({rec_w['count']} seguidas)")
         if rec_l["players"]:
             nomes_l = ", ".join(f"**{pl['display_name']}**" for pl in rec_l["players"])
-            records_lines.append(f"💔 Recorde lossstreak: {nomes_l} ({rec_l['count']} seguidas)")
+            records_lines.append(f"💩 Recorde lossstreak: {nomes_l} ({rec_l['count']} seguidas)")
         if records_lines:
             embed.add_field(name="Recordes", value="\n".join(records_lines), inline=False)
 
