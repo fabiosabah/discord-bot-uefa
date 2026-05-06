@@ -7,14 +7,15 @@ from core.db.pagantes_repo import is_pagante
 from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.player_repo import get_steam_friend_id
 from domain.models import LobbySession
-from core.config import ADMIN_IDS, GC_API_URL
+from core.config import GC_API_URL
 from services.lobby_service import close_session, _trigger_dota_lobby
+from ui.commands.score_helpers import is_admin
 
 # Logger específico para auditoria de ações
 audit_logger = logging.getLogger("Audit")
 
 def is_authorized(user_id: int, session: LobbySession) -> bool:
-    return user_id == session.host.id or user_id in ADMIN_IDS
+    return user_id == session.host.id or is_admin(user_id)
 
 class RemoveSelect(discord.ui.Select):
     def __init__(self, session: LobbySession, active_lobbies: dict):
