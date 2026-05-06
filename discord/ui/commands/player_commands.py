@@ -54,7 +54,7 @@ def setup_player_commands(bot: commands.Bot):
             if p["discord_id"] in cur_win_ids and streaks["current_win"]["count"] >= 2:
                 streak_tag = f" 🔥×{streaks['current_win']['count']}"
             elif p["discord_id"] in cur_loss_ids and streaks["current_loss"]["count"] >= 2:
-                streak_tag = f" 💀×{streaks['current_loss']['count']}"
+                streak_tag = f" 💩×{streaks['current_loss']['count']}"
             linhas.append(
                 f"{prefix} **{p['display_name']}**{streak_tag} — "
                 f"{p['points']} pts "
