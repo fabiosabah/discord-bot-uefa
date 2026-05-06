@@ -42,8 +42,8 @@ def setup_player_commands(bot: commands.Bot):
 
         season = get_current_season()
         streaks = get_streak_highlights_from_matches()
-        cur_win_id  = streaks["current_win"]["discord_id"]
-        cur_loss_id = streaks["current_loss"]["discord_id"]
+        cur_win_ids  = {pl["discord_id"] for pl in streaks["current_win"]["players"]}
+        cur_loss_ids = {pl["discord_id"] for pl in streaks["current_loss"]["players"]}
 
         embed = discord.Embed(title=f"🏆 Tabela — Temporada {season}", color=discord.Color.dark_gold())
 
@@ -51,9 +51,9 @@ def setup_player_commands(bot: commands.Bot):
         for i, p in enumerate(ranking):
             prefix = "👑" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
             streak_tag = ""
-            if p["discord_id"] == cur_win_id and streaks["current_win"]["count"] >= 2:
+            if p["discord_id"] in cur_win_ids and streaks["current_win"]["count"] >= 2:
                 streak_tag = f" 🔥×{streaks['current_win']['count']}"
-            elif p["discord_id"] == cur_loss_id and streaks["current_loss"]["count"] >= 2:
+            elif p["discord_id"] in cur_loss_ids and streaks["current_loss"]["count"] >= 2:
                 streak_tag = f" 💀×{streaks['current_loss']['count']}"
             linhas.append(
                 f"{prefix} **{p['display_name']}**{streak_tag} — "
@@ -66,10 +66,12 @@ def setup_player_commands(bot: commands.Bot):
         rec_w = streaks["record_win"]
         rec_l = streaks["record_loss"]
         records_lines = []
-        if rec_w["display_name"]:
-            records_lines.append(f"🏅 Recorde winstreak: **{rec_w['display_name']}** ({rec_w['count']} seguidas)")
-        if rec_l["display_name"]:
-            records_lines.append(f"💔 Recorde lossstreak: **{rec_l['display_name']}** ({rec_l['count']} seguidas)")
+        if rec_w["players"]:
+            nomes_w = ", ".join(f"**{pl['display_name']}**" for pl in rec_w["players"])
+            records_lines.append(f"🏅 Recorde winstreak: {nomes_w} ({rec_w['count']} seguidas)")
+        if rec_l["players"]:
+            nomes_l = ", ".join(f"**{pl['display_name']}**" for pl in rec_l["players"])
+            records_lines.append(f"💔 Recorde lossstreak: {nomes_l} ({rec_l['count']} seguidas)")
         if records_lines:
             embed.add_field(name="Recordes", value="\n".join(records_lines), inline=False)
 

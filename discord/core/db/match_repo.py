@@ -1101,10 +1101,20 @@ def get_streak_highlights_from_matches() -> dict:
         display_name = str(events[0]["display_name"])
         players_history[discord_id] = (display_name, [e["result"] for e in events])
 
-    current_win  = {"discord_id": None, "display_name": None, "count": 0}
-    current_loss = {"discord_id": None, "display_name": None, "count": 0}
-    record_win   = {"discord_id": None, "display_name": None, "count": 0}
-    record_loss  = {"discord_id": None, "display_name": None, "count": 0}
+    def _empty_streak() -> dict:
+        return {"count": 0, "players": []}
+
+    def _add_player(streak: dict, discord_id: int, display_name: str, count: int) -> dict:
+        if count > streak["count"]:
+            return {"count": count, "players": [{"discord_id": discord_id, "display_name": display_name}]}
+        if count == streak["count"] and count > 0:
+            streak["players"].append({"discord_id": discord_id, "display_name": display_name})
+        return streak
+
+    current_win  = _empty_streak()
+    current_loss = _empty_streak()
+    record_win   = _empty_streak()
+    record_loss  = _empty_streak()
 
     for discord_id, (display_name, results) in players_history.items():
         if not results:
@@ -1117,10 +1127,10 @@ def get_streak_highlights_from_matches() -> dict:
                 break
             cur_count += 1
 
-        if cur_type == "win" and cur_count > current_win["count"]:
-            current_win = {"discord_id": discord_id, "display_name": display_name, "count": cur_count}
-        elif cur_type == "loss" and cur_count > current_loss["count"]:
-            current_loss = {"discord_id": discord_id, "display_name": display_name, "count": cur_count}
+        if cur_type == "win":
+            current_win  = _add_player(current_win,  discord_id, display_name, cur_count)
+        else:
+            current_loss = _add_player(current_loss, discord_id, display_name, cur_count)
 
         max_win = max_loss = cur_w = cur_l = 0
         for r in reversed(results):
@@ -1131,10 +1141,8 @@ def get_streak_highlights_from_matches() -> dict:
             if cur_w > max_win:   max_win = cur_w
             if cur_l > max_loss:  max_loss = cur_l
 
-        if max_win  > record_win["count"]:
-            record_win  = {"discord_id": discord_id, "display_name": display_name, "count": max_win}
-        if max_loss > record_loss["count"]:
-            record_loss = {"discord_id": discord_id, "display_name": display_name, "count": max_loss}
+        record_win  = _add_player(record_win,  discord_id, display_name, max_win)
+        record_loss = _add_player(record_loss, discord_id, display_name, max_loss)
 
     return {
         "current_win":  current_win,
