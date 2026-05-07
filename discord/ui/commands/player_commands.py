@@ -51,9 +51,9 @@ def setup_player_commands(bot: commands.Bot):
         for i, p in enumerate(ranking):
             prefix = "👑" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
             streak_tag = ""
-            if p["discord_id"] in cur_win_ids and streaks["current_win"]["count"] >= 2:
+            if p["discord_id"] in cur_win_ids and streaks["current_win"]["count"] >= 3:
                 streak_tag = f" 🔥×{streaks['current_win']['count']}"
-            elif p["discord_id"] in cur_loss_ids and streaks["current_loss"]["count"] >= 2:
+            elif p["discord_id"] in cur_loss_ids and streaks["current_loss"]["count"] >= 3:
                 streak_tag = f" 💩×{streaks['current_loss']['count']}"
             linhas.append(
                 f"{prefix} **{p['display_name']}**{streak_tag} — "
@@ -61,7 +61,8 @@ def setup_player_commands(bot: commands.Bot):
                 f"(`{p['wins']}V / {p['losses']}D` — {p['games']} jogos)"
             )
 
-        embed.description = "\n".join(linhas)
+        legenda = "🔥 tá pegando fogo  |  💩 tá fedendo"
+        embed.description = "\n".join(linhas) + f"\n\n{legenda}"
 
         rec_w = streaks["record_win"]
         rec_l = streaks["record_loss"]
