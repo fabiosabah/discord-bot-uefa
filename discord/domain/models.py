@@ -4,6 +4,7 @@ import discord
 from datetime import datetime, timedelta
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 from core.db.player_repo import get_captains_from_list, _CAPTAIN_FALLBACK_THRESHOLD
+from core.db.match_repo import get_streak_highlights_from_matches
 
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0
@@ -166,9 +167,23 @@ class LobbySession:
         embed.add_field(name="Status", value=status, inline=False)
 
         if self.players:
-            lista = "\n".join(
-                f"`{i+1:02d}.` {p.mention}" for i, p in enumerate(self.players)
-            )
+            streaks = get_streak_highlights_from_matches()
+            win_ids  = {pl["discord_id"] for pl in streaks["current_win"]["players"]}  if streaks["current_win"]["count"]  >= 3 else set()
+            loss_ids = {pl["discord_id"] for pl in streaks["current_loss"]["players"]} if streaks["current_loss"]["count"] >= 3 else set()
+            linhas_jogadores = []
+            has_streak = False
+            for i, p in enumerate(self.players):
+                tag = ""
+                if p.id in win_ids:
+                    tag = " 🔥"
+                    has_streak = True
+                elif p.id in loss_ids:
+                    tag = " 💩"
+                    has_streak = True
+                linhas_jogadores.append(f"`{i+1:02d}.` {p.mention}{tag}")
+            if has_streak:
+                linhas_jogadores.append("\n🔥 tá pegando fogo  |  💩 tá fedendo")
+            lista = "\n".join(linhas_jogadores)
         else:
             lista = "_Nenhum jogador ainda._"
 
