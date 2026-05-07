@@ -168,8 +168,8 @@ class LobbySession:
 
         if self.players:
             streaks = get_streak_highlights_from_matches()
-            win_ids  = {pl["discord_id"] for pl in streaks["current_win"]["players"]}  if streaks["current_win"]["count"]  >= 3 else set()
-            loss_ids = {pl["discord_id"] for pl in streaks["current_loss"]["players"]} if streaks["current_loss"]["count"] >= 3 else set()
+            win_ids  = {int(pl["discord_id"]) for pl in streaks["current_win"]["players"]}  if streaks["current_win"]["count"]  >= 3 else set()
+            loss_ids = {int(pl["discord_id"]) for pl in streaks["current_loss"]["players"]} if streaks["current_loss"]["count"] >= 3 else set()
             linhas_jogadores = []
             has_streak = False
             for i, p in enumerate(self.players):
@@ -182,7 +182,7 @@ class LobbySession:
                     has_streak = True
                 linhas_jogadores.append(f"`{i+1:02d}.` {p.mention}{tag}")
             if has_streak:
-                linhas_jogadores.append("\n🔥 tá pegando fogo  |  💩 tá fedendo")
+                linhas_jogadores.append("\n🔥 barril  |  💩 tá fedendo")
             lista = "\n".join(linhas_jogadores)
         else:
             lista = "_Nenhum jogador ainda._"
