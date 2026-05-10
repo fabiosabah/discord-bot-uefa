@@ -1066,6 +1066,19 @@ def get_player_match_history_from_matches(discord_id: int, limit: int | None = 2
     ]
 
 
+def get_recent_league_matches(limit: int = 20) -> list[dict]:
+    season = get_current_season()
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT league_match_id, season_match_id, winner_team, duration, created_at
+            FROM matches
+            WHERE season = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (season, limit)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_player_streak_from_matches(discord_id: int, max_events: int = 50) -> dict:
     history = get_player_match_history_from_matches(discord_id, max_events)
     if not history:

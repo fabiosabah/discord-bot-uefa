@@ -20,6 +20,7 @@ from core.db.match_repo import (
     get_player_duo_stats,
     get_match_duration_extremes,
     get_match_players_bulk,
+    get_recent_league_matches,
 )
 from core.db.player_repo import get_player, find_player_by_display_name, set_steam_friend_id, get_steam_friend_id
 from core.db.season_repo import get_current_season
@@ -337,6 +338,30 @@ def setup_player_commands(bot: commands.Bot):
 
     @bot.command(name="ultimas", aliases=["ultimaspartidas", "recentes"])
     async def cmd_ultimas(ctx: commands.Context, member: discord.Member = None):
+        if member is None and not ctx.message.mentions:
+            matches = get_recent_league_matches(limit=20)
+            if not matches:
+                await ctx.send("📋 Nenhuma partida registrada ainda.")
+                return
+            match_ids = [m["league_match_id"] for m in matches]
+            players_map = get_match_players_bulk(match_ids)
+            lines = []
+            for m in matches:
+                dur = f" {m['duration']}" if m.get("duration") else ""
+                winner = (m["winner_team"] or "?").capitalize()
+                players = players_map.get(m["league_match_id"], [])
+                radiant = [p["display_name"] for p in players if (p["team"] or "").lower() == "radiant"]
+                dire    = [p["display_name"] for p in players if (p["team"] or "").lower() == "dire"]
+                teams   = f"🟢 {', '.join(radiant)}  vs  🔴 {', '.join(dire)}" if radiant or dire else ""
+                lines.append(f"#{m['season_match_id']} · {winner} venceu{dur}\n  {teams}")
+            header = f"📋 **Últimas {len(matches)} partidas da liga** · use `!id <número>` para detalhes"
+            text = "\n\n".join(lines)
+            await ctx.send(header)
+            chunk_size = 1800
+            for i in range(0, len(text), chunk_size):
+                await ctx.send(f"```\n{text[i:i+chunk_size]}\n```")
+            return
+
         target = member or ctx.author
         history = get_player_match_history_from_matches(target.id, limit=200)
 
