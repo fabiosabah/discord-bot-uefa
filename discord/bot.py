@@ -177,15 +177,27 @@ async def on_message(message: discord.Message):
         return
 
     if image_channel_id and message.channel.id == image_channel_id:
-        try:
-            await message.delete()
-        except discord.HTTPException:
-            pass
-        await message.channel.send(
-            "❌ Neste canal só é permitido enviar imagens de partida.",
-            delete_after=10
-        )
-        return
+        _ALLOWED_IN_IMAGE_CHANNEL = {
+            "ok", "ocrok",
+            "pendenciaimagem", "pendingimages", "pendenciasimagem",
+            "detalhesimagem", "rawtextimagem",
+            "ocrhero", "ocrnick", "setjobwinner",
+            "cadastro",
+            "fixhero", "apagarid",
+            "scanhistory", "reenfileirarimagens", "scanimages", "reenfileira",
+            "devhelp",
+        }
+        cmd = message.content.strip().lstrip("!").split()[0].lower() if message.content.strip() else ""
+        if cmd not in _ALLOWED_IN_IMAGE_CHANNEL:
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass
+            await message.channel.send(
+                "❌ Neste canal só é permitido enviar imagens de partida ou usar comandos OCR.",
+                delete_after=10
+            )
+            return
 
     if not is_bot_enabled():
         cmd = message.content.strip().lstrip("!").split()[0].lower() if message.content.strip() else ""
