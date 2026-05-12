@@ -23,6 +23,7 @@ from core.db.match_repo import (
 from core.db.ocr_repo import (
     get_pending_match_screenshots,
     get_match_screenshot,
+    get_summary_message,
     set_match_screenshot_status,
     delete_match_screenshot,
     delete_match_screenshots,
@@ -741,6 +742,16 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
                 await summary_msg.delete()
             except Exception:
                 pass
+        else:
+            stored = get_summary_message(job_id)
+            if stored:
+                summary_msg_id, summary_ch_id = stored
+                try:
+                    ch = bot.get_channel(summary_ch_id) or await bot.fetch_channel(summary_ch_id)
+                    msg = await ch.fetch_message(summary_msg_id)
+                    await msg.delete()
+                except Exception:
+                    pass
 
         await ctx.message.delete()
         await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.", delete_after=180)

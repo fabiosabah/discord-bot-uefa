@@ -120,6 +120,12 @@ def init_db() -> None:
         if "image_data" not in ms_column_names:
             conn.execute("ALTER TABLE match_screenshots ADD COLUMN image_data BLOB")
             logger.info("[DB] Coluna 'image_data' adicionada via migration ao match_screenshots.")
+        if "summary_message_id" not in ms_column_names:
+            conn.execute("ALTER TABLE match_screenshots ADD COLUMN summary_message_id INTEGER")
+            logger.info("[DB] Coluna 'summary_message_id' adicionada via migration ao match_screenshots.")
+        if "summary_channel_id" not in ms_column_names:
+            conn.execute("ALTER TABLE match_screenshots ADD COLUMN summary_channel_id INTEGER")
+            logger.info("[DB] Coluna 'summary_channel_id' adicionada via migration ao match_screenshots.")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS match_imports (
                 match_id       INTEGER PRIMARY KEY,

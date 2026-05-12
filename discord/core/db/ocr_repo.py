@@ -80,6 +80,27 @@ def get_match_screenshot(job_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def save_summary_message(job_id: int, message_id: int, channel_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE match_screenshots SET summary_message_id = ?, summary_channel_id = ? WHERE id = ?",
+            (message_id, channel_id, job_id),
+        )
+        conn.commit()
+    logger.debug(f"[DB] summary_message saved for job {job_id}: msg={message_id} ch={channel_id}")
+
+
+def get_summary_message(job_id: int) -> tuple[int, int] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT summary_message_id, summary_channel_id FROM match_screenshots WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+    if row and row["summary_message_id"]:
+        return row["summary_message_id"], row["summary_channel_id"]
+    return None
+
+
 def clear_image_data(job_id: int) -> None:
     with get_connection() as conn:
         conn.execute("UPDATE match_screenshots SET image_data = NULL WHERE id = ?", (job_id,))

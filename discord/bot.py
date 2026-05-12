@@ -18,6 +18,7 @@ from core.db.ocr_repo import (
     enqueue_match_screenshot,
     get_match_screenshot,
     get_pending_match_screenshots,
+    save_summary_message,
     set_match_screenshot_status,
 )
 from core.ocr import can_process_ocr, can_process_llm, process_match_screenshot
@@ -175,6 +176,17 @@ async def on_message(message: discord.Message):
     if not message.content.startswith(bot.command_prefix):
         return
 
+    if image_channel_id and message.channel.id == image_channel_id:
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+        await message.channel.send(
+            "❌ Neste canal só é permitido enviar imagens de partida.",
+            delete_after=10
+        )
+        return
+
     if not is_bot_enabled():
         cmd = message.content.strip().lstrip("!").split()[0].lower() if message.content.strip() else ""
         if cmd not in {"ligarbot", "boton", "ativarbot"}:
@@ -276,6 +288,7 @@ async def ocr_background_worker():
                         summary = build_ocr_job_summary_text(job["id"], parsed)
                         summary_msg = await channel.send(summary)
                         ocr_summary_messages[job["id"]] = summary_msg
+                        save_summary_message(job_id, summary_msg.id, channel.id)
                         logger.info(f"📤 OCR results sent to channel {job['channel_id']} for job {job_id}")
                 else:
                     logger.warning(f"❌ Could not find channel {job['channel_id']} to send OCR results")
