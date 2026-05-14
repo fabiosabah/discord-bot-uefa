@@ -104,18 +104,19 @@ class AddUserSelect(discord.ui.UserSelect):
             await interaction.followup.send("⚠️ Esse usuário já está na lista ou na espera.", ephemeral=True)
             return
 
-        if session.is_full():
-            session.add_to_waitlist(member)
-            list_type = "espera"
-            response = f"🔔 {member.mention} foi adicionado à espera (posição {len(session.waitlist)})."
-        else:
-            session.add_player(member)
+        if session.add_player(member):
             if session.is_full() and not session.dota_lobby_triggered:
                 session.dota_lobby_triggered = True
                 if is_lobby_integration_enabled() and GC_API_URL:
                     asyncio.create_task(_trigger_dota_lobby(session, session.message.channel))
             list_type = "lista"
             response = f"✅ {member.mention} foi adicionado à lista."
+        elif session.add_to_waitlist(member):
+            list_type = "espera"
+            response = f"🔔 {member.mention} foi adicionado à espera (posição {len(session.waitlist)})."
+        else:
+            await interaction.followup.send("⚠️ Esse usuário já está na lista ou na espera.", ephemeral=True)
+            return
 
         # LOG DE AUDITORIA
         audit_logger.info(f"[ADIÇÃO] {interaction.user.name} ({interaction.user.id}) ADICIONOU {member.name} ({member.id}) à {list_type} na Lista #{session.id}")
@@ -177,17 +178,7 @@ class LobbyView(discord.ui.View):
 
         await interaction.response.defer()
 
-        if session.is_full():
-            session.add_to_waitlist(interaction.user)
-            audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na ESPERA da Lista #{session.id}")
-            await session.message.edit(embed=session.build_embed(), view=self)
-            save_lobby_session(session)
-            await interaction.followup.send(
-                f"🔔 Lista cheia! Você foi adicionado na espera (posição {len(session.waitlist)}).", 
-                ephemeral=True
-            )
-        else:
-            session.add_player(interaction.user)
+        if session.add_player(interaction.user):
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na LISTA da Lista #{session.id}")
 
             if session.is_full() and not session.dota_lobby_triggered:
@@ -199,9 +190,16 @@ class LobbyView(discord.ui.View):
             save_lobby_session(session)
 
             if session.is_full():
-                await session.message.channel.send(
-                    f"🔒 **Lista completa! (10/10)**"
-                )
+                await session.message.channel.send(f"🔒 **Lista completa! (10/10)**")
+
+        elif session.add_to_waitlist(interaction.user):
+            audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na ESPERA da Lista #{session.id}")
+            await session.message.edit(embed=session.build_embed(), view=self)
+            save_lobby_session(session)
+            await interaction.followup.send(
+                f"🔔 Lista cheia! Você foi adicionado na espera (posição {len(session.waitlist)}).",
+                ephemeral=True
+            )
 
     @discord.ui.button(label="🚪 Sair", style=discord.ButtonStyle.danger, custom_id="sair")
     async def sair(self, interaction: discord.Interaction, button: discord.ui.Button):
