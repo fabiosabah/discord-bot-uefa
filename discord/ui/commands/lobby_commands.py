@@ -158,7 +158,10 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
         if previous_session is not None:
             for player in previous_session.players:
-                session.add_player(player)
+                if session.is_full():
+                    session.add_to_waitlist(player)
+                else:
+                    session.add_player(player)
             for waiting in previous_session.waitlist:
                 session.add_to_waitlist(waiting)
 

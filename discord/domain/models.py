@@ -71,7 +71,7 @@ class LobbySession:
             pass
 
     def add_player(self, member: discord.Member) -> bool:
-        if self.closed or member.id in self.player_ids or member.id in self.waitlist_ids:
+        if self.closed or len(self.players) >= MAX_PLAYERS or member.id in self.player_ids or member.id in self.waitlist_ids:
             return False
         self.players.append(member)
         self.player_ids.add(member.id)
@@ -99,7 +99,7 @@ class LobbySession:
         return True
 
     def promote_waitlist(self) -> discord.Member | None:
-        if not self.waitlist:
+        if not self.waitlist or len(self.players) >= MAX_PLAYERS:
             return None
         next_player = self.waitlist.pop(0)
         self.waitlist_ids.discard(next_player.id)
