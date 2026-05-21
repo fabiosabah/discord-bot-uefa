@@ -8,7 +8,7 @@ from core.db.match_repo import get_streak_highlights_from_matches
 
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0
-    TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES = 10
+    TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES = 120
 
     def __init__(self, host: discord.Member, session_id: int):
         self.id = session_id

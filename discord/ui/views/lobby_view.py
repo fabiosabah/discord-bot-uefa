@@ -292,14 +292,27 @@ class LobbyView(discord.ui.View):
     async def encerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
 
-        if not is_admin(interaction.user.id):
+        is_adm = is_admin(interaction.user.id)
+        can_close = session.can_any_user_close()
+
+        if not is_adm and not can_close:
+            from datetime import datetime
+            elapsed = (datetime.now() - session.created_at).total_seconds() / 60
+            remaining_min = session.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES - elapsed
+            hours = int(remaining_min // 60)
+            minutes = int(remaining_min % 60)
+            tempo = f"{hours}h{minutes:02d}min" if hours else f"{minutes} minuto(s)"
             await interaction.response.send_message(
-                "❌ Apenas administradores podem encerrar a lista.",
+                f"❌ Apenas administradores podem encerrar a lista agora.\n"
+                f"⏱️ Qualquer um poderá encerrar em {tempo}.",
                 ephemeral=True
             )
             return
 
-        audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) solicitou encerramento da Lista #{session.id} — aguardando confirmação")
+        if is_adm:
+            audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) solicitou encerramento da Lista #{session.id} — aguardando confirmação")
+        else:
+            audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) solicitou encerramento da Lista #{session.id} — timeout de 2h expirado, aguardando confirmação")
 
         view = ConfirmCloseView(session, self.active_lobbies, self)
         await interaction.response.send_message(
