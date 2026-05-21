@@ -132,6 +132,30 @@ class AddUserView(discord.ui.View):
         self.add_item(AddUserSelect(session, active_lobbies))
 
 
+class ConfirmCloseView(discord.ui.View):
+    def __init__(self, session: LobbySession, active_lobbies: dict, lobby_view: "LobbyView"):
+        super().__init__(timeout=30)
+        self.session = session
+        self.active_lobbies = active_lobbies
+        self.lobby_view = lobby_view
+
+    @discord.ui.button(label="✅ Confirmar", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) CONFIRMOU encerramento da Lista #{self.session.id}")
+
+        for item in self.lobby_view.children:
+            item.disabled = True
+
+        await self.session.message.edit(embed=self.session.build_embed(), view=self.lobby_view)
+        await interaction.response.edit_message(content="🔒 Lista encerrada.", view=None)
+        await close_session(self.session, self.active_lobbies, view_factory=lambda s, l: LobbyView(s, l))
+
+    @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) CANCELOU encerramento da Lista #{self.session.id}")
+        await interaction.response.edit_message(content="Encerramento cancelado.", view=None)
+
+
 class LobbyView(discord.ui.View):
     def __init__(self, session: LobbySession, active_lobbies: dict):
         super().__init__(timeout=None)
@@ -266,33 +290,20 @@ class LobbyView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Encerrar lista", style=discord.ButtonStyle.primary, custom_id="encerrar")
     async def encerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from datetime import datetime
         session = self.session
 
-        # Verificar autorização: host/admin OU tempo de espera suficiente
-        is_host_or_admin = is_authorized(interaction.user.id, session)
-        can_close_by_timeout = session.can_any_user_close()
-
-        if not is_host_or_admin and not can_close_by_timeout:
-            elapsed = (datetime.now() - session.created_at).total_seconds() / 60
-            remaining = session.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES - elapsed
+        if not is_admin(interaction.user.id):
             await interaction.response.send_message(
-                f"❌ Apenas quem criou a lista ou um administrador pode encerrar agora.\n"
-                f"⏱️ Qualquer um poderá encerrar em {remaining:.0f} minuto(s).",
+                "❌ Apenas administradores podem encerrar a lista.",
                 ephemeral=True
             )
             return
 
-        await interaction.response.defer()
-        
-        # Log de auditoria
-        if can_close_by_timeout and not is_host_or_admin:
-            audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) ENCERROU a Lista #{session.id} (timeout de 10 minutos expirado)")
-        else:
-            audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) SOLICITOU ENCERRAMENTO da Lista #{session.id}")
+        audit_logger.info(f"[ENCERRAR] {interaction.user.name} ({interaction.user.id}) solicitou encerramento da Lista #{session.id} — aguardando confirmação")
 
-        for item in self.children:
-            item.disabled = True
-
-        await session.message.edit(embed=session.build_embed(), view=self)
-        await close_session(session, self.active_lobbies, view_factory=lambda s, l: LobbyView(s, l))
+        view = ConfirmCloseView(session, self.active_lobbies, self)
+        await interaction.response.send_message(
+            f"⚠️ Tem certeza que deseja encerrar a **Lista #{session.id}**?",
+            view=view,
+            ephemeral=True
+        )

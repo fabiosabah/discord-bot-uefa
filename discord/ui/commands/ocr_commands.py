@@ -754,7 +754,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
                     pass
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.", delete_after=180)
+        await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.")
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
     async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):
