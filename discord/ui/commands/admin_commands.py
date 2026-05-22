@@ -679,7 +679,7 @@ def setup_admin_commands(bot: commands.Bot):
         )
         await ctx.send(msg)
 
-    @bot.command(name="suspender", aliases=["suspensao", "suspenso"])
+    @bot.command(name="castigo", aliases=["suspender", "suspensao"])
     async def cmd_suspend(ctx: commands.Context, member: discord.Member = None, *args):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
@@ -688,10 +688,10 @@ def setup_admin_commands(bot: commands.Bot):
 
         if member is None or not args:
             await ctx.send(
-                "❌ Uso: `!suspender @jogador [dias] motivo`\n"
+                "❌ Uso: `!castigo @jogador [dias] motivo`\n"
                 "Exemplos:\n"
-                "`!suspender @player 7 comportamento inadequado`\n"
-                "`!suspender @player atitude anti-esportiva`",
+                "`!castigo @player 7 comportamento inadequado`\n"
+                "`!castigo @player atitude anti-esportiva`",
                 delete_after=20
             )
             return
@@ -723,7 +723,7 @@ def setup_admin_commands(bot: commands.Bot):
         prazo = f" por **{days} dia(s)**" if days else " **indefinidamente**"
         await ctx.send(f"🚫 {member.mention} suspenso{prazo}.\n📝 Motivo: {motivo}")
 
-    @bot.command(name="dessuspender", aliases=["unsuspend", "removersuspensao"])
+    @bot.command(name="liberar", aliases=["dessuspender", "removersuspensao"])
     async def cmd_unsuspend(ctx: commands.Context, member: discord.Member = None):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
@@ -731,7 +731,7 @@ def setup_admin_commands(bot: commands.Bot):
             return
 
         if member is None:
-            await ctx.send("❌ Uso: `!dessuspender @jogador`", delete_after=10)
+            await ctx.send("❌ Uso: `!liberar @jogador`", delete_after=10)
             return
 
         removed = remove_suspension(member.id)
