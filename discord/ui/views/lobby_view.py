@@ -6,6 +6,7 @@ from core.db.lobby_repo import save_lobby_session
 from core.db.pagantes_repo import is_pagante
 from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.player_repo import get_steam_friend_id
+from core.db.suspension_repo import is_suspended, get_suspension
 from domain.models import LobbySession
 from core.config import GC_API_URL
 from services.lobby_service import close_session, _trigger_dota_lobby
@@ -104,6 +105,16 @@ class AddUserSelect(discord.ui.UserSelect):
             await interaction.followup.send("⚠️ Esse usuário já está na lista ou na espera.", ephemeral=True)
             return
 
+        if is_suspended(member.id):
+            susp = get_suspension(member.id)
+            motivo = susp["reason"] if susp else "motivo não especificado"
+            prazo = f"\n⏳ Até: {susp['suspended_until'][:10]}" if susp and susp.get("suspended_until") else ""
+            await interaction.followup.send(
+                f"🚫 {member.mention} está suspenso e não pode ser adicionado à lista.\n📝 Motivo: {motivo}{prazo}",
+                ephemeral=True,
+            )
+            return
+
         if session.add_player(member):
             if session.is_full() and not session.dota_lobby_triggered:
                 session.dota_lobby_triggered = True
@@ -183,6 +194,16 @@ class LobbyView(discord.ui.View):
                 "❌ Você não está na lista de pagantes desta temporada.\n"
                 "Para participar, faça um Pix para **(71) 99137-2724** "
                 "no nome de **Luciano Souza de Oliveira** e avise um administrador.",
+                ephemeral=True,
+            )
+            return
+
+        if is_suspended(interaction.user.id):
+            susp = get_suspension(interaction.user.id)
+            motivo = susp["reason"] if susp else "motivo não especificado"
+            prazo = f"\n⏳ Até: {susp['suspended_until'][:10]}" if susp and susp.get("suspended_until") else ""
+            await interaction.response.send_message(
+                f"🚫 Você está suspenso e não pode entrar na lista.\n📝 Motivo: {motivo}{prazo}",
                 ephemeral=True,
             )
             return

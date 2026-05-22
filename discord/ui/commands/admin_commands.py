@@ -15,6 +15,7 @@ from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
 from core.db.season_repo import get_current_season, set_current_season
+from core.db.suspension_repo import add_suspension, remove_suspension, get_suspension, list_suspensions
 from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")
@@ -677,3 +678,102 @@ def setup_admin_commands(bot: commands.Bot):
             f"🔨 *O silêncio pode ser usado contra você no ranking.*"
         )
         await ctx.send(msg)
+
+    @bot.command(name="suspender", aliases=["suspensao", "suspenso"])
+    async def cmd_suspend(ctx: commands.Context, member: discord.Member = None, *args):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if member is None or not args:
+            await ctx.send(
+                "❌ Uso: `!suspender @jogador [dias] motivo`\n"
+                "Exemplos:\n"
+                "`!suspender @player 7 comportamento inadequado`\n"
+                "`!suspender @player atitude anti-esportiva`",
+                delete_after=20
+            )
+            return
+
+        days = None
+        motivo_parts = list(args)
+        if args[0].isdigit():
+            days = int(args[0])
+            motivo_parts = list(args[1:])
+
+        if not motivo_parts:
+            await ctx.send("❌ Informe o motivo da suspensão.", delete_after=15)
+            return
+
+        motivo = " ".join(motivo_parts)
+        add_suspension(member.id, member.display_name, motivo, days, ctx.author.id)
+
+        audit_logger.info(
+            f"[SUSPENSAO] {ctx.author.name} ({ctx.author.id}) SUSPENDEU {member.name} ({member.id}) "
+            f"— dias={days or 'indefinido'} motivo={motivo}"
+        )
+        log_action(
+            ctx.author.id, ctx.author.display_name, "!suspender",
+            f"discord_id={member.id} display_name={member.display_name} dias={days or 'indefinido'} motivo={motivo}",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        prazo = f" por **{days} dia(s)**" if days else " **indefinidamente**"
+        await ctx.send(f"🚫 {member.mention} suspenso{prazo}.\n📝 Motivo: {motivo}")
+
+    @bot.command(name="dessuspender", aliases=["unsuspend", "removersuspensao"])
+    async def cmd_unsuspend(ctx: commands.Context, member: discord.Member = None):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if member is None:
+            await ctx.send("❌ Uso: `!dessuspender @jogador`", delete_after=10)
+            return
+
+        removed = remove_suspension(member.id)
+        await ctx.message.delete()
+
+        if removed:
+            audit_logger.info(
+                f"[SUSPENSAO] {ctx.author.name} ({ctx.author.id}) REMOVEU suspensão de {member.name} ({member.id})"
+            )
+            log_action(
+                ctx.author.id, ctx.author.display_name, "!dessuspender",
+                f"discord_id={member.id} display_name={member.display_name}",
+                affected_ids=[member.id]
+            )
+            await ctx.send(f"✅ Suspensão de {member.mention} removida.")
+        else:
+            await ctx.send(f"⚠️ {member.mention} não está suspenso.", delete_after=10)
+
+    @bot.command(name="suspensos", aliases=["suspensoes", "listarsuspensos"])
+    async def cmd_list_suspensions(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        suspensions = list_suspensions()
+        if not suspensions:
+            await ctx.send("📋 Nenhum jogador suspenso no momento.")
+            return
+
+        lines = []
+        for s in suspensions:
+            if s["suspended_until"]:
+                prazo = f"até {s['suspended_until'][:10]}"
+            else:
+                prazo = "indefinido"
+            lines.append(f"<@{s['discord_id']}> — {s['reason']} ({prazo})")
+
+        embed = discord.Embed(
+            title="🚫 Jogadores Suspensos",
+            description="\n".join(lines),
+            color=discord.Color.red()
+        )
+        embed.set_footer(text=f"{len(lines)} suspensão(ões) ativa(s)")
+        await ctx.send(embed=embed)

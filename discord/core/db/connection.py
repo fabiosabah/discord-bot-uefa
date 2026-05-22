@@ -204,6 +204,16 @@ def init_db() -> None:
                 registered_at  TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS suspensions (
+                discord_id      INTEGER PRIMARY KEY,
+                display_name    TEXT    NOT NULL,
+                reason          TEXT    NOT NULL,
+                suspended_at    TEXT    NOT NULL,
+                suspended_until TEXT,
+                applied_by      INTEGER
+            )
+        """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)")
@@ -366,6 +376,16 @@ def migrate_db() -> None:
                 discord_id      INTEGER PRIMARY KEY,
                 steam_friend_id INTEGER NOT NULL UNIQUE,
                 registered_at   TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS suspensions (
+                discord_id      INTEGER PRIMARY KEY,
+                display_name    TEXT    NOT NULL,
+                reason          TEXT    NOT NULL,
+                suspended_at    TEXT    NOT NULL,
+                suspended_until TEXT,
+                applied_by      INTEGER
             )
         """)
         logger.info("[DB] Índices e tabela heroes criados ou já existentes.")
