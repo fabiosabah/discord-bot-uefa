@@ -19,6 +19,7 @@ class LobbySession:
         self.waitlist: list[discord.Member] = []
         self.waitlist_ids: set[int] = set()
         self.closed = False
+        self.frozen: bool = False
         self.close_task: asyncio.Task | None = None
         self.auto_close_at: datetime | None = None
         self.created_at: datetime = datetime.now()
@@ -159,8 +160,15 @@ class LobbySession:
     def build_embed(self) -> discord.Embed:
         filled = len(self.players)
         is_full = filled >= MAX_PLAYERS
-        color = discord.Color.green() if is_full else discord.Color.blurple()
-        status = f"🔒 CHEIO — {MAX_PLAYERS}/{MAX_PLAYERS}" if is_full else f"✅ Aberto — {filled}/{MAX_PLAYERS}"
+        if self.frozen:
+            color = discord.Color.from_rgb(100, 180, 255)
+            status = f"❄️ CONGELADA — {filled}/{MAX_PLAYERS}"
+        elif is_full:
+            color = discord.Color.green()
+            status = f"🔒 CHEIO — {MAX_PLAYERS}/{MAX_PLAYERS}"
+        else:
+            color = discord.Color.blurple()
+            status = f"✅ Aberto — {filled}/{MAX_PLAYERS}"
 
         embed = discord.Embed(title=f"{LEAGUE_EMOJI} Lista de Presença — {LEAGUE_NAME}", color=color)
         embed.set_footer(text=f"Aberto por {self.host.display_name} | ID: #{self.id}")

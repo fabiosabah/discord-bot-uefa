@@ -97,6 +97,7 @@ def init_db() -> None:
                 player_ids     TEXT    NOT NULL,
                 waitlist_ids   TEXT    NOT NULL,
                 closed         INTEGER NOT NULL DEFAULT 0,
+                frozen         INTEGER NOT NULL DEFAULT 0,
                 created_at     TEXT    NOT NULL,
                 auto_close_at  TEXT
             )
@@ -311,6 +312,9 @@ def migrate_db() -> None:
         if "auto_close_at" not in lobby_column_names:
             conn.execute("ALTER TABLE lobby_sessions ADD COLUMN auto_close_at TEXT")
             logger.info("[DB] Coluna 'auto_close_at' adicionada via migration ao lobby_sessions.")
+        if "frozen" not in lobby_column_names:
+            conn.execute("ALTER TABLE lobby_sessions ADD COLUMN frozen INTEGER NOT NULL DEFAULT 0")
+            logger.info("[DB] Coluna 'frozen' adicionada via migration ao lobby_sessions.")
 
         sc_columns = conn.execute("PRAGMA table_info(server_config)").fetchall()
         if "image_channel_id" not in [c["name"] for c in sc_columns]:

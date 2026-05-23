@@ -176,6 +176,13 @@ class LobbyView(discord.ui.View):
         if session.closed:
             for child in self.children:
                 child.disabled = True
+        else:
+            for child in self.children:
+                if getattr(child, 'custom_id', None) == 'congelar':
+                    if session.frozen:
+                        child.label = "🔥 Descongelar"
+                        child.style = discord.ButtonStyle.danger
+                    break
 
     @discord.ui.button(label="✋ Entrar", style=discord.ButtonStyle.success, custom_id="entrar")
     async def entrar(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -183,6 +190,10 @@ class LobbyView(discord.ui.View):
         
         if session.closed:
             await interaction.response.send_message("❌ Esta lista já está fechada.", ephemeral=True)
+            return
+
+        if session.frozen:
+            await interaction.response.send_message("❄️ A lista está congelada. Aguarde.", ephemeral=True)
             return
 
         if interaction.user.id in session.player_ids or interaction.user.id in session.waitlist_ids:
@@ -254,6 +265,10 @@ class LobbyView(discord.ui.View):
             await interaction.response.send_message("❌ Esta lista já está fechada.", ephemeral=True)
             return
 
+        if session.frozen:
+            await interaction.response.send_message("❄️ A lista está congelada. Aguarde.", ephemeral=True)
+            return
+
         await interaction.response.defer()
 
         removed = session.remove_player(interaction.user.id)
@@ -313,6 +328,10 @@ class LobbyView(discord.ui.View):
     async def encerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
 
+        if session.frozen:
+            await interaction.response.send_message("❄️ A lista está congelada. Descongele antes de encerrar.", ephemeral=True)
+            return
+
         is_adm = is_admin(interaction.user.id)
         can_close = session.can_any_user_close()
 
@@ -341,3 +360,27 @@ class LobbyView(discord.ui.View):
             view=view,
             ephemeral=True
         )
+
+    @discord.ui.button(label="❄️ Congelar", style=discord.ButtonStyle.secondary, custom_id="congelar", row=1)
+    async def congelar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.session
+
+        if not is_admin(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ Apenas administradores podem congelar/descongelar a lista.",
+                ephemeral=True
+            )
+            return
+
+        session.frozen = not session.frozen
+
+        if session.frozen:
+            audit_logger.info(f"[CONGELAR] {interaction.user.name} ({interaction.user.id}) CONGELOU a Lista #{session.id}")
+            msg = "❄️ Lista congelada. Ninguém pode entrar, sair ou encerrar."
+        else:
+            audit_logger.info(f"[CONGELAR] {interaction.user.name} ({interaction.user.id}) DESCONGELOU a Lista #{session.id}")
+            msg = "🔥 Lista descongelada."
+
+        save_lobby_session(session)
+        await session.message.edit(embed=session.build_embed(), view=LobbyView(session, self.active_lobbies))
+        await interaction.response.send_message(msg, ephemeral=True)

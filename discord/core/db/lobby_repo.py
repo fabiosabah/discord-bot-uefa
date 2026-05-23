@@ -83,8 +83,8 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO lobby_sessions
-                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, created_at, auto_close_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, frozen, created_at, auto_close_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 session_id    = excluded.session_id,
                 message_id    = excluded.message_id,
@@ -93,6 +93,7 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
                 player_ids    = excluded.player_ids,
                 waitlist_ids  = excluded.waitlist_ids,
                 closed        = excluded.closed,
+                frozen        = excluded.frozen,
                 created_at    = excluded.created_at,
                 auto_close_at = excluded.auto_close_at
         """, (
@@ -104,6 +105,7 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
             player_ids,
             waitlist_ids,
             1 if session.closed else 0,
+            1 if getattr(session, 'frozen', False) else 0,
             created_at,
             auto_close_at,
         ))
@@ -131,6 +133,7 @@ def get_lobby_sessions() -> list[dict]:
             "player_ids":   json.loads(row["player_ids"]),
             "waitlist_ids": json.loads(row["waitlist_ids"]),
             "closed":       bool(row["closed"]),
+            "frozen":       bool(row["frozen"]) if "frozen" in row.keys() else False,
             "created_at":   row["created_at"],
             "auto_close_at": row["auto_close_at"] if "auto_close_at" in row.keys() else None,
         }
