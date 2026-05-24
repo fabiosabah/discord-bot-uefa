@@ -246,7 +246,12 @@ class LobbyView(discord.ui.View):
             save_lobby_session(session)
 
             if session.is_full():
-                await session.message.channel.send(f"🔒 **Lista completa! (10/10)**")
+                await session.message.channel.send(
+                    "🔒 **Lista completa! (10/10)**\n\n"
+                    "📋 **Regras de prioridade:**\n"
+                    "- Quem já está na lista tem prioridade para permanecer.\n"
+                    "- Entre os que disputam uma vaga, quem ganhou a última partida tem prioridade sobre quem perdeu."
+                )
 
         elif session.add_to_waitlist(interaction.user):
             audit_logger.info(f"[ENTRAR] {interaction.user.name} ({interaction.user.id}) ENTROU na ESPERA da Lista #{session.id}")

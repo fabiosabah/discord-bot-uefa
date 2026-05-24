@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
+import json
 import discord
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from discord.ext import commands
+
+_BRT = ZoneInfo("America/Sao_Paulo")
 from core.utils.discord_helpers import resolve_member
 from domain.models import LobbySession
 from ui.views.lobby_view import LobbyView
@@ -74,6 +78,14 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
         session.waitlist_ids = set(row["waitlist_ids"])
         session.closed = bool(row["closed"])
         session.auto_close_at = datetime.fromisoformat(row["auto_close_at"]) if row["auto_close_at"] else None
+
+        join_times_raw = json.loads(row.get("join_times") or "{}")
+        for pid in session.player_ids:
+            if str(pid) in join_times_raw:
+                session.player_join_times[pid] = datetime.fromisoformat(join_times_raw[str(pid)]).astimezone(_BRT)
+        for wid in session.waitlist_ids:
+            if str(wid) in join_times_raw:
+                session.waitlist_join_times[wid] = datetime.fromisoformat(join_times_raw[str(wid)]).astimezone(_BRT)
 
         if session.closed:
             delete_lobby_session(ctx.guild.id)

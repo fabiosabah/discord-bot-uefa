@@ -99,7 +99,8 @@ def init_db() -> None:
                 closed         INTEGER NOT NULL DEFAULT 0,
                 frozen         INTEGER NOT NULL DEFAULT 0,
                 created_at     TEXT    NOT NULL,
-                auto_close_at  TEXT
+                auto_close_at  TEXT,
+                join_times     TEXT
             )
         """)
         conn.execute("""
@@ -315,6 +316,9 @@ def migrate_db() -> None:
         if "frozen" not in lobby_column_names:
             conn.execute("ALTER TABLE lobby_sessions ADD COLUMN frozen INTEGER NOT NULL DEFAULT 0")
             logger.info("[DB] Coluna 'frozen' adicionada via migration ao lobby_sessions.")
+        if "join_times" not in lobby_column_names:
+            conn.execute("ALTER TABLE lobby_sessions ADD COLUMN join_times TEXT")
+            logger.info("[DB] Coluna 'join_times' adicionada via migration ao lobby_sessions.")
 
         sc_columns = conn.execute("PRAGMA table_info(server_config)").fetchall()
         if "image_channel_id" not in [c["name"] for c in sc_columns]:

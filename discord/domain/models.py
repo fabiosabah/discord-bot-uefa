@@ -2,9 +2,12 @@
 import asyncio
 import discord
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
 from core.db.player_repo import get_captains_from_list, _CAPTAIN_FALLBACK_THRESHOLD
 from core.db.match_repo import get_streak_highlights_from_matches
+
+_BRT = ZoneInfo("America/Sao_Paulo")
 
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0
@@ -24,6 +27,8 @@ class LobbySession:
         self.auto_close_at: datetime | None = None
         self.created_at: datetime = datetime.now()
         self.dota_lobby_triggered: bool = False
+        self.player_join_times: dict[int, datetime] = {}
+        self.waitlist_join_times: dict[int, datetime] = {}
 
     def can_any_user_close(self) -> bool:
         """Verifica se já passaram os minutos necessários para qualquer um encerrar a lista."""
@@ -76,6 +81,7 @@ class LobbySession:
             return False
         self.players.append(member)
         self.player_ids.add(member.id)
+        self.player_join_times[member.id] = datetime.now(tz=_BRT)
         return True
 
     def add_to_waitlist(self, member: discord.Member) -> bool:
@@ -83,6 +89,7 @@ class LobbySession:
             return False
         self.waitlist.append(member)
         self.waitlist_ids.add(member.id)
+        self.waitlist_join_times[member.id] = datetime.now(tz=_BRT)
         return True
 
     def remove_player(self, member_id: int) -> bool:
@@ -90,6 +97,7 @@ class LobbySession:
             return False
         self.players = [p for p in self.players if p.id != member_id]
         self.player_ids.discard(member_id)
+        self.player_join_times.pop(member_id, None)
         return True
 
     def remove_from_waitlist(self, member_id: int) -> bool:
@@ -97,6 +105,7 @@ class LobbySession:
             return False
         self.waitlist = [p for p in self.waitlist if p.id != member_id]
         self.waitlist_ids.discard(member_id)
+        self.waitlist_join_times.pop(member_id, None)
         return True
 
     def promote_waitlist(self) -> discord.Member | None:
@@ -106,6 +115,8 @@ class LobbySession:
         self.waitlist_ids.discard(next_player.id)
         self.players.append(next_player)
         self.player_ids.add(next_player.id)
+        join_time = self.waitlist_join_times.pop(next_player.id, datetime.now(tz=_BRT))
+        self.player_join_times[next_player.id] = join_time
         return next_player
 
     def is_full(self) -> bool:
@@ -188,7 +199,9 @@ class LobbySession:
                 elif p.id in loss_ids:
                     tag = " 💩"
                     has_streak = True
-                linhas_jogadores.append(f"`{i+1:02d}.` {p.mention}{tag}")
+                jt = self.player_join_times.get(p.id)
+                time_str = f" `{jt.strftime('%H:%M')}`" if jt else ""
+                linhas_jogadores.append(f"`{i+1:02d}.` {p.mention}{tag}{time_str}")
             if has_streak:
                 linhas_jogadores.append("\n🔥 barril  |  💩 tá fedendo")
             lista = "\n".join(linhas_jogadores)
@@ -198,10 +211,12 @@ class LobbySession:
         embed.add_field(name=f"Jogadores ({filled}/{MAX_PLAYERS})", value=lista, inline=False)
 
         if self.waitlist:
-            waitlist_str = "\n".join(
-                f"`{i+1:02d}.` {p.mention}" for i, p in enumerate(self.waitlist)
-            )
-            embed.add_field(name=f"🔔 Espera ({len(self.waitlist)})", value=waitlist_str, inline=False)
+            waitlist_lines = []
+            for i, p in enumerate(self.waitlist):
+                jt = self.waitlist_join_times.get(p.id)
+                time_str = f" `{jt.strftime('%H:%M')}`" if jt else ""
+                waitlist_lines.append(f"`{i+1:02d}.` {p.mention}{time_str}")
+            embed.add_field(name=f"🔔 Espera ({len(self.waitlist)})", value="\n".join(waitlist_lines), inline=False)
 
         if self.auto_close_at and not self.closed:
             remaining = self.auto_close_at - datetime.now()
