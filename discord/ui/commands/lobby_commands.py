@@ -122,7 +122,9 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
             if self.old_session.message:
                 try:
-                    await self.old_session.message.delete()
+                    self.old_session.closed = True
+                    closed_view = LobbyView(self.old_session, active_lobbies)
+                    await self.old_session.message.edit(embed=self.old_session.build_embed(), view=closed_view)
                 except discord.HTTPException:
                     pass
 
@@ -134,7 +136,7 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
                 child.disabled = True
 
             await interaction.response.edit_message(
-                content="⚠️ Lista anterior removida. Criando nova lista vazia...",
+                content="⚠️ Lista anterior encerrada. Criando nova lista vazia...",
                 view=self
             )
             await _create_list(self.ctx)
@@ -147,7 +149,9 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
 
             if self.old_session.message:
                 try:
-                    await self.old_session.message.delete()
+                    self.old_session.closed = True
+                    closed_view = LobbyView(self.old_session, active_lobbies)
+                    await self.old_session.message.edit(embed=self.old_session.build_embed(), view=closed_view)
                 except discord.HTTPException:
                     pass
 

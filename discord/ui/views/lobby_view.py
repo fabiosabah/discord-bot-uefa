@@ -159,6 +159,9 @@ class ConfirmCloseView(discord.ui.View):
 
         await self.session.message.edit(embed=self.session.build_embed(), view=self.lobby_view)
         await interaction.response.edit_message(content="🔒 Lista encerrada.", view=None)
+        await self.session.message.channel.send(
+            f"🔒 **Lista #{self.session.id}** foi encerrada por {interaction.user.mention}."
+        )
         await close_session(self.session, self.active_lobbies, view_factory=lambda s, l: LobbyView(s, l))
 
     @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)

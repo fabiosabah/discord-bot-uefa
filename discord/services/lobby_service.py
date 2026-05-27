@@ -152,7 +152,19 @@ async def _trigger_dota_lobby(session: LobbySession, channel: discord.TextChanne
         return
 
     if not resp.ok:
-        await channel.send(f"❌ GC recusou o lobby: `{data.get('error', resp.status_code)}`")
+        error_msg = data.get('error', str(resp.status_code))
+        if "não está pronto" in error_msg or "não disponível" in error_msg:
+            await channel.send(f"⚠️ GC não está pronto. Reiniciando serviço...")
+            try:
+                await asyncio.to_thread(
+                    requests.post, f"{GC_API_URL}/restart", timeout=10
+                )
+                await channel.send("🔄 Serviço GC reiniciado. Tente criar o lobby novamente em ~30 segundos com `!lobby`.")
+            except Exception as e:
+                logger.error(f"[LobbyService] Falha ao reiniciar GC: {e}")
+                await channel.send("❌ Não foi possível reiniciar o GC automaticamente. Reinicie manualmente.")
+        else:
+            await channel.send(f"❌ GC recusou o lobby: `{error_msg}`")
         return
 
     password = data.get('password', '1234')
