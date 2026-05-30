@@ -437,6 +437,23 @@ def setup_admin_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"🟢 **Temporada {new_season}** iniciada! Listas liberadas. Os IDs de partida começam do #1.")
 
+    @bot.command(name="reabrirtemporada", aliases=["voltartemporada", "settemporada"])
+    async def cmd_reopen_season(ctx: commands.Context, numero: int = None):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if numero is None:
+            await ctx.send("❌ Informe o número da temporada. Exemplo: `!reabrirtemporada 2`", delete_after=10)
+            return
+        if numero < 1:
+            await ctx.send("❌ Número de temporada inválido.", delete_after=8)
+            return
+        set_current_season(numero)
+        SEASON_STATE["active"] = True
+        await ctx.message.delete()
+        await ctx.send(f"🔄 **Temporada {numero}** reaberta! Listas liberadas.")
+
     @bot.command(name="exportar", aliases=["exportarpartidas", "exportdb"])
     async def cmd_exportar(ctx: commands.Context):
         if not is_admin(ctx.author.id):

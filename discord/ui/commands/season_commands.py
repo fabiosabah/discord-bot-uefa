@@ -25,16 +25,17 @@ def setup_season_commands(bot: commands.Bot):
     # ──────────────────────────────────────────────────────────
 
     @bot.command(name="mvp", aliases=["premios", "awards", "premiacao"])
-    async def cmd_mvp(ctx: commands.Context):
-        awards = get_mvp_award_stats()
-        ranking = get_ranking_from_matches()
+    async def cmd_mvp(ctx: commands.Context, season: int = None):
+        awards = get_mvp_award_stats(season)
+        ranking = get_ranking_from_matches(season)
 
         if not ranking:
             await ctx.send("📋 Nenhuma partida registrada ainda.")
             return
 
+        season_label = f" — T{season}" if season else ""
         embed = discord.Embed(
-            title="🏅 Premiação da Temporada",
+            title=f"🏅 Premiação da Temporada{season_label}",
             description="Os melhores da liga em cada categoria",
             color=discord.Color.gold(),
         )
@@ -129,12 +130,13 @@ def setup_season_commands(bot: commands.Bot):
     # ──────────────────────────────────────────────────────────
 
     @bot.command(name="historia", aliases=["recap", "temporada", "season"])
-    async def cmd_historia(ctx: commands.Context):
-        stats = get_season_summary_stats()
-        ranking = get_ranking_from_matches()
+    async def cmd_historia(ctx: commands.Context, season: int = None):
+        stats = get_season_summary_stats(season)
+        ranking = get_ranking_from_matches(season)
 
         if not stats["total_matches"]:
-            await ctx.send("📋 Nenhuma partida registrada ainda.")
+            label = f"da Temporada {season}" if season else "ainda"
+            await ctx.send(f"📋 Nenhuma partida registrada {label}.")
             return
 
         secs = stats["total_seconds"]
@@ -153,8 +155,9 @@ def setup_season_commands(bot: commands.Bot):
                 f"O herói mais convocado foi **{stats['top_hero']}**, escolhido {stats['top_hero_picks']}×."
             )
 
+        season_label = f" — T{season}" if season else ""
         embed = discord.Embed(
-            title="📜 História da Temporada",
+            title=f"📜 História da Temporada{season_label}",
             description=" ".join(desc_parts),
             color=discord.Color.blurple(),
         )
@@ -180,7 +183,7 @@ def setup_season_commands(bot: commands.Bot):
                 )
             embed.add_field(name="🏆 Pódio Final", value="\n".join(podium), inline=False)
 
-        durations = get_match_duration_extremes(min_seconds=60)
+        durations = get_match_duration_extremes(min_seconds=60, season=season)
         fastest = durations["fastest"][:1]
         longest = durations["longest"][:1]
         if fastest or longest:
@@ -217,8 +220,8 @@ def setup_season_commands(bot: commands.Bot):
     # ──────────────────────────────────────────────────────────
 
     @bot.command(name="bracket", aliases=["chaveamento", "playoffs"])
-    async def cmd_bracket(ctx: commands.Context):
-        ranking = get_ranking_from_matches()
+    async def cmd_bracket(ctx: commands.Context, season: int = None):
+        ranking = get_ranking_from_matches(season)
 
         if len(ranking) < 4:
             await ctx.send("❌ Jogadores insuficientes para montar o bracket (mínimo 4).")
@@ -226,11 +229,12 @@ def setup_season_commands(bot: commands.Bot):
 
         top8 = ranking[:8]
         ids = [p["discord_id"] for p in top8]
-        h2h = get_pairwise_head_to_head(ids)
+        h2h = get_pairwise_head_to_head(ids, season=season)
         n = len(top8)
 
+        season_label = f" T{season}" if season else ""
         embed = discord.Embed(
-            title=f"🏟️ Bracket da Liga — Top {n}",
+            title=f"🏟️ Bracket da Liga{season_label} — Top {n}",
             description="Confrontos históricos entre os melhores da temporada",
             color=discord.Color.dark_purple(),
         )

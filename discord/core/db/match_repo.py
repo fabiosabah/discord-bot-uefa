@@ -457,8 +457,8 @@ def get_match_by_season_match_id(season_match_id: int, season: int | None = None
     return get_match_by_league_id(match_row["league_match_id"])
 
 
-def get_ranking_from_matches() -> list[dict]:
-    season = get_current_season()
+def get_ranking_from_matches(season: int = None) -> list[dict]:
+    season = season if season is not None else get_current_season()
     win_pts = 2 if season >= 2 else 3
     with get_connection() as conn:
         rows = conn.execute(f"""
@@ -945,8 +945,8 @@ def _format_duration(d: str) -> str:
     return f"{m}:{s:02d}"
 
 
-def get_match_duration_extremes(min_seconds: int = 60) -> dict:
-    season = get_current_season()
+def get_match_duration_extremes(min_seconds: int = 60, season: int = None) -> dict:
+    season = season if season is not None else get_current_season()
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT league_match_id, season_match_id, duration, winner_team,
@@ -1205,8 +1205,8 @@ def diagnose_and_fix_kda_data(fix: bool = False) -> dict:
 # Season summary / awards
 # ─────────────────────────────────────────────
 
-def get_season_summary_stats() -> dict:
-    season = get_current_season()
+def get_season_summary_stats(season: int = None) -> dict:
+    season = season if season is not None else get_current_season()
     with get_connection() as conn:
         match_row = conn.execute("""
             SELECT COUNT(*) AS total_matches,
@@ -1266,8 +1266,8 @@ def get_season_summary_stats() -> dict:
     }
 
 
-def get_mvp_award_stats() -> dict:
-    season = get_current_season()
+def get_mvp_award_stats(season: int = None) -> dict:
+    season = season if season is not None else get_current_season()
     with get_connection() as conn:
         top_killer = conn.execute("""
             SELECT mp.discord_id,
@@ -1418,14 +1418,14 @@ def get_mvp_award_stats() -> dict:
     }
 
 
-def get_pairwise_head_to_head(discord_ids: list[int]) -> dict:
+def get_pairwise_head_to_head(discord_ids: list[int], season: int = None) -> dict:
     """Returns head-to-head results for all pairs from discord_ids who faced each other.
     Key: (id_low, id_high) where id_low < id_high.
     Value: {wins_low, wins_high, total}.
     """
     if len(discord_ids) < 2:
         return {}
-    season = get_current_season()
+    season = season if season is not None else get_current_season()
     placeholders = ",".join("?" * len(discord_ids))
     with get_connection() as conn:
         rows = conn.execute(f"""
