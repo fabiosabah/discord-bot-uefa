@@ -206,7 +206,7 @@ class LobbyView(discord.ui.View):
         if not is_pagante(interaction.user.id):
             await interaction.response.send_message(
                 "❌ Você não está na lista de pagantes desta temporada.\n"
-                "Para participar, envie um Pix de **R$ 10,00** para Smith (chave: **71991469980**) e avise um administrador.\n\n"
+                "Para participar, envie um Pix de **R$ 10,00** para Smith (chave: **(71) 99146-9980**) e avise um administrador.\n\n"
                 "Caso já tenha pago, peça a um administrador para atualizar a lista de pagantes no bot.",
                 ephemeral=True,
             )

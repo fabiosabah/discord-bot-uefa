@@ -609,7 +609,7 @@ def setup_admin_commands(bot: commands.Bot):
             value="Interessados em participar enviar o Pix de **R$ 10,00** para Smith",
             inline=False,
         )
-        embed.add_field(name="Chave Pix", value="**71991469980**", inline=False)
+        embed.add_field(name="Chave Pix", value="**(71) 99146-9980**", inline=False)
         embed.add_field(
             name="Após pagar",
             value="Mande o comprovante para um administrador e peça para ser adicionado na lista de pagantes da Temporada {season}.".format(season=season),
