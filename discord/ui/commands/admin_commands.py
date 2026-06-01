@@ -671,7 +671,8 @@ def setup_admin_commands(bot: commands.Bot):
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
         db_admins = list_admins_db()
-        embed = discord.Embed(title="🛡️ Admininastores", color=discord.Color.blue())
+        ajudantes = list_sub_admins_db()
+        embed = discord.Embed(title="🛡️ Administradores", color=discord.Color.blue())
 
         original = "\n".join(f"⭐ <@{aid}>" for aid in ADMIN_IDS) or "Nenhum"
         embed.add_field(name="Originais (env)", value=original, inline=False)
@@ -684,42 +685,50 @@ def setup_admin_commands(bot: commands.Bot):
         else:
             embed.add_field(name="Adicionados via comando", value="Nenhum", inline=False)
 
+        if ajudantes:
+            aj_text = "\n".join(
+                f"🤝 <@{a['discord_id']}> ({a['display_name']})" for a in ajudantes
+            )
+        else:
+            aj_text = "Nenhum"
+        embed.add_field(name="Ajudantes (registradores)", value=aj_text, inline=False)
+
         await ctx.send(embed=embed)
 
-    @bot.command(name="addsubadmin", aliases=["adicionarsubadmin", "subadminadd"])
+    @bot.command(name="addajudante", aliases=["adicionarajudante", "ajudanteadd"])
     async def cmd_add_sub_admin(ctx: commands.Context, member: discord.Member):
         if ctx.author.id not in ADMIN_IDS:
             await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
             return
         add_sub_admin_db(member.id, member.display_name)
-        await ctx.send(f"✅ **{member.display_name}** adicionado como sub-admin (registrador de partidas).")
+        await ctx.send(f"✅ **{member.display_name}** adicionado como ajudante (registrador de partidas).")
 
-    @bot.command(name="removersubadmin", aliases=["removesubadmin", "subadminremove"])
+    @bot.command(name="removerajudante", aliases=["removeajudante", "ajudanteremove"])
     async def cmd_remover_sub_admin(ctx: commands.Context, member: discord.Member):
         if ctx.author.id not in ADMIN_IDS:
             await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
             return
         removed = remove_sub_admin_db(member.id)
         if removed:
-            await ctx.send(f"✅ **{member.display_name}** removido dos sub-admins.")
+            await ctx.send(f"✅ **{member.display_name}** removido dos ajudantes.")
         else:
-            await ctx.send(f"⚠️ **{member.display_name}** não era um sub-admin registrado.")
+            await ctx.send(f"⚠️ **{member.display_name}** não era um ajudante registrado.")
 
-    @bot.command(name="subadmins", aliases=["listarsubadmins", "registradores"])
+    @bot.command(name="ajudantes", aliases=["listarajudantes", "registradores"])
     async def cmd_list_sub_admins(ctx: commands.Context):
         if not is_admin(ctx.author.id):
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
         sub_admins = list_sub_admins_db()
-        embed = discord.Embed(title="📋 Sub-admins (Registradores)", color=discord.Color.teal())
+        embed = discord.Embed(title="🤝 Ajudantes (Registradores de Partida)", color=discord.Color.teal())
         if sub_admins:
             extras = "\n".join(
                 f"<@{a['discord_id']}> ({a['display_name']})" for a in sub_admins
             )
             embed.description = extras
         else:
-            embed.description = "Nenhum sub-admin registrado."
-        embed.set_footer(text="Sub-admins só podem registrar partidas")
+            embed.description = "Nenhum ajudante registrado."
+        embed.set_footer(text="Ajudantes só podem registrar partidas")
         await ctx.send(embed=embed)
 
     @bot.command(name="cpi")
