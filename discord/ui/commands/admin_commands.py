@@ -7,7 +7,10 @@ import discord
 from discord.ext import commands
 
 from core.config import IMAGE_CHANNEL_ID, ADMIN_IDS
-from core.db.admins_repo import add_admin_db, remove_admin_db, list_admins_db, clear_admins_db
+from core.db.admins_repo import (
+    add_admin_db, remove_admin_db, list_admins_db, clear_admins_db,
+    add_sub_admin_db, remove_sub_admin_db, list_sub_admins_db,
+)
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
@@ -681,6 +684,42 @@ def setup_admin_commands(bot: commands.Bot):
         else:
             embed.add_field(name="Adicionados via comando", value="Nenhum", inline=False)
 
+        await ctx.send(embed=embed)
+
+    @bot.command(name="addsubadmin", aliases=["adicionarsubadmin", "subadminadd"])
+    async def cmd_add_sub_admin(ctx: commands.Context, member: discord.Member):
+        if ctx.author.id not in ADMIN_IDS:
+            await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
+            return
+        add_sub_admin_db(member.id, member.display_name)
+        await ctx.send(f"✅ **{member.display_name}** adicionado como sub-admin (registrador de partidas).")
+
+    @bot.command(name="removersubadmin", aliases=["removesubadmin", "subadminremove"])
+    async def cmd_remover_sub_admin(ctx: commands.Context, member: discord.Member):
+        if ctx.author.id not in ADMIN_IDS:
+            await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
+            return
+        removed = remove_sub_admin_db(member.id)
+        if removed:
+            await ctx.send(f"✅ **{member.display_name}** removido dos sub-admins.")
+        else:
+            await ctx.send(f"⚠️ **{member.display_name}** não era um sub-admin registrado.")
+
+    @bot.command(name="subadmins", aliases=["listarsubadmins", "registradores"])
+    async def cmd_list_sub_admins(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        sub_admins = list_sub_admins_db()
+        embed = discord.Embed(title="📋 Sub-admins (Registradores)", color=discord.Color.teal())
+        if sub_admins:
+            extras = "\n".join(
+                f"<@{a['discord_id']}> ({a['display_name']})" for a in sub_admins
+            )
+            embed.description = extras
+        else:
+            embed.description = "Nenhum sub-admin registrado."
+        embed.set_footer(text="Sub-admins só podem registrar partidas")
         await ctx.send(embed=embed)
 
     @bot.command(name="cpi")

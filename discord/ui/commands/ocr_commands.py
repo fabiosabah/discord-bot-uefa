@@ -35,6 +35,7 @@ from core.dota_heroes import resolve_hero_name, format_hero_suggestions
 from core.ocr import can_process_ocr, process_match_screenshot, _normalize_team
 from ui.commands.score_helpers import (
     is_admin,
+    is_registrador,
     _format_ocr_player_line,
     _get_winner_team,
     _find_ocr_job_player_entry,
@@ -73,7 +74,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="pendenciaimagem", aliases=["pendingimages", "pendenciasimagem"])
     async def cmd_pending_images(ctx: commands.Context, limit: int = 10):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -176,7 +177,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="detalhesimagem", aliases=["imagedetails", "imagemdetalhes"])
     async def cmd_image_details(ctx: commands.Context, job_id: int):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -218,7 +219,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="rawtextimagem", aliases=["rawtextimage", "rawimagem", "rawtext"])
     async def cmd_raw_text_image(ctx: commands.Context, job_id: int):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -285,7 +286,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="imagemresumo", aliases=["resumoimagem", "matchsummary", "jobsummary"])
     async def cmd_image_summary(ctx: commands.Context, job_id: int):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -310,7 +311,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="setjobwinner", aliases=["definirvencedorjob", "setwinnerjob"])
     async def cmd_set_job_winner(ctx: commands.Context, job_id: int, team: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -382,7 +383,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="ocrhero", aliases=["editocrhero"])
     async def cmd_ocr_hero(ctx: commands.Context, job_id: int, slot: int, *, hero: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -445,7 +446,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="ocrnick", aliases=["editocrnick"])
     async def cmd_ocr_nick(ctx: commands.Context, job_id: int, slot: int, *, new_nick: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -491,7 +492,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="ocruser", aliases=["editocruser"])
     async def cmd_ocr_user(ctx: commands.Context, job_id: int, *args: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -629,7 +630,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="ok", aliases=["ocrok"])
     async def cmd_ok(ctx: commands.Context, job_id: int, duration: str = ""):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -766,7 +767,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             )
             return
 
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -887,7 +888,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="fixhero", aliases=["corrigirhero"])
     async def cmd_fix_hero(ctx: commands.Context, match_num: int, slot: int, *, hero: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -947,7 +948,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="ocrtime", aliases=["settime", "definirtempo"])
     async def cmd_ocr_time(ctx: commands.Context, match_num: int, *, duration: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -983,7 +984,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="definirherois", aliases=["setmatchheroes", "setherois"])
     async def cmd_set_match_heroes(ctx: commands.Context, match_num: int, *, heroes_text: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -1036,7 +1037,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="definirjogadores", aliases=["setmatchplayers", "setplayers"])
     async def cmd_set_match_player_names(ctx: commands.Context, match_num: int, *members: discord.Member):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
@@ -1076,7 +1077,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
 
     @bot.command(name="nick", aliases=["setnick", "renomear"])
     async def cmd_set_match_player_nick(ctx: commands.Context, match_num: int, slot: int, *, rest: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return

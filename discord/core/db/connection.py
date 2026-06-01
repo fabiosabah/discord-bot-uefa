@@ -157,6 +157,13 @@ def init_db() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_sub_admins (
+                discord_id   INTEGER PRIMARY KEY,
+                display_name TEXT    NOT NULL,
+                added_at     TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS pagantes (
                 discord_id   INTEGER NOT NULL,
                 display_name TEXT    NOT NULL,
@@ -344,6 +351,13 @@ def migrate_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS bot_admins (
+                discord_id   INTEGER PRIMARY KEY,
+                display_name TEXT    NOT NULL,
+                added_at     TEXT    NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_sub_admins (
                 discord_id   INTEGER PRIMARY KEY,
                 display_name TEXT    NOT NULL,
                 added_at     TEXT    NOT NULL
