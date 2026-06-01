@@ -641,15 +641,23 @@ def setup_admin_commands(bot: commands.Bot):
     # ──────────────────────────────────────────────────────────
 
     @bot.command(name="addadmin", aliases=["adicionaradmin"])
-    async def cmd_add_admin(ctx: commands.Context, member: discord.Member):
+    async def cmd_add_admin(ctx: commands.Context, *members: discord.Member):
         if ctx.author.id not in ADMIN_IDS:
             await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
             return
-        if member.id in ADMIN_IDS:
-            await ctx.send(f"⚠️ **{member.display_name}** já é um administrador original.", delete_after=5)
+        if not members:
+            await ctx.send("❌ Mencione ao menos um usuário. Ex: `!addadmin @user1 @user2`", delete_after=10)
             return
-        add_admin_db(member.id, member.display_name)
-        await ctx.send(f"✅ **{member.display_name}** adicionado como administrador.")
+        adicionados = []
+        for member in members:
+            if member.id in ADMIN_IDS:
+                continue
+            add_admin_db(member.id, member.display_name)
+            adicionados.append(member.display_name)
+        if adicionados:
+            await ctx.send(f"✅ Adicionado(s) como administrador: **{', '.join(adicionados)}**.")
+        else:
+            await ctx.send("⚠️ Nenhum novo administrador adicionado.", delete_after=8)
 
     @bot.command(name="removeradmin", aliases=["removeadmin", "removadmin"])
     async def cmd_remover_admin(ctx: commands.Context, member: discord.Member):
@@ -696,12 +704,18 @@ def setup_admin_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="addajudante", aliases=["adicionarajudante", "ajudanteadd"])
-    async def cmd_add_sub_admin(ctx: commands.Context, member: discord.Member):
+    async def cmd_add_sub_admin(ctx: commands.Context, *members: discord.Member):
         if ctx.author.id not in ADMIN_IDS:
             await ctx.send("❌ Apenas os administradores originais podem usar este comando.", delete_after=5)
             return
-        add_sub_admin_db(member.id, member.display_name)
-        await ctx.send(f"✅ **{member.display_name}** adicionado como ajudante (registrador de partidas).")
+        if not members:
+            await ctx.send("❌ Mencione ao menos um usuário. Ex: `!addajudante @user1 @user2`", delete_after=10)
+            return
+        adicionados = []
+        for member in members:
+            add_sub_admin_db(member.id, member.display_name)
+            adicionados.append(member.display_name)
+        await ctx.send(f"✅ Adicionado(s) como ajudante: **{', '.join(adicionados)}**.")
 
     @bot.command(name="removerajudante", aliases=["removeajudante", "ajudanteremove"])
     async def cmd_remover_sub_admin(ctx: commands.Context, member: discord.Member):
