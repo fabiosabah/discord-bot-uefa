@@ -604,8 +604,12 @@ def setup_admin_commands(bot: commands.Bot):
             title="💸 Como pagar a temporada",
             color=discord.Color.green(),
         )
-        embed.add_field(name="Chave Pix", value="**(71) 99137-2724**", inline=False)
-        embed.add_field(name="Nome", value="**Luciano Souza de Oliveira**", inline=False)
+        embed.add_field(
+            name="Inscrição",
+            value="Interessados em participar enviar o Pix de **R$ 10,00** para Smith",
+            inline=False,
+        )
+        embed.add_field(name="Chave Pix", value="**71991469980**", inline=False)
         embed.add_field(
             name="Após pagar",
             value="Mande o comprovante para um administrador e peça para ser adicionado na lista de pagantes da Temporada {season}.".format(season=season),
