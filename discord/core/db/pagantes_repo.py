@@ -61,6 +61,13 @@ def get_pagante_mmr(discord_id: int, season: int | None = None) -> int | None:
     return row["mmr"] if row else None
 
 
+def clear_pagantes_db(season: int) -> int:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM pagantes WHERE season = ?", (season,))
+        conn.commit()
+    return cursor.rowcount
+
+
 def get_pagantes_mmr_bulk(discord_ids: list[int], season: int | None = None) -> dict[int, int]:
     if not discord_ids:
         return {}

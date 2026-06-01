@@ -11,7 +11,7 @@ from core.db.admins_repo import add_admin_db, remove_admin_db, list_admins_db, c
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
-from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes
+from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, clear_pagantes_db
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
 from core.db.season_repo import get_current_season, set_current_season
@@ -434,11 +434,14 @@ def setup_admin_commands(bot: commands.Bot):
         new_season = get_current_season() + 1
         set_current_season(new_season)
         SEASON_STATE["active"] = True
-        cleared = clear_admins_db()
+        cleared_admins = clear_admins_db()
+        cleared_pagantes = clear_pagantes_db(new_season)
         await ctx.message.delete()
         msg = f"🟢 **Temporada {new_season}** iniciada! Listas liberadas. Os IDs de partida começam do #1."
-        if cleared:
-            msg += f"\n🧹 {cleared} admin(s) removido(s) — use `!addadmin` para adicionar os novos."
+        if cleared_admins:
+            msg += f"\n🧹 {cleared_admins} admin(s) removido(s) — use `!addadmin` para adicionar os novos."
+        if cleared_pagantes:
+            msg += f"\n🧹 {cleared_pagantes} pagante(s) da temporada anterior limpo(s)."
         await ctx.send(msg)
 
     @bot.command(name="reabrirtemporada", aliases=["voltartemporada", "settemporada"])
