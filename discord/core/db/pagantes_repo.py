@@ -5,13 +5,13 @@ from core.db.connection import get_connection
 from core.db.season_repo import get_current_season
 
 
-def add_pagante(discord_id: int, display_name: str, season: int | None = None) -> None:
+def add_pagante(discord_id: int, display_name: str, season: int | None = None, mmr: int | None = None) -> None:
     if season is None:
         season = get_current_season()
     with get_connection() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO pagantes (discord_id, display_name, season, registered_at) VALUES (?, ?, ?, ?)",
-            (discord_id, display_name, season, datetime.utcnow().isoformat()),
+            "INSERT OR REPLACE INTO pagantes (discord_id, display_name, season, mmr, registered_at) VALUES (?, ?, ?, ?, ?)",
+            (discord_id, display_name, season, mmr, datetime.utcnow().isoformat()),
         )
         conn.commit()
 
@@ -44,7 +44,32 @@ def list_pagantes(season: int | None = None) -> list[dict]:
         season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT discord_id, display_name, registered_at FROM pagantes WHERE season = ? ORDER BY registered_at",
+            "SELECT discord_id, display_name, mmr, registered_at FROM pagantes WHERE season = ? ORDER BY registered_at",
             (season,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_pagante_mmr(discord_id: int, season: int | None = None) -> int | None:
+    if season is None:
+        season = get_current_season()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT mmr FROM pagantes WHERE discord_id = ? AND season = ?",
+            (discord_id, season),
+        ).fetchone()
+    return row["mmr"] if row else None
+
+
+def get_pagantes_mmr_bulk(discord_ids: list[int], season: int | None = None) -> dict[int, int]:
+    if not discord_ids:
+        return {}
+    if season is None:
+        season = get_current_season()
+    placeholders = ",".join("?" * len(discord_ids))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT discord_id, mmr FROM pagantes WHERE discord_id IN ({placeholders}) AND season = ? AND mmr IS NOT NULL",
+            discord_ids + [season],
+        ).fetchall()
+    return {row["discord_id"]: row["mmr"] for row in rows}

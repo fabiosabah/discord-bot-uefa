@@ -39,6 +39,7 @@ def winrate_tier(winrate: float) -> str:
 
 
 def build_footer(include_rules=True):
+    from core.db.season_repo import get_current_season
     last_update = get_last_update()
     if last_update:
         time = relative_time(last_update)
@@ -47,7 +48,12 @@ def build_footer(include_rules=True):
     else:
         update_text = "🕹️ Nenhuma partida registrada ainda"
     if include_rules:
-        return f"⚖️ Vitória +2 pts | Derrota -1 pt\n{update_text}"
+        season = get_current_season()
+        if season >= 3:
+            rules = "⚖️ Pontuação baseada em MMR (Elo)"
+        else:
+            rules = "⚖️ Vitória +2 pts | Derrota -1 pt"
+        return f"{rules}\n{update_text}"
     return update_text
 
 

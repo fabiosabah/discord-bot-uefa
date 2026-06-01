@@ -3,7 +3,7 @@ import asyncio
 import discord
 import logging
 from core.db.lobby_repo import save_lobby_session
-from core.db.pagantes_repo import is_pagante
+from core.db.pagantes_repo import is_pagante, get_pagante_mmr
 from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.player_repo import get_steam_friend_id
 from core.db.suspension_repo import is_suspended, get_suspension
@@ -208,6 +208,14 @@ class LobbyView(discord.ui.View):
                 "❌ Você não está na lista de pagantes desta temporada.\n"
                 "Para participar, faça um Pix para **(71) 99137-2724** "
                 "no nome de **Luciano Souza de Oliveira** e avise um administrador.",
+                ephemeral=True,
+            )
+            return
+
+        if get_pagante_mmr(interaction.user.id) is None:
+            await interaction.response.send_message(
+                "❌ Seu MMR não está registrado para esta temporada.\n"
+                "Peça a um administrador para registrá-lo com `!addpagante @você <mmr>`.",
                 ephemeral=True,
             )
             return

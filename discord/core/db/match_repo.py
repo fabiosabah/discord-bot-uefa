@@ -9,7 +9,7 @@ from core.db.audit_repo import log_action
 from core.db.connection import get_connection, _sanitize_hero_name
 from core.db.ocr_repo import get_match_screenshot, set_match_screenshot_status
 from core.db.player_repo import resolve_player_names_exact, _get_player_alias_names
-from core.db.season_repo import get_current_season, get_next_season_match_id
+from core.db.season_repo import get_current_season, get_next_season_match_id, get_season_pts, compute_win_probability, compute_elo_deltas
 
 logger = logging.getLogger("Database")
 
@@ -200,6 +200,9 @@ def insert_ocr_match(
     match_hash = generate_match_hash(parsed)
     external_match_id = parsed.get("steam_match_id") or parsed.get("dota_match_id")
     league_match_id = insert_league_match(parsed, match_hash, external_match_id)
+
+    if get_current_season() >= 3:
+        _apply_elo_points(league_match_id, winners, losers)
 
     details = f"OCR import job {job_id} steam_match_id={parsed.get('steam_match_id')} winner={winner} league_match_id={league_match_id}"
     audit_id = log_action(admin_id, admin_name, "!ocrmatch", details, affected_ids=winners + losers)
@@ -459,7 +462,36 @@ def get_match_by_season_match_id(season_match_id: int, season: int | None = None
 
 def get_ranking_from_matches(season: int = None) -> list[dict]:
     season = season if season is not None else get_current_season()
-    win_pts = 2 if season >= 2 else 3
+    if season >= 3:
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT
+                    mp.discord_id,
+                    COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                    COUNT(*)                                               AS games,
+                    SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
+                    COALESCE(SUM(mp.points_delta), 0)                         AS points
+                FROM match_players mp
+                JOIN matches m ON m.league_match_id = mp.league_match_id
+                LEFT JOIN players p ON p.discord_id = mp.discord_id
+                WHERE mp.discord_id IS NOT NULL AND m.season = ?
+                GROUP BY mp.discord_id
+                ORDER BY points DESC, wins DESC
+            """, (season,)).fetchall()
+        return [
+            {
+                "discord_id":   row["discord_id"],
+                "display_name": str(row["display_name"]),
+                "wins":         row["wins"],
+                "losses":       row["losses"],
+                "points":       row["points"],
+                "games":        row["games"],
+            }
+            for row in rows
+        ]
+    # T1 / T2 — fórmula fixa
+    win_pts, loss_pts = get_season_pts(season)
     with get_connection() as conn:
         rows = conn.execute(f"""
             SELECT
@@ -475,7 +507,7 @@ def get_ranking_from_matches(season: int = None) -> list[dict]:
             GROUP BY mp.discord_id
             ORDER BY
                 (SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) * {win_pts}
-                 - SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END)) DESC,
+                 - SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) * {loss_pts}) DESC,
                 wins DESC
         """, (season,)).fetchall()
     return [
@@ -484,11 +516,52 @@ def get_ranking_from_matches(season: int = None) -> list[dict]:
             "display_name": str(row["display_name"]),
             "wins":         row["wins"],
             "losses":       row["losses"],
-            "points":       row["wins"] * win_pts - row["losses"],
+            "points":       row["wins"] * win_pts - row["losses"] * loss_pts,
             "games":        row["games"],
         }
         for row in rows
     ]
+
+
+def _apply_elo_points(league_match_id: int, winners: list[int], losers: list[int]) -> tuple[int, int]:
+    """Computes and stores points_delta for all players of a match.
+
+    Returns (win_delta, loss_delta) applied.
+    Falls back to 50% probability (+30/-20) if any player lacks MMR.
+    """
+    from core.db.pagantes_repo import get_pagantes_mmr_bulk
+
+    season = get_current_season()
+    all_ids = winners + losers
+    mmr_map = get_pagantes_mmr_bulk(all_ids, season)
+
+    if len(mmr_map) == len(all_ids):
+        mmr_winner = sum(mmr_map[pid] for pid in winners)
+        mmr_loser = sum(mmr_map[pid] for pid in losers)
+        p_winner = compute_win_probability(mmr_winner, mmr_loser)
+    else:
+        p_winner = 0.5  # fallback when MMR is missing
+
+    win_delta, loss_delta = compute_elo_deltas(p_winner)
+
+    with get_connection() as conn:
+        for pid in winners:
+            conn.execute(
+                "UPDATE match_players SET points_delta = ? WHERE league_match_id = ? AND discord_id = ?",
+                (win_delta, league_match_id, pid),
+            )
+        for pid in losers:
+            conn.execute(
+                "UPDATE match_players SET points_delta = ? WHERE league_match_id = ? AND discord_id = ?",
+                (loss_delta, league_match_id, pid),
+            )
+        conn.commit()
+
+    logger.info(
+        f"[Elo] league_match_id={league_match_id} p_winner={p_winner:.3f} "
+        f"win={win_delta:+d} loss={loss_delta:+d}"
+    )
+    return win_delta, loss_delta
 
 
 def get_last_ocr_match_info() -> dict | None:

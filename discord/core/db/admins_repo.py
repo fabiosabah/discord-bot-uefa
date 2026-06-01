@@ -35,3 +35,10 @@ def list_admins_db() -> list[dict]:
             "SELECT discord_id, display_name, added_at FROM bot_admins ORDER BY added_at",
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def clear_admins_db() -> int:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM bot_admins")
+        conn.commit()
+    return cursor.rowcount

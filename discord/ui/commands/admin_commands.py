@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 from core.config import IMAGE_CHANNEL_ID, ADMIN_IDS
-from core.db.admins_repo import add_admin_db, remove_admin_db, list_admins_db
+from core.db.admins_repo import add_admin_db, remove_admin_db, list_admins_db, clear_admins_db
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
@@ -434,8 +434,12 @@ def setup_admin_commands(bot: commands.Bot):
         new_season = get_current_season() + 1
         set_current_season(new_season)
         SEASON_STATE["active"] = True
+        cleared = clear_admins_db()
         await ctx.message.delete()
-        await ctx.send(f"🟢 **Temporada {new_season}** iniciada! Listas liberadas. Os IDs de partida começam do #1.")
+        msg = f"🟢 **Temporada {new_season}** iniciada! Listas liberadas. Os IDs de partida começam do #1."
+        if cleared:
+            msg += f"\n🧹 {cleared} admin(s) removido(s) — use `!addadmin` para adicionar os novos."
+        await ctx.send(msg)
 
     @bot.command(name="reabrirtemporada", aliases=["voltartemporada", "settemporada"])
     async def cmd_reopen_season(ctx: commands.Context, numero: int = None):
@@ -561,13 +565,19 @@ def setup_admin_commands(bot: commands.Bot):
     # ──────────────────────────────────────────────────────────
 
     @bot.command(name="addpagante", aliases=["pagou", "registrarpagante"])
-    async def cmd_add_pagante(ctx: commands.Context, member: discord.Member):
+    async def cmd_add_pagante(ctx: commands.Context, member: discord.Member, mmr: int = None):
         if not is_admin(ctx.author.id):
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
+        if mmr is None:
+            await ctx.send(
+                "❌ Informe o MMR do jogador.\n→ `!addpagante @jogador <mmr>`\nEx: `!addpagante @Smith 5000`",
+                delete_after=15,
+            )
+            return
         season = get_current_season()
-        add_pagante(member.id, member.display_name, season)
-        await ctx.send(f"✅ **{member.display_name}** registrado como pagante da Temporada {season}.")
+        add_pagante(member.id, member.display_name, season, mmr=mmr)
+        await ctx.send(f"✅ **{member.display_name}** registrado como pagante da Temporada {season} — MMR: **{mmr}**.")
 
     @bot.command(name="removerpagante", aliases=["removepagante", "naopagou"])
     async def cmd_remover_pagante(ctx: commands.Context, member: discord.Member):
@@ -608,12 +618,16 @@ def setup_admin_commands(bot: commands.Bot):
         if not pagantes_list:
             embed.description = "Nenhum pagante registrado nesta temporada."
         else:
-            nomes = "\n".join(
-                f"{i+1}. <@{p['discord_id']}> ({p['display_name']})"
-                for i, p in enumerate(pagantes_list)
-            )
-            embed.description = nomes
-            embed.set_footer(text=f"{len(pagantes_list)} pagante(s) registrado(s)")
+            lines = []
+            for i, p in enumerate(pagantes_list):
+                mmr_text = f" — MMR: {p['mmr']}" if p.get("mmr") is not None else " — ⚠️ sem MMR"
+                lines.append(f"{i+1}. <@{p['discord_id']}> ({p['display_name']}){mmr_text}")
+            embed.description = "\n".join(lines)
+            sem_mmr = sum(1 for p in pagantes_list if p.get("mmr") is None)
+            footer = f"{len(pagantes_list)} pagante(s) registrado(s)"
+            if sem_mmr:
+                footer += f" · ⚠️ {sem_mmr} sem MMR"
+            embed.set_footer(text=footer)
         await ctx.send(embed=embed)
 
     # ──────────────────────────────────────────────────────────

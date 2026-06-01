@@ -161,6 +161,7 @@ def init_db() -> None:
                 discord_id   INTEGER NOT NULL,
                 display_name TEXT    NOT NULL,
                 season       INTEGER NOT NULL DEFAULT 1,
+                mmr          INTEGER,
                 registered_at TEXT   NOT NULL,
                 PRIMARY KEY (discord_id, season)
             )
@@ -190,6 +191,7 @@ def init_db() -> None:
                 hero_name        TEXT,
                 networth         INTEGER,
                 team             TEXT,
+                points_delta     INTEGER,
                 FOREIGN KEY (league_match_id) REFERENCES matches(league_match_id)
             )
         """)
@@ -297,6 +299,15 @@ def migrate_db() -> None:
         if "discord_id" not in mp_column_names:
             conn.execute("ALTER TABLE match_players ADD COLUMN discord_id INTEGER")
             logger.info("[DB] Coluna 'discord_id' adicionada via migration ao match_players.")
+        if "points_delta" not in mp_column_names:
+            conn.execute("ALTER TABLE match_players ADD COLUMN points_delta INTEGER")
+            logger.info("[DB] Coluna 'points_delta' adicionada via migration ao match_players.")
+
+        pg_columns = conn.execute("PRAGMA table_info(pagantes)").fetchall()
+        pg_column_names = [col["name"] for col in pg_columns]
+        if "mmr" not in pg_column_names:
+            conn.execute("ALTER TABLE pagantes ADD COLUMN mmr INTEGER")
+            logger.info("[DB] Coluna 'mmr' adicionada via migration ao pagantes.")
 
         mh_columns = conn.execute("PRAGMA table_info(match_history)").fetchall()
         mh_column_names = [col["name"] for col in mh_columns]
