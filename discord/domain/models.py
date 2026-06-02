@@ -234,6 +234,19 @@ class LobbySession:
                 timer_text = "⏱️ Fechamento automático em breve"
             embed.add_field(name="⏳ Tempo restante", value=timer_text, inline=False)
 
+        from core.db.connection import get_connection
+        from core.db.season_repo import get_current_season as _get_season
+        with get_connection() as _conn:
+            _mc = _conn.execute(
+                "SELECT COUNT(*) FROM matches WHERE season = ?", (_get_season(),)
+            ).fetchone()[0]
+        if _mc < _CAPTAIN_RANDOM_THRESHOLD:
+            embed.add_field(
+                name="\ud83c\udfb2 Capit\u00e3es por sorteio",
+                value=f"Nas primeiras {_CAPTAIN_RANDOM_THRESHOLD} partidas os capit\u00e3es s\u00e3o sorteados aleatoriamente da lista de presen\u00e7a. Faltam **{_CAPTAIN_RANDOM_THRESHOLD - _mc}** partida(s).",
+                inline=False,
+            )
+
         captains_text = self._get_captains_field()
         if captains_text:
             embed.add_field(name="\u200b", value=captains_text, inline=False)
