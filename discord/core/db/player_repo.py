@@ -73,7 +73,7 @@ def resolve_player_names_exact(player_names: list[str]) -> dict[str, int]:
     return mapping
 
 
-_CAPTAIN_FALLBACK_THRESHOLD = 5
+_CAPTAIN_RANDOM_THRESHOLD = 10
 
 def get_captains_from_list(player_ids: list[int]) -> dict:
     """
@@ -81,22 +81,31 @@ def get_captains_from_list(player_ids: list[int]) -> dict:
         "captains": list[dict],
         "season_used": int,
         "current_season": int,
-        "match_count": int,   # matches in current season
+        "match_count": int,
         "is_fallback": bool,
+        "is_random": bool,   # True when below threshold — captains should be drawn randomly
     }
     """
     from core.db.season_repo import get_current_season
     current_season = get_current_season()
     if not player_ids:
-        return {"captains": [], "season_used": current_season, "current_season": current_season, "match_count": 0, "is_fallback": False}
+        return {"captains": [], "season_used": current_season, "current_season": current_season, "match_count": 0, "is_fallback": False, "is_random": False}
     with get_connection() as conn:
         match_count = conn.execute(
             "SELECT COUNT(*) FROM matches WHERE season = ?", (current_season,)
         ).fetchone()[0]
-    season = current_season
-    if match_count < _CAPTAIN_FALLBACK_THRESHOLD and season > 1:
-        season = season - 1
-    win_pts, loss_pts = get_season_pts(season)
+
+    if match_count < _CAPTAIN_RANDOM_THRESHOLD:
+        return {
+            "captains": [],
+            "season_used": current_season,
+            "current_season": current_season,
+            "match_count": match_count,
+            "is_fallback": False,
+            "is_random": True,
+        }
+
+    win_pts, loss_pts = get_season_pts(current_season)
     placeholders = ', '.join(['?'] * len(player_ids))
     with get_connection() as conn:
         rows = conn.execute(f"""
@@ -113,13 +122,14 @@ def get_captains_from_list(player_ids: list[int]) -> dict:
             GROUP BY mp.discord_id
             ORDER BY points DESC, wins DESC
             LIMIT 2
-        """, player_ids + [season]).fetchall()
+        """, player_ids + [current_season]).fetchall()
     return {
         "captains": [dict(r) for r in rows],
-        "season_used": season,
+        "season_used": current_season,
         "current_season": current_season,
         "match_count": match_count,
-        "is_fallback": season != current_season,
+        "is_fallback": False,
+        "is_random": False,
     }
 
 

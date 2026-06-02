@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import random
 import discord
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from core.config import MAX_PLAYERS, LEAGUE_NAME, LEAGUE_EMOJI
-from core.db.player_repo import get_captains_from_list, _CAPTAIN_FALLBACK_THRESHOLD
+from core.db.player_repo import get_captains_from_list, _CAPTAIN_RANDOM_THRESHOLD
 from core.db.match_repo import get_streak_highlights_from_matches
 
 _BRT = ZoneInfo("America/Sao_Paulo")
@@ -129,23 +130,30 @@ class LobbySession:
         present_ids = list(self.player_ids)
         result = get_captains_from_list(present_ids)
         captains_data = result["captains"]
-        is_fallback = result["is_fallback"]
-        season_used = result["season_used"]
         current_season = result["current_season"]
         match_count = result["match_count"]
-        remaining = _CAPTAIN_FALLBACK_THRESHOLD - match_count
+        remaining = _CAPTAIN_RANDOM_THRESHOLD - match_count
 
-        if len(captains_data) < 2:
-            captain_a = self.players[0]
-            captain_b = self.players[1]
+        if result.get("is_random"):
+            rng = random.Random(self.id)
+            chosen = rng.sample(self.players, 2)
             lines = [
                 f"👑 **Capitães Definidos:**",
-                f"🔵 Time A: {captain_a.mention}",
-                f"🔴 Time B: {captain_b.mention}",
-                f"*(Baseado em ordem de entrada — sem dados no banco)*",
+                f"🔵 Time A: {chosen[0].mention}",
+                f"🔴 Time B: {chosen[1].mention}",
+                f"🎲 *Sorteio aleatório — faltam {remaining} partida(s) para usar o ranking.*",
             ]
-            if is_fallback:
-                lines.append(f"⚠️ *Usando dados da Temporada {season_used} — ainda faltam {remaining} partida(s) na T{current_season} para usar os dados desta temporada.*")
+            return "\n".join(lines)
+
+        if len(captains_data) < 2:
+            rng = random.Random(self.id)
+            chosen = rng.sample(self.players, 2)
+            lines = [
+                f"👑 **Capitães Definidos:**",
+                f"🔵 Time A: {chosen[0].mention}",
+                f"🔴 Time B: {chosen[1].mention}",
+                f"🎲 *Sorteio aleatório — sem dados suficientes no ranking.*",
+            ]
             return "\n".join(lines)
 
         cap_a = captains_data[0]
@@ -162,10 +170,8 @@ class LobbySession:
             f"🔵 Time A: {member_a.mention} ({cap_a['points']} pts | {cap_a['wins']}V)",
             f"🔴 Time B: {member_b.mention} ({cap_b['points']} pts | {cap_b['wins']}V)",
         ]
-        if is_fallback:
-            lines.append(f"⚠️ *Usando dados da Temporada {season_used} — ainda faltam {remaining} partida(s) na T{current_season} para usar os dados desta temporada.*")
-        elif current_season > 1 and match_count == _CAPTAIN_FALLBACK_THRESHOLD:
-            lines.append(f"🎉 *A partir de agora os capitães são definidos pelos dados da Temporada {current_season}!*")
+        if current_season > 1 and match_count == _CAPTAIN_RANDOM_THRESHOLD:
+            lines.append(f"🎉 *A partir de agora os capitães são definidos pelo ranking da Temporada {current_season}!*")
         return "\n".join(lines)
 
     def build_embed(self) -> discord.Embed:
