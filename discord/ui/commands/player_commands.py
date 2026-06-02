@@ -102,6 +102,30 @@ def setup_player_commands(bot: commands.Bot):
 
         embed.set_footer(text=f"{build_footer(include_rules=False)}\n{last_text}" if is_current else last_text)
 
+        # Mostra top 15 elegíveis ao final da tabela atual
+        if is_current:
+            MIN_GAMES = 25
+            elegíveis = [
+                p for p in ranking
+                if p["games"] >= MIN_GAMES and not is_suspended(p["discord_id"])
+            ][:15]
+            if is_final_phase_active():
+                embed.add_field(
+                    name="🔥 Fase Final em andamento",
+                    value="Use `!final` para ver o ranking da Final Top 15.",
+                    inline=False,
+                )
+            elif elegíveis:
+                nomes = ", ".join(f"**{p['display_name']}**" for p in elegíveis)
+                label = f"🏆 Classificados para a Final ({len(elegíveis)}/15)"
+                embed.add_field(name=label, value=nomes, inline=False)
+            else:
+                embed.add_field(
+                    name="🏆 Classificados para a Final",
+                    value=f"Nenhum jogador com {MIN_GAMES}+ partidas ainda.",
+                    inline=False,
+                )
+
         await ctx.send(embed=embed)
 
     @bot.command(name="roll", aliases=["sortear"])
@@ -109,49 +133,13 @@ def setup_player_commands(bot: commands.Bot):
         n = secrets.randbelow(100)
         await ctx.send(f"🎲 {ctx.author.mention} tirou **{n}**")
 
-    @bot.command(name="top15", aliases=["top", "finalTop15", "classificados"])
+    @bot.command(name="top15", aliases=["classificados", "elegíveis"])
     async def cmd_top15(ctx: commands.Context):
+        """Mostra quem está elegível para a Final Top 15 (fase classificatória)."""
         MIN_GAMES = 25
         MAX_CLASSIFIED = 15
         medals = {0: "🥇", 1: "🥈", 2: "🥉"}
 
-        if is_final_phase_active():
-            # ── Fase final ativa: mostra ranking da final (pontos zerados) ──
-            participants = get_final_participants()
-            participant_ids = {p["discord_id"] for p in participants}
-
-            final_ranking = get_ranking_from_matches(phase="final")
-            # jogadores que ainda não jogaram na final aparecem com 0 pts
-            ranked_ids = {p["discord_id"] for p in final_ranking}
-            for part in participants:
-                if part["discord_id"] not in ranked_ids:
-                    final_ranking.append({
-                        "discord_id":   part["discord_id"],
-                        "display_name": part["display_name"],
-                        "wins": 0, "losses": 0, "points": 0, "games": 0,
-                    })
-            final_ranking = sorted(final_ranking, key=lambda p: (p["points"], p["wins"]), reverse=True)
-            final_ranking = [p for p in final_ranking if p["discord_id"] in participant_ids]
-
-            embed = discord.Embed(
-                title="🏆 Final Top 15 — Ranking da Final",
-                description="Pontos zerados no início da fase final.",
-                color=discord.Color.gold(),
-            )
-            linhas = []
-            for i, p in enumerate(final_ranking):
-                prefix = medals.get(i, f"`{i+1:02d}.`")
-                linhas.append(
-                    f"{prefix} **{p['display_name']}** — "
-                    f"{p['points']} pts "
-                    f"(`{p['wins']}V/{p['losses']}D`)"
-                )
-            embed.description = "\n".join(linhas) if linhas else "Nenhuma partida da final registrada ainda."
-            embed.set_footer(text="🔥 Fase Final ativa · Pontos da classificatória não contam aqui")
-            await ctx.send(embed=embed)
-            return
-
-        # ── Fase classificatória: mostra elegíveis para a final ──
         ranking = get_ranking_from_matches()
 
         if not ranking:
@@ -172,7 +160,10 @@ def setup_player_commands(bot: commands.Bot):
 
         embed = discord.Embed(
             title="🔥 Final Top 15 — Pré-classificação",
-            description="Jogadores elegíveis para a fase final (mínimo 25 partidas, sem suspensão).",
+            description=(
+                f"Os **{MAX_CLASSIFIED} melhores** com no mínimo **{MIN_GAMES} partidas** e sem suspensão ativa\n"
+                f"vão disputar a fase final com **pontos zerados**."
+            ),
             color=discord.Color.gold(),
         )
 
@@ -182,20 +173,72 @@ def setup_player_commands(bot: commands.Bot):
                 prefix = medals.get(i, f"`{i+1:02d}.`")
                 linhas.append(
                     f"{prefix} **{p['display_name']}** — "
-                    f"{p['points']} pts "
-                    f"(`{p['wins']}V/{p['losses']}D` — {p['games']} jogos)"
+                    f"{p['points']} pts · "
+                    f"{p['wins']}V/{p['losses']}D · {p['games']} jogos"
                 )
             embed.add_field(name=f"✅ Elegíveis ({len(top)}/{MAX_CLASSIFIED})", value="\n".join(linhas), inline=False)
         else:
-            embed.add_field(name="✅ Elegíveis", value="Nenhum jogador elegível ainda.", inline=False)
+            embed.add_field(name="✅ Elegíveis", value=f"Nenhum jogador com {MIN_GAMES}+ partidas ainda.", inline=False)
 
         if inelegíveis:
-            linhas_in = [f"• **{p['display_name']}** — {motivo}" for p, motivo in inelegíveis[:10]]
-            if len(inelegíveis) > 10:
-                linhas_in.append(f"... e mais {len(inelegíveis) - 10}")
-            embed.add_field(name="⛔ Não elegíveis", value="\n".join(linhas_in), inline=False)
+            linhas_in = [f"• **{p['display_name']}** — {motivo}" for p, motivo in inelegíveis[:8]]
+            if len(inelegíveis) > 8:
+                linhas_in.append(f"... e mais {len(inelegíveis) - 8} jogador(es)")
+            embed.add_field(name="⛔ Ainda não elegíveis", value="\n".join(linhas_in), inline=False)
 
-        embed.set_footer(text=f"Mínimo {MIN_GAMES} partidas · Sem suspensão ativa · Pontos zerados ao iniciar a final")
+        if is_final_phase_active():
+            embed.set_footer(text="⚠️ Fase final já iniciada — use !final para ver o ranking da final")
+        else:
+            embed.set_footer(text=f"Use !final para ver o ranking ao iniciar a fase final")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="final", aliases=["top", "tabela15", "finalTop15"])
+    async def cmd_final(ctx: commands.Context):
+        """Ranking da Final Top 15 — pontos zerados no início da fase final."""
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+        if not is_final_phase_active():
+            await ctx.send(
+                "⚠️ A fase final ainda não foi iniciada.\n"
+                "Use `!top15` para ver quem está elegível para a final.",
+                delete_after=15,
+            )
+            return
+
+        participants = get_final_participants()
+        participant_ids = {p["discord_id"] for p in participants}
+
+        final_ranking = get_ranking_from_matches(phase="final")
+        ranked_ids = {p["discord_id"] for p in final_ranking}
+
+        for part in participants:
+            if part["discord_id"] not in ranked_ids:
+                final_ranking.append({
+                    "discord_id":   part["discord_id"],
+                    "display_name": part["display_name"],
+                    "wins": 0, "losses": 0, "points": 0, "games": 0,
+                })
+
+        final_ranking = sorted(
+            [p for p in final_ranking if p["discord_id"] in participant_ids],
+            key=lambda p: (p["points"], p["wins"]),
+            reverse=True,
+        )
+
+        embed = discord.Embed(
+            title="🏆 Final Top 15 — Ranking da Final",
+            description="Pontos zerados no início da fase final. Apenas partidas da fase final contam.",
+            color=discord.Color.from_rgb(255, 215, 0),
+        )
+
+        linhas = []
+        for i, p in enumerate(final_ranking):
+            prefix = medals.get(i, f"`{i+1:02d}.`")
+            jogos = f"{p['wins']}V/{p['losses']}D" if p["games"] else "sem jogos"
+            linhas.append(f"{prefix} **{p['display_name']}** — {p['points']} pts · {jogos}")
+
+        embed.description = "\n".join(linhas) if linhas else "Nenhuma partida da final registrada ainda."
+        embed.set_footer(text=f"🔥 {len(participants)} finalistas · Use !tabela para ver a fase classificatória")
         await ctx.send(embed=embed)
 
     @bot.command(name="perfil", aliases=["perfil2"])

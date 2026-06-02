@@ -426,6 +426,7 @@ def setup_admin_commands(bot: commands.Bot):
             return
         current = get_current_season()
         SEASON_STATE["active"] = False
+        set_final_phase_active(False)
         await ctx.message.delete()
         await ctx.send(f"🏁 Temporada {current} encerrada. Novas listas estão desativadas.")
 
@@ -483,19 +484,6 @@ def setup_admin_commands(bot: commands.Bot):
             f"Pontos zerados. Partidas agora contam para a fase final.\n\n"
             f"**Classificados:**\n{nomes}"
         )
-
-    @bot.command(name="encerrrarfinal", aliases=["fecharfinal", "fimfinal", "encerrarfinal"])
-    async def cmd_encerrar_final(ctx: commands.Context):
-        if ctx.author.id not in _SUPER_ADMINS:
-            await ctx.message.delete()
-            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
-            return
-        if not is_final_phase_active():
-            await ctx.send("⚠️ A fase final não está ativa.", delete_after=8)
-            return
-        set_final_phase_active(False)
-        await ctx.message.delete()
-        await ctx.send("🏁 Fase final encerrada. Partidas voltam a contar para a fase classificatória.")
 
     @bot.command(name="reabrirtemporada", aliases=["voltartemporada", "settemporada"])
     async def cmd_reopen_season(ctx: commands.Context, numero: int = None):
