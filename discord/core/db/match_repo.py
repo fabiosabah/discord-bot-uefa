@@ -462,6 +462,7 @@ def get_match_by_season_match_id(season_match_id: int, season: int | None = None
 
 
 def get_ranking_from_matches(season: int = None) -> list[dict]:
+    from core.db.suspension_repo import get_point_penalties_sum_by_player
     season = season if season is not None else get_current_season()
     if season >= 3:
         with get_connection() as conn:
@@ -472,24 +473,29 @@ def get_ranking_from_matches(season: int = None) -> list[dict]:
                     COUNT(*)                                               AS games,
                     SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
                     SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
-                    COALESCE(SUM(mp.points_delta), 0)                         AS points
+                    COALESCE(SUM(mp.points_delta), 0)                         AS match_points
                 FROM match_players mp
                 JOIN matches m ON m.league_match_id = mp.league_match_id
                 LEFT JOIN players p ON p.discord_id = mp.discord_id
                 WHERE mp.discord_id IS NOT NULL AND m.season = ?
                 GROUP BY mp.discord_id
-                ORDER BY points DESC, wins DESC
+                ORDER BY match_points DESC, wins DESC
             """, (season,)).fetchall()
+        penalties = get_point_penalties_sum_by_player(season)
         return [
             {
                 "discord_id":   row["discord_id"],
                 "display_name": str(row["display_name"]),
                 "wins":         row["wins"],
                 "losses":       row["losses"],
-                "points":       row["points"],
+                "points":       row["match_points"] + penalties.get(row["discord_id"], 0),
                 "games":        row["games"],
             }
-            for row in rows
+            for row in sorted(
+                rows,
+                key=lambda r: (r["match_points"] + penalties.get(r["discord_id"], 0), r["wins"]),
+                reverse=True,
+            )
         ]
     # T1 / T2 — fórmula fixa
     win_pts, loss_pts = get_season_pts(season)

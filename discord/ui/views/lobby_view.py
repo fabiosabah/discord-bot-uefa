@@ -108,9 +108,9 @@ class AddUserSelect(discord.ui.UserSelect):
         if is_suspended(member.id):
             susp = get_suspension(member.id)
             motivo = susp["reason"] if susp else "motivo não especificado"
-            prazo = f"\n⏳ Até: {susp['suspended_until'][:10]}" if susp and susp.get("suspended_until") else ""
+            remaining = susp.get("lists_remaining", "?") if susp else "?"
             await interaction.followup.send(
-                f"🚫 {member.mention} está suspenso e não pode ser adicionado à lista.\n📝 Motivo: {motivo}{prazo}",
+                f"🚫 {member.mention} está suspenso e não pode ser adicionado à lista.\n📝 Motivo: {motivo}\n⏳ {remaining} lista(s) restante(s).",
                 ephemeral=True,
             )
             return
@@ -223,9 +223,9 @@ class LobbyView(discord.ui.View):
         if is_suspended(interaction.user.id):
             susp = get_suspension(interaction.user.id)
             motivo = susp["reason"] if susp else "motivo não especificado"
-            prazo = f"\n⏳ Até: {susp['suspended_until'][:10]}" if susp and susp.get("suspended_until") else ""
+            remaining = susp.get("lists_remaining", "?") if susp else "?"
             await interaction.response.send_message(
-                f"🚫 Você está suspenso e não pode entrar na lista.\n📝 Motivo: {motivo}{prazo}",
+                f"🚫 Você está suspenso e não pode entrar na lista.\n📝 Motivo: {motivo}\n⏳ {remaining} lista(s) restante(s).",
                 ephemeral=True,
             )
             return

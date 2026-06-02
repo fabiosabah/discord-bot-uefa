@@ -6,7 +6,7 @@ import discord
 import requests
 
 from core.config import MAX_PLAYERS, GC_API_URL
-from core.db.bot_config_repo import is_lobby_integration_enabled
+from core.db.bot_config_repo import is_lobby_integration_enabled, increment_completed_lobbies
 from core.db.lobby_repo import delete_lobby_session, save_lobby_session
 from core.db.player_repo import get_steam_friend_id
 from domain.models import LobbySession
@@ -52,6 +52,7 @@ async def close_session(
             await message.channel.send(f"Jogadores que participaram: {mention_list}")
     else:
         logger.info(f"[Encerrar] Lista #{session.id} | ✅ CONFIRMADA | Host: {session.host.name}#{session.host.id} | {filled}/10 jogadores")
+        increment_completed_lobbies()
         mention_list = " ".join(p.mention for p in session.players)
         await message.channel.send(
             f"🔒 **Lista confirmada!** Jogadores finais ({filled}/{MAX_PLAYERS}):\n{mention_list}"

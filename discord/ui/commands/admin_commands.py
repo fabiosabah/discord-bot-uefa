@@ -18,7 +18,10 @@ from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, cl
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
 from core.db.season_repo import get_current_season, set_current_season
-from core.db.suspension_repo import add_suspension, remove_suspension, get_suspension, list_suspensions
+from core.db.suspension_repo import (
+    add_suspension, remove_suspension, get_suspension, list_suspensions,
+    add_point_penalty, remove_point_penalty, list_point_penalties,
+)
 from ui.commands.score_helpers import is_admin
 
 audit_logger = logging.getLogger("Audit")
@@ -802,7 +805,7 @@ def setup_admin_commands(bot: commands.Bot):
         )
         await ctx.send(msg)
 
-    @bot.command(name="castigo", aliases=["suspender", "suspensao"])
+    @bot.command(name="castigolobby", aliases=["suspender", "suspensao", "castigo"])
     async def cmd_suspend(ctx: commands.Context, member: discord.Member = None, *args):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
@@ -811,40 +814,80 @@ def setup_admin_commands(bot: commands.Bot):
 
         if member is None or not args:
             await ctx.send(
-                "❌ Uso: `!castigo @jogador [dias] motivo`\n"
-                "Exemplos:\n"
-                "`!castigo @player 7 comportamento inadequado`\n"
-                "`!castigo @player atitude anti-esportiva`",
+                "❌ Uso: `!castigolobby @jogador <listas> motivo`\n"
+                "Exemplo: `!castigolobby @player 3 comportamento inadequado`",
                 delete_after=20
             )
             return
 
-        days = None
-        motivo_parts = list(args)
-        if args[0].isdigit():
-            days = int(args[0])
-            motivo_parts = list(args[1:])
+        if not args[0].isdigit():
+            await ctx.send("❌ Informe o número de listas de punição.\nEx: `!castigolobby @player 3 motivo`", delete_after=15)
+            return
+
+        lists_duration = int(args[0])
+        motivo_parts = list(args[1:])
 
         if not motivo_parts:
-            await ctx.send("❌ Informe o motivo da suspensão.", delete_after=15)
+            await ctx.send("❌ Informe o motivo.", delete_after=15)
             return
 
         motivo = " ".join(motivo_parts)
-        add_suspension(member.id, member.display_name, motivo, days, ctx.author.id)
+        add_suspension(member.id, member.display_name, motivo, lists_duration, ctx.author.id)
 
         audit_logger.info(
             f"[SUSPENSAO] {ctx.author.name} ({ctx.author.id}) SUSPENDEU {member.name} ({member.id}) "
-            f"— dias={days or 'indefinido'} motivo={motivo}"
+            f"— listas={lists_duration} motivo={motivo}"
         )
         log_action(
-            ctx.author.id, ctx.author.display_name, "!suspender",
-            f"discord_id={member.id} display_name={member.display_name} dias={days or 'indefinido'} motivo={motivo}",
+            ctx.author.id, ctx.author.display_name, "!castigolobby",
+            f"discord_id={member.id} display_name={member.display_name} listas={lists_duration} motivo={motivo}",
             affected_ids=[member.id]
         )
 
         await ctx.message.delete()
-        prazo = f" por **{days} dia(s)**" if days else " **indefinidamente**"
-        await ctx.send(f"🚫 {member.mention} suspenso{prazo}.\n📝 Motivo: {motivo}")
+        await ctx.send(f"🚫 {member.mention} suspenso por **{lists_duration} lista(s)**.\n📝 Motivo: {motivo}")
+
+    @bot.command(name="castigoponto", aliases=["punicaopontos", "penalidade", "castigopontos"])
+    async def cmd_point_penalty(ctx: commands.Context, member: discord.Member = None, *args):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if member is None or not args:
+            await ctx.send(
+                "❌ Uso: `!castigoponto @jogador <pontos> motivo`\n"
+                "Exemplo: `!castigoponto @player 20 troll intencional`",
+                delete_after=20
+            )
+            return
+
+        if not args[0].isdigit():
+            await ctx.send("❌ Informe a quantidade de pontos a deduzir.\nEx: `!castigoponto @player 20 motivo`", delete_after=15)
+            return
+
+        pontos = int(args[0])
+        motivo_parts = list(args[1:])
+
+        if not motivo_parts:
+            await ctx.send("❌ Informe o motivo.", delete_after=15)
+            return
+
+        motivo = " ".join(motivo_parts)
+        add_point_penalty(member.id, member.display_name, pontos, motivo, ctx.author.id)
+
+        audit_logger.info(
+            f"[PENALIDADE] {ctx.author.name} ({ctx.author.id}) PENALIZOU {member.name} ({member.id}) "
+            f"— pontos={pontos} motivo={motivo}"
+        )
+        log_action(
+            ctx.author.id, ctx.author.display_name, "!castigoponto",
+            f"discord_id={member.id} display_name={member.display_name} pontos={pontos} motivo={motivo}",
+            affected_ids=[member.id]
+        )
+
+        await ctx.message.delete()
+        await ctx.send(f"📉 {member.mention} penalizado em **{pontos} ponto(s)**.\n📝 Motivo: {motivo}")
 
     @bot.command(name="liberar", aliases=["dessuspender", "removersuspensao"])
     async def cmd_unsuspend(ctx: commands.Context, member: discord.Member = None):
@@ -865,13 +908,13 @@ def setup_admin_commands(bot: commands.Bot):
                 f"[SUSPENSAO] {ctx.author.name} ({ctx.author.id}) REMOVEU suspensão de {member.name} ({member.id})"
             )
             log_action(
-                ctx.author.id, ctx.author.display_name, "!dessuspender",
+                ctx.author.id, ctx.author.display_name, "!liberar",
                 f"discord_id={member.id} display_name={member.display_name}",
                 affected_ids=[member.id]
             )
-            await ctx.send(f"✅ Suspensão de {member.mention} removida.")
+            await ctx.send(f"✅ Punição de lobby de {member.mention} removida.")
         else:
-            await ctx.send(f"⚠️ {member.mention} não está suspenso.", delete_after=10)
+            await ctx.send(f"⚠️ {member.mention} não está com punição de lobby ativa.", delete_after=10)
 
     @bot.command(name="suspensos", aliases=["suspensoes", "listarsuspensos"])
     async def cmd_list_suspensions(ctx: commands.Context):
@@ -882,21 +925,55 @@ def setup_admin_commands(bot: commands.Bot):
 
         suspensions = list_suspensions()
         if not suspensions:
-            await ctx.send("📋 Nenhum jogador suspenso no momento.")
+            await ctx.send("📋 Nenhum jogador com punição de lobby ativa.")
             return
 
         lines = []
         for s in suspensions:
-            if s["suspended_until"]:
-                prazo = f"até {s['suspended_until'][:10]}"
-            else:
-                prazo = "indefinido"
-            lines.append(f"<@{s['discord_id']}> — {s['reason']} ({prazo})")
+            remaining = s.get("lists_remaining", "?")
+            lines.append(f"<@{s['discord_id']}> — {s['reason']} ({remaining} lista(s) restante(s))")
 
         embed = discord.Embed(
-            title="🚫 Jogadores Suspensos",
+            title="🚫 Punições de Lobby Ativas",
             description="\n".join(lines),
             color=discord.Color.red()
         )
-        embed.set_footer(text=f"{len(lines)} suspensão(ões) ativa(s)")
+        embed.set_footer(text=f"{len(lines)} punição(ões) ativa(s)")
         await ctx.send(embed=embed)
+
+    @bot.command(name="penalidades", aliases=["listarpenalidades", "punicaopontos"])
+    async def cmd_list_penalties(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        penalties = list_point_penalties()
+        if not penalties:
+            await ctx.send("📋 Nenhuma penalidade de pontos registrada nesta temporada.")
+            return
+
+        lines = [f"`#{p['id']}` <@{p['discord_id']}> **{p['points']} pts** — {p['reason']}" for p in penalties]
+        embed = discord.Embed(
+            title="📉 Penalidades de Pontos",
+            description="\n".join(lines),
+            color=discord.Color.orange()
+        )
+        embed.set_footer(text=f"Use !removerpenalidade <id> para cancelar uma penalidade")
+        await ctx.send(embed=embed)
+
+    @bot.command(name="removerpenalidade", aliases=["cancelarpenalidade"])
+    async def cmd_remove_penalty(ctx: commands.Context, penalty_id: int = None):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        if penalty_id is None:
+            await ctx.send("❌ Uso: `!removerpenalidade <id>`", delete_after=10)
+            return
+        removed = remove_point_penalty(penalty_id)
+        await ctx.message.delete()
+        if removed:
+            await ctx.send(f"✅ Penalidade `#{penalty_id}` removida.")
+        else:
+            await ctx.send(f"⚠️ Penalidade `#{penalty_id}` não encontrada.", delete_after=10)

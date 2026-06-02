@@ -222,7 +222,21 @@ def init_db() -> None:
                 reason          TEXT    NOT NULL,
                 suspended_at    TEXT    NOT NULL,
                 suspended_until TEXT,
-                applied_by      INTEGER
+                applied_by      INTEGER,
+                lists_at_ban    INTEGER,
+                lists_duration  INTEGER
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS point_penalties (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_id   INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                points       INTEGER NOT NULL,
+                reason       TEXT    NOT NULL,
+                season       INTEGER NOT NULL,
+                applied_by   INTEGER,
+                applied_at   TEXT    NOT NULL
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
@@ -418,9 +432,33 @@ def migrate_db() -> None:
                 reason          TEXT    NOT NULL,
                 suspended_at    TEXT    NOT NULL,
                 suspended_until TEXT,
-                applied_by      INTEGER
+                applied_by      INTEGER,
+                lists_at_ban    INTEGER,
+                lists_duration  INTEGER
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS point_penalties (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_id   INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                points       INTEGER NOT NULL,
+                reason       TEXT    NOT NULL,
+                season       INTEGER NOT NULL,
+                applied_by   INTEGER,
+                applied_at   TEXT    NOT NULL
+            )
+        """)
+
+        susp_columns = conn.execute("PRAGMA table_info(suspensions)").fetchall()
+        susp_column_names = [col["name"] for col in susp_columns]
+        if "lists_at_ban" not in susp_column_names:
+            conn.execute("ALTER TABLE suspensions ADD COLUMN lists_at_ban INTEGER")
+            logger.info("[DB] Coluna 'lists_at_ban' adicionada via migration ao suspensions.")
+        if "lists_duration" not in susp_column_names:
+            conn.execute("ALTER TABLE suspensions ADD COLUMN lists_duration INTEGER")
+            logger.info("[DB] Coluna 'lists_duration' adicionada via migration ao suspensions.")
+
         logger.info("[DB] Índices e tabela heroes criados ou já existentes.")
         conn.commit()
     _populate_heroes()
