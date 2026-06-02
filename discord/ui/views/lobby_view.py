@@ -4,6 +4,7 @@ import discord
 import logging
 from core.db.lobby_repo import save_lobby_session
 from core.db.pagantes_repo import is_pagante, get_pagante_mmr
+from core.db.admins_repo import is_sub_admin_db
 from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.player_repo import get_steam_friend_id
 from core.db.suspension_repo import is_suspended, get_suspension
@@ -17,6 +18,9 @@ audit_logger = logging.getLogger("Audit")
 
 def is_authorized(user_id: int, session: LobbySession) -> bool:
     return user_id == session.host.id or is_admin(user_id)
+
+def is_authorized_remove(user_id: int, session: LobbySession) -> bool:
+    return user_id == session.host.id or is_admin(user_id) or is_sub_admin_db(user_id)
 
 class RemoveSelect(discord.ui.Select):
     def __init__(self, session: LobbySession, active_lobbies: dict):
@@ -39,9 +43,9 @@ class RemoveSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         session = self.session
         
-        if not is_authorized(interaction.user.id, session):
+        if not is_authorized_remove(interaction.user.id, session):
             await interaction.response.send_message(
-                "❌ Apenas quem criou a lista ou um administrador pode remover pessoas.", ephemeral=True
+                "❌ Apenas quem criou a lista, um administrador ou ajudante pode remover pessoas.", ephemeral=True
             )
             return
 
@@ -329,9 +333,9 @@ class LobbyView(discord.ui.View):
     @discord.ui.button(label="👤 Remover pessoa", style=discord.ButtonStyle.secondary, custom_id="remover_jogador")
     async def remover_jogador(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
-        if not is_authorized(interaction.user.id, session):
+        if not is_authorized_remove(interaction.user.id, session):
             await interaction.response.send_message(
-                "❌ Apenas quem criou a lista ou um administrador pode remover pessoas.", ephemeral=True
+                "❌ Apenas quem criou a lista, um administrador ou ajudante pode remover pessoas.", ephemeral=True
             )
             return
 
