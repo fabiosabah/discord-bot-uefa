@@ -14,7 +14,7 @@ from core.db.admins_repo import (
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
-from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, clear_pagantes_db
+from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, clear_pagantes_db, update_pagante_mmr
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
 from core.db.season_repo import get_current_season, set_current_season
@@ -584,6 +584,24 @@ def setup_admin_commands(bot: commands.Bot):
         season = get_current_season()
         add_pagante(member.id, member.display_name, season, mmr=mmr)
         await ctx.send(f"✅ **{member.display_name}** registrado como pagante da Temporada {season} — MMR: **{mmr}**.")
+
+    @bot.command(name="atualizarmmr", aliases=["setmmr", "editarmmr", "updatemmr"])
+    async def cmd_atualizar_mmr(ctx: commands.Context, member: discord.Member, mmr: int = None):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        if mmr is None:
+            await ctx.send("❌ Informe o novo MMR.\n→ `!atualizarmmr @jogador <mmr>`", delete_after=10)
+            return
+        updated = update_pagante_mmr(member.id, mmr)
+        if updated:
+            await ctx.send(f"✅ MMR de **{member.display_name}** atualizado para **{mmr}**.")
+        else:
+            await ctx.send(
+                f"⚠️ **{member.display_name}** não está na lista de pagantes desta temporada.\n"
+                f"Use `!addpagante @{member.display_name} {mmr}` para registrá-lo.",
+                delete_after=15,
+            )
 
     @bot.command(name="removerpagante", aliases=["removepagante", "naopagou"])
     async def cmd_remover_pagante(ctx: commands.Context, member: discord.Member):

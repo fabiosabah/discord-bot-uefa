@@ -50,6 +50,18 @@ def list_pagantes(season: int | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def update_pagante_mmr(discord_id: int, mmr: int, season: int | None = None) -> bool:
+    if season is None:
+        season = get_current_season()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE pagantes SET mmr = ? WHERE discord_id = ? AND season = ?",
+            (mmr, discord_id, season),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
+
+
 def get_pagante_mmr(discord_id: int, season: int | None = None) -> int | None:
     if season is None:
         season = get_current_season()
