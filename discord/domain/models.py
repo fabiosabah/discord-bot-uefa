@@ -135,7 +135,7 @@ class LobbySession:
         remaining = _CAPTAIN_RANDOM_THRESHOLD - match_count
 
         if result.get("is_random"):
-            rng = random.Random(self.id)
+            rng = random.Random(tuple(sorted(self.player_ids)))
             chosen = rng.sample(self.players, 2)
             lines = [
                 f"👑 **Capitães Definidos:**",
@@ -146,7 +146,7 @@ class LobbySession:
             return "\n".join(lines)
 
         if len(captains_data) < 2:
-            rng = random.Random(self.id)
+            rng = random.Random(tuple(sorted(self.player_ids)))
             chosen = rng.sample(self.players, 2)
             lines = [
                 f"👑 **Capitães Definidos:**",
