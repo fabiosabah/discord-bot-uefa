@@ -169,6 +169,13 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             await _create_list(self.ctx, self.old_session)
 
     async def _create_list(ctx: commands.Context, previous_session: LobbySession | None = None):
+        # Garante que não há sessão fantasma antes de criar a nova
+        if ctx.guild:
+            for msg_id, old in list(active_lobbies.items()):
+                if old.message and old.message.guild and old.message.guild.id == ctx.guild.id:
+                    active_lobbies.pop(msg_id, None)
+            delete_lobby_session(ctx.guild.id)
+
         session_id = get_next_id()
         session = LobbySession(host=ctx.author, session_id=session_id)
 
@@ -191,6 +198,37 @@ def setup_lobby_commands(bot: commands.Bot, active_lobbies: dict):
             await ctx.message.delete()
         except discord.errors.NotFound:
             pass
+
+    @bot.command(name="resetlista", aliases=["resetlobby", "limparlobby", "limarlista"])
+    async def reset_list(ctx: commands.Context):
+        if not is_admin(ctx.author.id):
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+
+        if not ctx.guild:
+            return
+
+        # Fecha e remove todas as sessões do guild
+        removed = 0
+        for msg_id, session in list(active_lobbies.items()):
+            if session.message and session.message.guild and session.message.guild.id == ctx.guild.id:
+                session.closed = True
+                try:
+                    closed_view = LobbyView(session, active_lobbies)
+                    await session.message.edit(embed=session.build_embed(), view=closed_view)
+                except Exception:
+                    pass
+                active_lobbies.pop(msg_id, None)
+                removed += 1
+
+        delete_lobby_session(ctx.guild.id)
+        await ctx.message.delete()
+        await ctx.send(
+            f"✅ Estado das listas resetado. {removed} sessão(ões) encerrada(s).\n"
+            f"Use `!lista` para abrir uma nova lista limpa.",
+            delete_after=20,
+        )
 
     @bot.command(name="lista", aliases=["lobby", "inhouse"])
     async def open_list(ctx: commands.Context):
