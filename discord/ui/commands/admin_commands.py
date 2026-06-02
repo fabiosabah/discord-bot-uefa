@@ -805,7 +805,7 @@ def setup_admin_commands(bot: commands.Bot):
         )
         await ctx.send(msg)
 
-    @bot.command(name="castigolobby", aliases=["suspender", "suspensao", "castigo"])
+    @bot.command(name="punicaolobby", aliases=["suspender", "suspensao", "castigolobby"])
     async def cmd_suspend(ctx: commands.Context, member: discord.Member = None, *args):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
@@ -814,14 +814,14 @@ def setup_admin_commands(bot: commands.Bot):
 
         if member is None or not args:
             await ctx.send(
-                "❌ Uso: `!castigolobby @jogador <listas> motivo`\n"
-                "Exemplo: `!castigolobby @player 3 comportamento inadequado`",
+                "❌ Uso: `!punicaolobby @jogador <listas> motivo`\n"
+                "Exemplo: `!punicaolobby @player 3 comportamento inadequado`",
                 delete_after=20
             )
             return
 
         if not args[0].isdigit():
-            await ctx.send("❌ Informe o número de listas de punição.\nEx: `!castigolobby @player 3 motivo`", delete_after=15)
+            await ctx.send("❌ Informe o número de listas de punição.\nEx: `!punicaolobby @player 3 motivo`", delete_after=15)
             return
 
         lists_duration = int(args[0])
@@ -847,7 +847,7 @@ def setup_admin_commands(bot: commands.Bot):
         await ctx.message.delete()
         await ctx.send(f"🚫 {member.mention} suspenso por **{lists_duration} lista(s)**.\n📝 Motivo: {motivo}")
 
-    @bot.command(name="castigoponto", aliases=["punicaopontos", "penalidade", "castigopontos"])
+    @bot.command(name="punicaopontos", aliases=["castigoponto", "penalidade", "castigopontos"])
     async def cmd_point_penalty(ctx: commands.Context, member: discord.Member = None, *args):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
@@ -856,14 +856,14 @@ def setup_admin_commands(bot: commands.Bot):
 
         if member is None or not args:
             await ctx.send(
-                "❌ Uso: `!castigoponto @jogador <pontos> motivo`\n"
-                "Exemplo: `!castigoponto @player 20 troll intencional`",
+                "❌ Uso: `!punicaopontos @jogador <pontos> motivo`\n"
+                "Exemplo: `!punicaopontos @player 20 troll intencional`",
                 delete_after=20
             )
             return
 
         if not args[0].isdigit():
-            await ctx.send("❌ Informe a quantidade de pontos a deduzir.\nEx: `!castigoponto @player 20 motivo`", delete_after=15)
+            await ctx.send("❌ Informe a quantidade de pontos a deduzir.\nEx: `!punicaopontos @player 20 motivo`", delete_after=15)
             return
 
         pontos = int(args[0])
