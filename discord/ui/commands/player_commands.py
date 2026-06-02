@@ -256,9 +256,11 @@ def setup_player_commands(bot: commands.Bot):
         streak           = get_player_streak_from_matches(target.id)
         recent           = get_player_match_history_from_matches(target.id, limit=5)
 
+        from core.db.pagantes_repo import get_pagante_mmr
         ranking  = get_ranking_from_matches()
         rank_pos = next((i + 1 for i, p in enumerate(ranking) if p["discord_id"] == target.id), None)
         rank_pts = next((p["points"] for p in ranking if p["discord_id"] == target.id), None)
+        mmr = get_pagante_mmr(target.id)
 
         wins    = stats["wins"]
         losses  = stats["losses"]
@@ -297,6 +299,24 @@ def setup_player_commands(bot: commands.Bot):
 
         if rank_pos is not None:
             embed.add_field(name="🥇 Ranking", value=f"#{rank_pos} — {rank_pts} pts", inline=True)
+
+        if mmr is not None:
+            embed.add_field(name="📡 MMR", value=str(mmr), inline=True)
+
+        from core.db.suspension_repo import get_suspension, list_point_penalties
+        susp = get_suspension(target.id)
+        penalties = list_point_penalties()
+        player_penalties = [p for p in penalties if p["discord_id"] == target.id]
+
+        punicoes = []
+        if susp and is_suspended(target.id):
+            remaining = susp.get("lists_remaining", "?")
+            punicoes.append(f"🚫 Lobby: {remaining} lista(s) restante(s) — {susp['reason']}")
+        if player_penalties:
+            total_pts = sum(p["points"] for p in player_penalties)
+            punicoes.append(f"📉 Pontos: {total_pts} pts deduzidos ({len(player_penalties)} penalidade(s))")
+        if punicoes:
+            embed.add_field(name="⚠️ Punições Ativas", value="\n".join(punicoes), inline=False)
 
         if stats["kda_rows"]:
             n = stats["kda_rows"]
