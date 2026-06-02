@@ -625,18 +625,23 @@ def setup_admin_commands(bot: commands.Bot):
             title=f"💰 Pagantes — Temporada {season}",
             color=discord.Color.green(),
         )
+        mostrar_mmr = is_admin(ctx.author.id)
         if not pagantes_list:
             embed.description = "Nenhum pagante registrado nesta temporada."
         else:
             lines = []
             for i, p in enumerate(pagantes_list):
-                mmr_text = f" — MMR: {p['mmr']}" if p.get("mmr") is not None else " — ⚠️ sem MMR"
+                if mostrar_mmr:
+                    mmr_text = f" — MMR: {p['mmr']}" if p.get("mmr") is not None else " — ⚠️ sem MMR"
+                else:
+                    mmr_text = ""
                 lines.append(f"{i+1}. <@{p['discord_id']}> ({p['display_name']}){mmr_text}")
             embed.description = "\n".join(lines)
-            sem_mmr = sum(1 for p in pagantes_list if p.get("mmr") is None)
             footer = f"{len(pagantes_list)} pagante(s) registrado(s)"
-            if sem_mmr:
-                footer += f" · ⚠️ {sem_mmr} sem MMR"
+            if mostrar_mmr:
+                sem_mmr = sum(1 for p in pagantes_list if p.get("mmr") is None)
+                if sem_mmr:
+                    footer += f" · ⚠️ {sem_mmr} sem MMR"
             embed.set_footer(text=footer)
         await ctx.send(embed=embed)
 
