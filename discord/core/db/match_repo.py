@@ -203,6 +203,11 @@ def insert_ocr_match(
 
     if get_current_season() >= 3:
         _apply_elo_points(league_match_id, winners, losers)
+        from core.db.pagantes_repo import adjust_pagante_mmr
+        for pid in winners:
+            adjust_pagante_mmr(pid, +25)
+        for pid in losers:
+            adjust_pagante_mmr(pid, -25)
 
     details = f"OCR import job {job_id} steam_match_id={parsed.get('steam_match_id')} winner={winner} league_match_id={league_match_id}"
     audit_id = log_action(admin_id, admin_name, "!ocrmatch", details, affected_ids=winners + losers)

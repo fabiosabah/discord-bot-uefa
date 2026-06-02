@@ -50,6 +50,19 @@ def list_pagantes(season: int | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def adjust_pagante_mmr(discord_id: int, delta: int, season: int | None = None) -> bool:
+    """Incrementa/decrementa o MMR de um pagante. Ignora se não tiver MMR."""
+    if season is None:
+        season = get_current_season()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE pagantes SET mmr = mmr + ? WHERE discord_id = ? AND season = ? AND mmr IS NOT NULL",
+            (delta, discord_id, season),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
+
+
 def update_pagante_mmr(discord_id: int, mmr: int, season: int | None = None) -> bool:
     if season is None:
         season = get_current_season()
