@@ -162,7 +162,7 @@ def setup_admin_commands(bot: commands.Bot):
 
     @bot.command(name="cadastro")
     async def cmd_cadastro(ctx: commands.Context, member: discord.Member, *, nick: str):
-        if not is_admin(ctx.author.id):
+        if not is_registrador(ctx.author.id):
             await ctx.message.delete()
             await ctx.send("❌ Apenas administradores.", delete_after=5)
             return
