@@ -463,12 +463,18 @@ def get_match_by_season_match_id(season_match_id: int, season: int | None = None
     return get_match_by_league_id(match_row["league_match_id"])
 
 
-def get_ranking_from_matches(season: int = None, phase: str = "classificatorio") -> list[dict]:
+def get_ranking_from_matches(season: int = None, phase: str | None = None) -> list[dict]:
     from core.db.suspension_repo import get_point_penalties_sum_by_player
     season = season if season is not None else get_current_season()
     if season >= 3:
+        if phase:
+            where = "WHERE mp.discord_id IS NOT NULL AND m.season = ? AND m.phase = ?"
+            params = (season, phase)
+        else:
+            where = "WHERE mp.discord_id IS NOT NULL AND m.season = ?"
+            params = (season,)
         with get_connection() as conn:
-            rows = conn.execute("""
+            rows = conn.execute(f"""
                 SELECT
                     mp.discord_id,
                     COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
@@ -479,11 +485,11 @@ def get_ranking_from_matches(season: int = None, phase: str = "classificatorio")
                 FROM match_players mp
                 JOIN matches m ON m.league_match_id = mp.league_match_id
                 LEFT JOIN players p ON p.discord_id = mp.discord_id
-                WHERE mp.discord_id IS NOT NULL AND m.season = ? AND m.phase = ?
+                {where}
                 GROUP BY mp.discord_id
                 ORDER BY match_points DESC, wins DESC
-            """, (season, phase)).fetchall()
-        penalties = get_point_penalties_sum_by_player(season) if phase == "classificatorio" else {}
+            """, params).fetchall()
+        penalties = get_point_penalties_sum_by_player(season) if not phase else {}
         return [
             {
                 "discord_id":   row["discord_id"],
