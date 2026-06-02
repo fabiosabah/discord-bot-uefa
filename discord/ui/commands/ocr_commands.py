@@ -760,6 +760,9 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
         if not match_data:
             await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.")
         else:
+            from core.db.pagantes_repo import get_pagantes_mmr_bulk
+            from core.db.season_repo import compute_win_probability
+
             winner_team = match_data["match_info"]["winner_team"] or "?"
             players_data = match_data["players_data"]
 
@@ -769,11 +772,36 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
             win_delta  = vencedores[0]["points_delta"] if vencedores and vencedores[0].get("points_delta") is not None else None
             loss_delta = perdedores[0]["points_delta"] if perdedores and perdedores[0].get("points_delta") is not None else None
 
+            all_ids = [p["discord_id"] for p in vencedores + perdedores if p["discord_id"]]
+            mmr_map = get_pagantes_mmr_bulk(all_ids)
+
+            win_ids  = [p["discord_id"] for p in vencedores if p["discord_id"]]
+            loss_ids = [p["discord_id"] for p in perdedores if p["discord_id"]]
+            mmr_win  = sum(mmr_map.get(pid, 0) for pid in win_ids)
+            mmr_loss = sum(mmr_map.get(pid, 0) for pid in loss_ids)
+            has_mmr  = len(mmr_map) == len(all_ids) and all_ids
+
+            if has_mmr:
+                p_winner = compute_win_probability(mmr_win, mmr_loss)
+            else:
+                p_winner = None
+
             embed = discord.Embed(
                 title=f"✅ Partida #{season_match_id} registrada!",
                 color=discord.Color.green(),
             )
             embed.add_field(name="🏆 Vencedor", value=winner_team.title(), inline=False)
+
+            if p_winner is not None:
+                embed.add_field(
+                    name="📊 MMR dos Times",
+                    value=(
+                        f"🟢 {winner_team.title()}: **{mmr_win:,}** MMR\n"
+                        f"🔴 {'Dire' if winner_team == 'radiant' else 'Radiant'}: **{mmr_loss:,}** MMR\n"
+                        f"Chance do vencedor: **{p_winner*100:.1f}%**"
+                    ),
+                    inline=False,
+                )
 
             win_label  = f"🟢 Vencedores ({'+' + str(win_delta) if win_delta is not None else '?'} pts)"
             loss_label = f"🔴 Perdedores ({str(loss_delta) if loss_delta is not None else '?'} pts)"
