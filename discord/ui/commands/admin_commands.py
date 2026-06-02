@@ -16,8 +16,9 @@ from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
 from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, clear_pagantes_db, update_pagante_mmr
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
-from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled
 from core.db.season_repo import get_current_season, set_current_season
+from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled, is_final_phase_active, set_final_phase_active
+from core.db.final_repo import set_final_participants, get_final_participants
 from core.db.suspension_repo import (
     add_suspension, remove_suspension, get_suspension, list_suspensions,
     add_point_penalty, remove_point_penalty, list_point_penalties,
@@ -449,6 +450,52 @@ def setup_admin_commands(bot: commands.Bot):
         if cleared_pagantes:
             msg += f"\n🧹 {cleared_pagantes} pagante(s) da temporada anterior limpo(s)."
         await ctx.send(msg)
+
+    @bot.command(name="iniciarfinal", aliases=["abrirfinal", "startfinal"])
+    async def cmd_iniciar_final(ctx: commands.Context):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if is_final_phase_active():
+            await ctx.send("⚠️ A fase final já está ativa.", delete_after=8)
+            return
+
+        from core.db.match_repo import get_ranking_from_matches
+        from core.db.suspension_repo import is_suspended
+        MIN_GAMES = 25
+        MAX_CLASSIFIED = 15
+        ranking = get_ranking_from_matches()
+        elegíveis = [p for p in ranking if p["games"] >= MIN_GAMES and not is_suspended(p["discord_id"])]
+        top15 = elegíveis[:MAX_CLASSIFIED]
+
+        if not top15:
+            await ctx.send("❌ Nenhum jogador elegível para a final (mínimo 25 partidas).")
+            return
+
+        set_final_participants(top15)
+        set_final_phase_active(True)
+        await ctx.message.delete()
+
+        nomes = "\n".join(f"{i+1}. **{p['display_name']}**" for i, p in enumerate(top15))
+        await ctx.send(
+            f"🔥 **Final Top 15 iniciada!**\n"
+            f"Pontos zerados. Partidas agora contam para a fase final.\n\n"
+            f"**Classificados:**\n{nomes}"
+        )
+
+    @bot.command(name="encerrrarfinal", aliases=["fecharfinal", "fimfinal", "encerrarfinal"])
+    async def cmd_encerrar_final(ctx: commands.Context):
+        if ctx.author.id not in _SUPER_ADMINS:
+            await ctx.message.delete()
+            await ctx.send("❌ Apenas os dois primeiros administradores podem usar este comando.", delete_after=5)
+            return
+        if not is_final_phase_active():
+            await ctx.send("⚠️ A fase final não está ativa.", delete_after=8)
+            return
+        set_final_phase_active(False)
+        await ctx.message.delete()
+        await ctx.send("🏁 Fase final encerrada. Partidas voltam a contar para a fase classificatória.")
 
     @bot.command(name="reabrirtemporada", aliases=["voltartemporada", "settemporada"])
     async def cmd_reopen_season(ctx: commands.Context, numero: int = None):

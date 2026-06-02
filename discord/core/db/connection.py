@@ -185,7 +185,17 @@ def init_db() -> None:
                 score_dire        INTEGER,
                 created_at        TEXT    NOT NULL,
                 season            INTEGER NOT NULL DEFAULT 1,
-                season_match_id   INTEGER NOT NULL DEFAULT 0
+                season_match_id   INTEGER NOT NULL DEFAULT 0,
+                phase             TEXT    NOT NULL DEFAULT 'classificatorio'
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS final_participants (
+                discord_id   INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                season       INTEGER NOT NULL,
+                added_at     TEXT    NOT NULL,
+                PRIMARY KEY (discord_id, season)
             )
         """)
         conn.execute("""
@@ -398,6 +408,18 @@ def migrate_db() -> None:
                 "UPDATE matches SET season_match_id = league_match_id WHERE season_match_id = 0"
             )
             logger.info("[DB] Coluna 'season_match_id' adicionada e backfill realizado ao matches.")
+        if "phase" not in m_column_names:
+            conn.execute("ALTER TABLE matches ADD COLUMN phase TEXT NOT NULL DEFAULT 'classificatorio'")
+            logger.info("[DB] Coluna 'phase' adicionada via migration ao matches.")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS final_participants (
+                discord_id   INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                season       INTEGER NOT NULL,
+                added_at     TEXT    NOT NULL,
+                PRIMARY KEY (discord_id, season)
+            )
+        """)
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_discord_id ON match_history(discord_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_history_created_at ON match_history(created_at)")

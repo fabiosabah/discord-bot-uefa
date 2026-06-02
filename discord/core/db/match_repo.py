@@ -308,8 +308,10 @@ def insert_league_match(
 ) -> int:
     from core.ocr import _normalize_team
 
+    from core.db.bot_config_repo import is_final_phase_active
     season = get_current_season()
     season_match_id = get_next_season_match_id(season)
+    phase = "final" if is_final_phase_active() else "classificatorio"
 
     match_info = parsed.get("match_info") or parsed.get("game_details") or {}
     winner_team = _normalize_team((match_info.get("winner_team") or match_info.get("winner") or "").strip())
@@ -332,9 +334,9 @@ def insert_league_match(
     with get_connection() as conn:
         cursor = conn.execute(
             "INSERT OR IGNORE INTO matches "
-            "(match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at, season, season_match_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (match_hash, external_match_id, winner_team, duration, match_datetime, radiant_score, dire_score, created_at, season, season_match_id),
+            "(match_hash, external_match_id, winner_team, duration, match_datetime, score_radiant, score_dire, created_at, season, season_match_id, phase) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (match_hash, external_match_id, winner_team, duration, match_datetime, radiant_score, dire_score, created_at, season, season_match_id, phase),
         )
         if cursor.rowcount == 0:
             row = conn.execute(
@@ -461,7 +463,7 @@ def get_match_by_season_match_id(season_match_id: int, season: int | None = None
     return get_match_by_league_id(match_row["league_match_id"])
 
 
-def get_ranking_from_matches(season: int = None) -> list[dict]:
+def get_ranking_from_matches(season: int = None, phase: str = "classificatorio") -> list[dict]:
     from core.db.suspension_repo import get_point_penalties_sum_by_player
     season = season if season is not None else get_current_season()
     if season >= 3:
@@ -477,11 +479,11 @@ def get_ranking_from_matches(season: int = None) -> list[dict]:
                 FROM match_players mp
                 JOIN matches m ON m.league_match_id = mp.league_match_id
                 LEFT JOIN players p ON p.discord_id = mp.discord_id
-                WHERE mp.discord_id IS NOT NULL AND m.season = ?
+                WHERE mp.discord_id IS NOT NULL AND m.season = ? AND m.phase = ?
                 GROUP BY mp.discord_id
                 ORDER BY match_points DESC, wins DESC
-            """, (season,)).fetchall()
-        penalties = get_point_penalties_sum_by_player(season)
+            """, (season, phase)).fetchall()
+        penalties = get_point_penalties_sum_by_player(season) if phase == "classificatorio" else {}
         return [
             {
                 "discord_id":   row["discord_id"],
