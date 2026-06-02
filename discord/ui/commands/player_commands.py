@@ -311,7 +311,7 @@ def setup_player_commands(bot: commands.Bot):
         punicoes = []
         if susp and is_suspended(target.id):
             remaining = susp.get("lists_remaining", "?")
-            punicoes.append(f"🚫 Lobby: {remaining} lista(s) restante(s) — {susp['reason']}")
+            punicoes.append(f"🚫 Lobby: {remaining} lista(s) restante(s)")
         if player_penalties:
             total_pts = sum(p["points"] for p in player_penalties)
             punicoes.append(f"📉 Pontos: {total_pts} pts deduzidos ({len(player_penalties)} penalidade(s))")

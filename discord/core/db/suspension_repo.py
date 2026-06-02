@@ -7,13 +7,22 @@ from core.db.season_repo import get_current_season
 
 
 def add_suspension(discord_id: int, display_name: str, reason: str, lists_duration: int, applied_by: int | None = None) -> None:
-    lists_at_ban = get_completed_lobbies_count()
+    current_count = get_completed_lobbies_count()
+    existing = get_suspension(discord_id)
+
+    if existing and existing.get("lists_at_ban") is not None and existing.get("lists_duration") is not None:
+        already_remaining = existing["lists_duration"] - (current_count - existing["lists_at_ban"])
+        already_remaining = max(already_remaining, 0)
+        new_duration = already_remaining + lists_duration
+    else:
+        new_duration = lists_duration
+
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO suspensions
                (discord_id, display_name, reason, suspended_at, suspended_until, applied_by, lists_at_ban, lists_duration)
                VALUES (?, ?, ?, ?, NULL, ?, ?, ?)""",
-            (discord_id, display_name, reason, datetime.utcnow().isoformat(), applied_by, lists_at_ban, lists_duration),
+            (discord_id, display_name, reason, datetime.utcnow().isoformat(), applied_by, current_count, new_duration),
         )
         conn.commit()
 
