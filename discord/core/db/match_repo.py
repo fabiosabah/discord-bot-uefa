@@ -412,7 +412,7 @@ def get_match_by_league_id(league_match_id: int) -> dict | None:
         if not match_row:
             return None
         player_rows = conn.execute(
-            "SELECT slot, player_name, discord_id, hero_name, kills, deaths, assists, networth, team "
+            "SELECT slot, player_name, discord_id, hero_name, kills, deaths, assists, networth, team, points_delta "
             "FROM match_players WHERE league_match_id = ? ORDER BY slot",
             (league_match_id,),
         ).fetchall()
@@ -431,15 +431,16 @@ def get_match_by_league_id(league_match_id: int) -> dict | None:
         },
         "players_data": [
             {
-                "slot":        row["slot"],
-                "player_name": row["player_name"],
-                "discord_id":  row["discord_id"],
-                "hero_name":   row["hero_name"],
-                "kills":       row["kills"],
-                "deaths":      row["deaths"],
-                "assists":     row["assists"],
-                "networth":    row["networth"],
-                "team":        row["team"],
+                "slot":         row["slot"],
+                "player_name":  row["player_name"],
+                "discord_id":   row["discord_id"],
+                "hero_name":    row["hero_name"],
+                "kills":        row["kills"],
+                "deaths":       row["deaths"],
+                "assists":      row["assists"],
+                "networth":     row["networth"],
+                "team":         row["team"],
+                "points_delta": row["points_delta"],
             }
             for row in player_rows
         ],

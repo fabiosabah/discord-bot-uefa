@@ -755,7 +755,44 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
                     pass
 
         await ctx.message.delete()
-        await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.")
+
+        match_data = get_match_by_season_match_id(season_match_id)
+        if not match_data:
+            await ctx.send(f"✅ Partida **#{season_match_id}** registrada com sucesso.")
+        else:
+            winner_team = match_data["match_info"]["winner_team"] or "?"
+            players_data = match_data["players_data"]
+
+            vencedores = [p for p in players_data if p["team"] == winner_team and p["discord_id"]]
+            perdedores  = [p for p in players_data if p["team"] != winner_team and p["discord_id"]]
+
+            win_delta  = vencedores[0]["points_delta"] if vencedores and vencedores[0].get("points_delta") is not None else None
+            loss_delta = perdedores[0]["points_delta"] if perdedores and perdedores[0].get("points_delta") is not None else None
+
+            embed = discord.Embed(
+                title=f"✅ Partida #{season_match_id} registrada!",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="🏆 Vencedor", value=winner_team.title(), inline=False)
+
+            win_label  = f"🟢 Vencedores ({'+' + str(win_delta) if win_delta is not None else '?'} pts)"
+            loss_label = f"🔴 Perdedores ({str(loss_delta) if loss_delta is not None else '?'} pts)"
+
+            def player_line(p):
+                mention = f"<@{p['discord_id']}>" if p["discord_id"] else p["player_name"]
+                return mention
+
+            embed.add_field(
+                name=win_label,
+                value="\n".join(player_line(p) for p in vencedores) or "—",
+                inline=True,
+            )
+            embed.add_field(
+                name=loss_label,
+                value="\n".join(player_line(p) for p in perdedores) or "—",
+                inline=True,
+            )
+            await ctx.send(embed=embed)
 
     @bot.command(name="importarimagem", aliases=["importimage", "ocrimport"])
     async def cmd_import_image(ctx: commands.Context, job_id: int | None = None, *, mapping_text: str | None = None):
