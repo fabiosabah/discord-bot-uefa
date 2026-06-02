@@ -133,6 +133,9 @@ class AddUserSelect(discord.ui.UserSelect):
             await interaction.followup.send("⚠️ Esse usuário já está na lista ou na espera.", ephemeral=True)
             return
 
+        if get_pagante_mmr(member.id) is None:
+            response += f"\n⚠️ {member.mention} não tem MMR registrado — use `!addpagante @{member.display_name} <mmr>` para definir."
+
         # LOG DE AUDITORIA
         audit_logger.info(f"[ADIÇÃO] {interaction.user.name} ({interaction.user.id}) ADICIONOU {member.name} ({member.id}) à {list_type} na Lista #{session.id}")
 
