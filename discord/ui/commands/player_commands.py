@@ -33,29 +33,39 @@ def setup_player_commands(bot: commands.Bot):
     logger = logging.getLogger("PlayerCommands")
     logger.info("Carregando comandos de jogadores...")
 
-    @bot.command(name="tabela", aliases=["tabela2"])
-    async def cmd_tabela(ctx: commands.Context):
-        ranking = get_ranking_from_matches()
+    @bot.command(name="tabela")
+    async def cmd_tabela(ctx: commands.Context, season: int = None):
+        current_season = get_current_season()
+        if season is None:
+            season = current_season
+
+        ranking = get_ranking_from_matches(season)
 
         if not ranking:
-            await ctx.send("📋 Nenhum jogador registrado ainda nas partidas importadas.")
+            await ctx.send(f"📋 Nenhum jogador registrado na Temporada {season}.")
             return
 
-        season = get_current_season()
-        streaks = get_streak_highlights_from_matches()
-        cur_win_ids  = {pl["discord_id"] for pl in streaks["current_win"]["players"]}
-        cur_loss_ids = {pl["discord_id"] for pl in streaks["current_loss"]["players"]}
+        is_current = season == current_season
 
         embed = discord.Embed(title=f"🏆 Tabela — Temporada {season}", color=discord.Color.dark_gold())
+
+        if is_current:
+            streaks = get_streak_highlights_from_matches()
+            cur_win_ids  = {pl["discord_id"] for pl in streaks["current_win"]["players"]}
+            cur_loss_ids = {pl["discord_id"] for pl in streaks["current_loss"]["players"]}
+        else:
+            streaks = None
+            cur_win_ids = cur_loss_ids = set()
 
         linhas = []
         for i, p in enumerate(ranking):
             prefix = "👑" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
             streak_tag = ""
-            if p["discord_id"] in cur_win_ids and streaks["current_win"]["count"] >= 2:
-                streak_tag = f" 🔥×{streaks['current_win']['count']}"
-            elif p["discord_id"] in cur_loss_ids and streaks["current_loss"]["count"] >= 2:
-                streak_tag = f" 💩×{streaks['current_loss']['count']}"
+            if streaks:
+                if p["discord_id"] in cur_win_ids and streaks["current_win"]["count"] >= 2:
+                    streak_tag = f" 🔥×{streaks['current_win']['count']}"
+                elif p["discord_id"] in cur_loss_ids and streaks["current_loss"]["count"] >= 2:
+                    streak_tag = f" 💩×{streaks['current_loss']['count']}"
             linhas.append(
                 f"{prefix} **{p['display_name']}**{streak_tag} — "
                 f"{p['points']} pts "
@@ -64,29 +74,30 @@ def setup_player_commands(bot: commands.Bot):
 
         embed.description = "\n".join(linhas)
 
-        rec_w = streaks["record_win"]
-        rec_l = streaks["record_loss"]
-        records_lines = []
-        if rec_w["players"]:
-            nomes_w = ", ".join(f"**{pl['display_name']}**" for pl in rec_w["players"])
-            records_lines.append(f"🏅 Recorde winstreak: {nomes_w} ({rec_w['count']} seguidas)")
-        if rec_l["players"]:
-            nomes_l = ", ".join(f"**{pl['display_name']}**" for pl in rec_l["players"])
-            records_lines.append(f"💩 Recorde lossstreak: {nomes_l} ({rec_l['count']} seguidas)")
-        if records_lines:
-            embed.add_field(name="Recordes", value="\n".join(records_lines), inline=False)
+        if is_current and streaks:
+            rec_w = streaks["record_win"]
+            rec_l = streaks["record_loss"]
+            records_lines = []
+            if rec_w["players"]:
+                nomes_w = ", ".join(f"**{pl['display_name']}**" for pl in rec_w["players"])
+                records_lines.append(f"🏅 Recorde winstreak: {nomes_w} ({rec_w['count']} seguidas)")
+            if rec_l["players"]:
+                nomes_l = ", ".join(f"**{pl['display_name']}**" for pl in rec_l["players"])
+                records_lines.append(f"💩 Recorde lossstreak: {nomes_l} ({rec_l['count']} seguidas)")
+            if records_lines:
+                embed.add_field(name="Recordes", value="\n".join(records_lines), inline=False)
 
         last = get_last_ocr_match_info()
-        if last:
+        if last and is_current:
             try:
                 ts = _dt.fromisoformat(last["created_at"])
                 last_text = f"📌 Última partida: #{last['season_match_id']} • {format_brazil_time(ts.isoformat())}"
             except Exception:
                 last_text = f"📌 Última partida: #{last['season_match_id']}"
         else:
-            last_text = "🕹️ Nenhuma partida importada ainda"
+            last_text = f"📌 Temporada {season}" if not is_current else "🕹️ Nenhuma partida importada ainda"
 
-        embed.set_footer(text=f"⚖️ Vitória +2 pts | Derrota -1 pt\n{last_text}")
+        embed.set_footer(text=f"{build_footer(include_rules=False)}\n{last_text}" if is_current else last_text)
 
         await ctx.send(embed=embed)
 
