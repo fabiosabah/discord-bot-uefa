@@ -17,10 +17,10 @@ from ui.commands.score_helpers import is_admin
 audit_logger = logging.getLogger("Audit")
 
 def is_authorized(user_id: int, session: LobbySession) -> bool:
-    return user_id == session.host.id or is_admin(user_id)
+    return is_admin(user_id)
 
 def is_authorized_remove(user_id: int, session: LobbySession) -> bool:
-    return user_id == session.host.id or is_admin(user_id) or is_sub_admin_db(user_id)
+    return is_admin(user_id) or is_sub_admin_db(user_id)
 
 class RemoveSelect(discord.ui.Select):
     def __init__(self, session: LobbySession, active_lobbies: dict):
