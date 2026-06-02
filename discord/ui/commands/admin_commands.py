@@ -976,7 +976,7 @@ def setup_admin_commands(bot: commands.Bot):
         embed.set_footer(text=f"{len(lines)} punição(ões) ativa(s)")
         await ctx.send(embed=embed)
 
-    @bot.command(name="penalidades", aliases=["listarpenalidades", "punicaopontos"])
+    @bot.command(name="penalidades", aliases=["listarpenalidades"])
     async def cmd_list_penalties(ctx: commands.Context):
         if not is_admin(ctx.author.id):
             await ctx.message.delete()
