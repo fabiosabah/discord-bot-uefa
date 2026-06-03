@@ -335,11 +335,18 @@ def setup_player_commands(bot: commands.Bot):
 
         top5_played   = all_heroes[:5]
         eligible_wr   = [h for h in all_heroes if h["plays"] >= 3] or [h for h in all_heroes if h["plays"] >= 1]
-        top3_best_wr  = sorted(eligible_wr, key=lambda x: (-x["winrate"], -x["plays"]))[:3]
-        best_heroes   = {h["hero"] for h in top3_best_wr}
+
+        # Melhor WR: só heróis com pelo menos 1 vitória (WR > 0%)
+        top3_best_wr  = sorted(
+            [h for h in eligible_wr if h["winrate"] > 0],
+            key=lambda x: (-x["winrate"], -x["plays"])
+        )[:3]
+
+        # Pior WR: só heróis com pelo menos 1 derrota (WR < 100%)
+        # Empate no WR: quem perdeu mais jogos aparece primeiro
         top3_worst_wr = sorted(
-            [h for h in eligible_wr if h["hero"] not in best_heroes and h["winrate"] < 100],
-            key=lambda x: (x["winrate"], -x["plays"])
+            [h for h in eligible_wr if h["winrate"] < 100],
+            key=lambda x: (x["winrate"], -(x["plays"] - x["wins"]))
         )[:3]
 
         if top5_played:
