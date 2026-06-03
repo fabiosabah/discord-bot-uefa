@@ -268,7 +268,7 @@ class LobbyView(discord.ui.View):
                     "🔒 **Lista completa! (10/10)**\n\n"
                     "📋 **Regras de prioridade:**\n"
                     "- Quem já está na lista tem prioridade para permanecer.\n"
-                    "- Quem ganhou a última partida tem prioridade sobre quem perdeu — válido por **1 minuto** a partir desta mensagem.\n"
+                    "- Quem ganhou a última partida tem prioridade sobre quem perdeu por **1 minuto** após o fim da partida.\n"
                     "- Quem estiver em partida no momento em que a lista fechar será removido.\n\n"
                     "⏱️ Você tem **3 minutos** para entrar no lobby do Dota. Quem não entrar poderá ser removido da lista.\n\n"
                     "🎙️ É obrigatório estar na chamada de voz do Discord e **sem mudo**. Se não puder estar, avise alguém.\n\n"
