@@ -23,7 +23,7 @@ from core.db.suspension_repo import (
     add_suspension, remove_suspension, get_suspension, list_suspensions,
     add_point_penalty, remove_point_penalty, list_point_penalties,
 )
-from ui.commands.score_helpers import is_admin
+from ui.commands.score_helpers import is_admin, is_registrador
 
 audit_logger = logging.getLogger("Audit")
 
