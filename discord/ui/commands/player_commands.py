@@ -338,16 +338,9 @@ def setup_player_commands(bot: commands.Bot):
         top3_best_wr  = sorted(eligible_wr, key=lambda x: (-x["winrate"], -x["plays"]))[:3]
         best_heroes   = {h["hero"] for h in top3_best_wr}
         top3_worst_wr = sorted(
-            [h for h in eligible_wr if h["hero"] not in best_heroes],
+            [h for h in eligible_wr if h["hero"] not in best_heroes and h["winrate"] < 100],
             key=lambda x: (x["winrate"], -x["plays"])
         )[:3]
-        if len(top3_worst_wr) < 3:
-            already_shown = best_heroes | {h["hero"] for h in top3_worst_wr}
-            extra = sorted(
-                [h for h in all_heroes if h["plays"] >= 1 and h["hero"] not in already_shown],
-                key=lambda x: (x["winrate"], -x["plays"])
-            )[:3 - len(top3_worst_wr)]
-            top3_worst_wr = top3_worst_wr + extra
 
         if top5_played:
             lines = [
