@@ -105,26 +105,54 @@ def get_captains_from_list(player_ids: list[int]) -> dict:
             "is_random": True,
         }
 
-    win_pts, loss_pts = get_season_pts(current_season)
     placeholders = ', '.join(['?'] * len(player_ids))
-    with get_connection() as conn:
-        rows = conn.execute(f"""
-            SELECT
-                mp.discord_id,
-                COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
-                SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
-                SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
-                SUM(CASE WHEN mp.team = m.winner_team THEN {win_pts} ELSE -{loss_pts} END) AS points
-            FROM match_players mp
-            JOIN matches m ON m.league_match_id = mp.league_match_id
-            LEFT JOIN players p ON p.discord_id = mp.discord_id
-            WHERE mp.discord_id IN ({placeholders}) AND m.season = ?
-            GROUP BY mp.discord_id
-            ORDER BY points DESC, wins DESC
-            LIMIT 2
-        """, player_ids + [current_season]).fetchall()
+
+    if current_season >= 3:
+        from core.db.suspension_repo import get_point_penalties_sum_by_player
+        with get_connection() as conn:
+            rows = conn.execute(f"""
+                SELECT
+                    mp.discord_id,
+                    COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                    SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
+                    COALESCE(SUM(mp.points_delta), 0) AS match_points
+                FROM match_players mp
+                JOIN matches m ON m.league_match_id = mp.league_match_id
+                LEFT JOIN players p ON p.discord_id = mp.discord_id
+                WHERE mp.discord_id IN ({placeholders}) AND m.season = ?
+                GROUP BY mp.discord_id
+            """, player_ids + [current_season]).fetchall()
+        penalties = get_point_penalties_sum_by_player(current_season)
+        captains = sorted(
+            [dict(r) for r in rows],
+            key=lambda r: (r["match_points"] + penalties.get(r["discord_id"], 0), r["wins"]),
+            reverse=True,
+        )[:2]
+        for c in captains:
+            c["points"] = c["match_points"] + penalties.get(c["discord_id"], 0)
+    else:
+        win_pts, loss_pts = get_season_pts(current_season)
+        with get_connection() as conn:
+            rows = conn.execute(f"""
+                SELECT
+                    mp.discord_id,
+                    COALESCE(p.display_name, CAST(mp.discord_id AS TEXT)) AS display_name,
+                    SUM(CASE WHEN mp.team = m.winner_team THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN mp.team != m.winner_team THEN 1 ELSE 0 END) AS losses,
+                    SUM(CASE WHEN mp.team = m.winner_team THEN {win_pts} ELSE -{loss_pts} END) AS points
+                FROM match_players mp
+                JOIN matches m ON m.league_match_id = mp.league_match_id
+                LEFT JOIN players p ON p.discord_id = mp.discord_id
+                WHERE mp.discord_id IN ({placeholders}) AND m.season = ?
+                GROUP BY mp.discord_id
+                ORDER BY points DESC, wins DESC
+                LIMIT 2
+            """, player_ids + [current_season]).fetchall()
+        captains = [dict(r) for r in rows]
+
     return {
-        "captains": [dict(r) for r in rows],
+        "captains": captains,
         "season_used": current_season,
         "current_season": current_season,
         "match_count": match_count,
