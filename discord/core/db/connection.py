@@ -397,6 +397,13 @@ def migrate_db() -> None:
             )
         """)
 
+        p_columns = conn.execute("PRAGMA table_info(pagantes)").fetchall()
+        p_column_names = [col["name"] for col in p_columns]
+        if "initial_mmr" not in p_column_names:
+            conn.execute("ALTER TABLE pagantes ADD COLUMN initial_mmr INTEGER")
+            conn.execute("UPDATE pagantes SET initial_mmr = mmr WHERE initial_mmr IS NULL AND mmr IS NOT NULL")
+            logger.info("[DB] Coluna 'initial_mmr' adicionada via migration ao pagantes.")
+
         m_columns = conn.execute("PRAGMA table_info(matches)").fetchall()
         m_column_names = [col["name"] for col in m_columns]
         if "season" not in m_column_names:

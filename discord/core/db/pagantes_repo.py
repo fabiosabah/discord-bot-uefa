@@ -10,8 +10,8 @@ def add_pagante(discord_id: int, display_name: str, season: int | None = None, m
         season = get_current_season()
     with get_connection() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO pagantes (discord_id, display_name, season, mmr, registered_at) VALUES (?, ?, ?, ?, ?)",
-            (discord_id, display_name, season, mmr, datetime.utcnow().isoformat()),
+            "INSERT OR REPLACE INTO pagantes (discord_id, display_name, season, mmr, initial_mmr, registered_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (discord_id, display_name, season, mmr, mmr, datetime.utcnow().isoformat()),
         )
         conn.commit()
 
@@ -44,7 +44,7 @@ def list_pagantes(season: int | None = None) -> list[dict]:
         season = get_current_season()
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT discord_id, display_name, mmr, registered_at FROM pagantes WHERE season = ? ORDER BY registered_at",
+            "SELECT discord_id, display_name, mmr, initial_mmr, registered_at FROM pagantes WHERE season = ? ORDER BY registered_at",
             (season,),
         ).fetchall()
     return [dict(r) for r in rows]

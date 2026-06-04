@@ -22,6 +22,7 @@ from core.db.match_repo import (
     get_match_players_bulk,
     get_recent_league_matches,
 )
+from core.db.pagantes_repo import list_pagantes
 from core.db.player_repo import get_player, find_player_by_display_name, set_steam_friend_id, get_steam_friend_id
 from core.db.season_repo import get_current_season
 from core.db.suspension_repo import is_suspended
@@ -850,3 +851,46 @@ def setup_player_commands(bot: commands.Bot):
             logger.info(f"[Steam] {ctx.author} ({ctx.author.id}) cadastrou friend_id={fid}")
         except ValueError as e:
             await ctx.send(f"❌ {e}")
+
+    @bot.command(name="mmr", aliases=["mmrs", "vermmr", "mmrlist"])
+    async def cmd_mmr(ctx: commands.Context):
+        season = get_current_season()
+        pagantes = list_pagantes(season)
+
+        com_mmr = sorted(
+            [p for p in pagantes if p.get("mmr") is not None],
+            key=lambda p: p["mmr"],
+            reverse=True,
+        )
+        sem_mmr = [p for p in pagantes if p.get("mmr") is None]
+
+        embed = discord.Embed(
+            title=f"📊 MMR dos Jogadores — Temporada {season}",
+            color=discord.Color.blue(),
+        )
+
+        if not pagantes:
+            embed.description = "Nenhum jogador registrado nesta temporada."
+            await ctx.send(embed=embed)
+            return
+
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        lines = []
+        for i, p in enumerate(com_mmr):
+            prefix = medals.get(i, f"{i+1}.")
+            current = p["mmr"]
+            initial = p.get("initial_mmr")
+            if initial is not None and initial != current:
+                delta = current - initial
+                arrow = f"▲ +{delta}" if delta > 0 else f"▼ {delta}"
+                mmr_text = f"**{current:,}** MMR  _(era {initial:,} · {arrow})_".replace(",", ".")
+            else:
+                mmr_text = f"**{current:,}** MMR".replace(",", ".")
+            lines.append(f"{prefix} <@{p['discord_id']}> — {mmr_text}")
+
+        for p in sem_mmr:
+            lines.append(f"• <@{p['discord_id']}> — ⚠️ sem MMR")
+
+        embed.description = "\n".join(lines)
+        embed.set_footer(text=f"{len(com_mmr)} jogador(es) com MMR · {len(sem_mmr)} sem MMR")
+        await ctx.send(embed=embed)
