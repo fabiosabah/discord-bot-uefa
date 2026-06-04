@@ -727,6 +727,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
         try:
             season_match_id = insert_ocr_match(job_id, player_mapping, ctx.author.id, ctx.author.display_name)
             delete_match_screenshot(job_id)
+            delete_match_screenshots()  # limpa fila restante e reseta o contador de job_id
         except Exception as exc:
             await ctx.send(f"❌ Falha ao importar job {job_id}: {exc}", delete_after=600)
             return
