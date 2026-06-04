@@ -10,10 +10,29 @@ def add_pagante(discord_id: int, display_name: str, season: int | None = None, m
         season = get_current_season()
     with get_connection() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO pagantes (discord_id, display_name, season, mmr, initial_mmr, registered_at) VALUES (?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO pagantes (discord_id, display_name, season, mmr, initial_mmr, registered_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(discord_id, season) DO UPDATE SET
+                display_name = excluded.display_name,
+                mmr = excluded.mmr,
+                registered_at = excluded.registered_at
+            """,
             (discord_id, display_name, season, mmr, mmr, datetime.utcnow().isoformat()),
         )
         conn.commit()
+
+
+def set_initial_mmr(discord_id: int, initial_mmr: int, season: int | None = None) -> bool:
+    if season is None:
+        season = get_current_season()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE pagantes SET initial_mmr = ? WHERE discord_id = ? AND season = ?",
+            (initial_mmr, discord_id, season),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
 
 
 def remove_pagante(discord_id: int, season: int | None = None) -> bool:

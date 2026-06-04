@@ -14,7 +14,7 @@ from core.db.admins_repo import (
 from core.db.audit_repo import log_action
 from core.db.lobby_repo import get_image_channel, set_image_channel, clear_image_channel
 from core.db.match_repo import find_unregistered_match_players, diagnose_and_fix_kda_data, get_ranking_from_matches, fix_malformed_durations, fix_match_id_sequence, renumber_league_match, update_player_kda
-from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, clear_pagantes_db, update_pagante_mmr
+from core.db.pagantes_repo import add_pagante, remove_pagante, list_pagantes, clear_pagantes_db, update_pagante_mmr, set_initial_mmr
 from core.db.player_repo import add_player_alias, remove_player_alias, get_player_aliases, get_player, upsert_player, get_all_player_aliases
 from core.db.season_repo import get_current_season, set_current_season
 from core.db.bot_config_repo import is_lobby_integration_enabled, set_lobby_integration_enabled, is_final_phase_active, set_final_phase_active
@@ -638,6 +638,23 @@ def setup_admin_commands(bot: commands.Bot):
             await ctx.send(
                 f"⚠️ **{member.display_name}** não está na lista de pagantes desta temporada.\n"
                 f"Use `!addpagante @{member.display_name} {mmr}` para registrá-lo.",
+                delete_after=15,
+            )
+
+    @bot.command(name="setinicialmmr", aliases=["mmrinicial", "setmmrinicial"])
+    async def cmd_set_inicial_mmr(ctx: commands.Context, member: discord.Member, mmr: int = None):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores.", delete_after=5)
+            return
+        if mmr is None:
+            await ctx.send("❌ Informe o MMR inicial.\n→ `!setinicialmmr @jogador <mmr>`", delete_after=10)
+            return
+        updated = set_initial_mmr(member.id, mmr)
+        if updated:
+            await ctx.send(f"✅ MMR inicial de **{member.display_name}** definido como **{mmr}**.")
+        else:
+            await ctx.send(
+                f"⚠️ **{member.display_name}** não está na lista de pagantes desta temporada.",
                 delete_after=15,
             )
 
