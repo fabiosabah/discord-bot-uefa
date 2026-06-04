@@ -16,6 +16,13 @@ logger = logging.getLogger("OCR")
 
 
 def can_process_ocr() -> bool:
+    if os.getenv("GROQ_API_KEY"):
+        try:
+            import openai  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         try:
@@ -36,6 +43,17 @@ def can_process_llm() -> bool:
 
 
 def _build_ai_client():
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "openai is required for GROQ_API_KEY. Install it with `pip install openai`."
+            ) from exc
+        client = OpenAI(api_key=groq_key, base_url="https://api.groq.com/openai/v1")
+        return "groq", client
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         try:
@@ -49,7 +67,7 @@ def _build_ai_client():
         return "gemini", client
 
     try:
-        import openai
+        from openai import OpenAI
     except ImportError as exc:
         raise RuntimeError(
             "openai is required if GEMINI_API_KEY is not set. Install it with `pip install openai`."
@@ -59,12 +77,8 @@ def _build_ai_client():
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is required for OCR processing.")
 
-    openai.api_key = api_key
-    api_base = os.getenv("OPENAI_API_BASE")
-    if api_base:
-        openai.api_base = api_base
-
-    return "openai", openai
+    client = OpenAI(api_key=api_key)
+    return "openai", client
 
 
 def _normalize_team(team_value: str | None) -> str | None:
@@ -871,6 +885,28 @@ def _call_gemini_with_image(client, model: str, prompt: str, image_data: bytes, 
     return content
 
 
+def _call_openai_compatible_with_image(client, model: str, prompt: str, image_data: bytes) -> str:
+    import base64
+    import imghdr
+    fmt = imghdr.what(None, h=image_data) or "png"
+    mime_type = f"image/{fmt}"
+    b64 = base64.b64encode(image_data).decode("utf-8")
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
+                ],
+            }
+        ],
+        max_tokens=4096,
+    )
+    return response.choices[0].message.content
+
+
 def _should_retry_llm_exception(exc: Exception) -> bool:
     """Check if an exception should trigger a retry for LLM calls."""
     if isinstance(exc, errors.ClientError):
@@ -884,6 +920,15 @@ def _should_retry_llm_exception(exc: Exception) -> bool:
     if isinstance(exc, errors.ServerError):
         logger.debug(f"[OCR] Retrying LLM call due to server error: {exc}")
         return True
+    # openai-compatible errors (Groq, OpenAI)
+    try:
+        from openai import APIStatusError
+        if isinstance(exc, APIStatusError):
+            if exc.status_code in (403, 404):
+                return False
+            return True
+    except ImportError:
+        pass
     logger.debug(f"[OCR] Not retrying LLM call due to unknown error type: {type(exc).__name__}")
     return False
 
@@ -902,21 +947,24 @@ def _parse_image_with_llm(image_data: bytes) -> dict[str, Any] | None:
         return None
 
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    if provider == "groq":
+        model = os.getenv("GROQ_MODEL") or "meta-llama/llama-4-scout-17b-16e-instruct"
+    elif provider == "gemini":
+        model = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
+    else:
+        model = os.getenv("OPENAI_MODEL") or "gpt-4o"
     prompt = _build_image_llm_prompt("")
-    
+
     logger.info(f"[OCR] Using {provider} provider with model {model} for image analysis")
 
     if provider == "gemini":
         try:
-            # First attempt with original image (no resizing)
             logger.debug("[OCR] Calling Gemini API with original image")
             content = _call_gemini_with_image(client, model, prompt, image_data, resize=False)
             logger.debug(f"[OCR] Gemini API returned {len(content)} characters of content")
         except errors.ServerError as e:
-            # On 503 Service Unavailable, retry with resized image
             if "503" in str(e) or "UNAVAILABLE" in str(e):
-                logger.info(f"[OCR] 503 Server error detected, retrying with resized image")
+                logger.info("[OCR] 503 Server error detected, retrying with resized image")
                 try:
                     content = _call_gemini_with_image(client, model, prompt, image_data, resize=True)
                     logger.debug(f"[OCR] Gemini API retry returned {len(content)} characters of content")
@@ -926,6 +974,10 @@ def _parse_image_with_llm(image_data: bytes) -> dict[str, Any] | None:
             else:
                 logger.error(f"[OCR] Gemini API server error: {e}")
                 raise
+    elif provider in ("groq", "openai"):
+        logger.debug(f"[OCR] Calling {provider} API")
+        content = _call_openai_compatible_with_image(client, model, prompt, image_data)
+        logger.debug(f"[OCR] {provider} API returned {len(content)} characters of content")
     else:
         logger.warning(f"[OCR] Unsupported LLM provider: {provider}")
         return None
