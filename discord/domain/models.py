@@ -13,6 +13,7 @@ _BRT = ZoneInfo("America/Sao_Paulo")
 class LobbySession:
     CLOSE_DELAY_SECONDS = 0
     TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES = 120
+    TIMEOUT_FULL_TO_ALLOW_ANY_CLOSE_MINUTES = 20
 
     def __init__(self, host: discord.Member, session_id: int):
         self.id = session_id
@@ -27,15 +28,18 @@ class LobbySession:
         self.close_task: asyncio.Task | None = None
         self.auto_close_at: datetime | None = None
         self.created_at: datetime = datetime.now()
+        self.full_at: datetime | None = None
         self.dota_lobby_triggered: bool = False
         self.player_join_times: dict[int, datetime] = {}
         self.waitlist_join_times: dict[int, datetime] = {}
 
     def can_any_user_close(self) -> bool:
         """Verifica se já passaram os minutos necessários para qualquer um encerrar a lista."""
+        if self.full_at is not None:
+            elapsed = datetime.now() - self.full_at
+            return elapsed.total_seconds() / 60 >= self.TIMEOUT_FULL_TO_ALLOW_ANY_CLOSE_MINUTES
         elapsed = datetime.now() - self.created_at
-        elapsed_minutes = elapsed.total_seconds() / 60
-        return elapsed_minutes >= self.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES
+        return elapsed.total_seconds() / 60 >= self.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES
 
     def cancel_auto_close(self):
         if self.close_task and not self.close_task.done():
@@ -83,6 +87,8 @@ class LobbySession:
         self.players.append(member)
         self.player_ids.add(member.id)
         self.player_join_times[member.id] = datetime.now(tz=_BRT)
+        if len(self.players) >= MAX_PLAYERS and self.full_at is None:
+            self.full_at = datetime.now()
         return True
 
     def add_to_waitlist(self, member: discord.Member) -> bool:

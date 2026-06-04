@@ -90,6 +90,8 @@ async def restore_saved_lobby_sessions():
         session.created_at = datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now()
         auto_close_at = row["auto_close_at"] if "auto_close_at" in row.keys() else None
         session.auto_close_at = datetime.fromisoformat(auto_close_at) if auto_close_at else None
+        full_at = row.get("full_at")
+        session.full_at = datetime.fromisoformat(full_at) if full_at else None
 
         if session.closed:
             delete_lobby_session(row["guild_id"])

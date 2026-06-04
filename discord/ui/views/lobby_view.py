@@ -272,6 +272,7 @@ class LobbyView(discord.ui.View):
                     "- Quem estiver em partida no momento em que a lista fechar será removido.\n\n"
                     "⏱️ Você tem **3 minutos** para entrar no lobby do Dota. Quem não entrar poderá ser removido da lista.\n\n"
                     "🎙️ É obrigatório estar na chamada de voz do Discord e **sem mudo**. Se não puder estar, avise alguém.\n\n"
+                    "🔓 Após **20 minutos** com a lista completa, **qualquer pessoa** poderá encerrá-la.\n\n"
                     "Boa sorte a todos! 🍀"
                 )
 
@@ -364,8 +365,12 @@ class LobbyView(discord.ui.View):
 
         if not is_adm and not can_close:
             from datetime import datetime
-            elapsed = (datetime.now() - session.created_at).total_seconds() / 60
-            remaining_min = session.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES - elapsed
+            if session.full_at is not None:
+                elapsed = (datetime.now() - session.full_at).total_seconds() / 60
+                remaining_min = session.TIMEOUT_FULL_TO_ALLOW_ANY_CLOSE_MINUTES - elapsed
+            else:
+                elapsed = (datetime.now() - session.created_at).total_seconds() / 60
+                remaining_min = session.TIMEOUT_TO_ALLOW_ANY_CLOSE_MINUTES - elapsed
             hours = int(remaining_min // 60)
             minutes = int(remaining_min % 60)
             tempo = f"{hours}h{minutes:02d}min" if hours else f"{minutes} minuto(s)"

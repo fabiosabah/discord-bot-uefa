@@ -361,6 +361,9 @@ def migrate_db() -> None:
         if "join_times" not in lobby_column_names:
             conn.execute("ALTER TABLE lobby_sessions ADD COLUMN join_times TEXT")
             logger.info("[DB] Coluna 'join_times' adicionada via migration ao lobby_sessions.")
+        if "full_at" not in lobby_column_names:
+            conn.execute("ALTER TABLE lobby_sessions ADD COLUMN full_at TEXT")
+            logger.info("[DB] Coluna 'full_at' adicionada via migration ao lobby_sessions.")
 
         sc_columns = conn.execute("PRAGMA table_info(server_config)").fetchall()
         if "image_channel_id" not in [c["name"] for c in sc_columns]:

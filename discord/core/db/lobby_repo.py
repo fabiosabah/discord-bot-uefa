@@ -79,6 +79,7 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
     player_ids = json.dumps(list(session.player_ids), ensure_ascii=False)
     waitlist_ids = json.dumps(list(session.waitlist_ids), ensure_ascii=False)
     auto_close_at = session.auto_close_at.isoformat() if session.auto_close_at else None
+    full_at = session.full_at.isoformat() if getattr(session, 'full_at', None) else None
 
     all_join_times: dict[str, str] = {}
     if hasattr(session, 'player_join_times'):
@@ -90,8 +91,8 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO lobby_sessions
-                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, frozen, created_at, auto_close_at, join_times)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (guild_id, session_id, message_id, channel_id, host_id, player_ids, waitlist_ids, closed, frozen, created_at, auto_close_at, join_times, full_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 session_id    = excluded.session_id,
                 message_id    = excluded.message_id,
@@ -103,7 +104,8 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
                 frozen        = excluded.frozen,
                 created_at    = excluded.created_at,
                 auto_close_at = excluded.auto_close_at,
-                join_times    = excluded.join_times
+                join_times    = excluded.join_times,
+                full_at       = excluded.full_at
         """, (
             session.message.guild.id,
             session.id,
@@ -117,6 +119,7 @@ def save_lobby_session(session, created_at: str | None = None) -> None:
             created_at,
             auto_close_at,
             join_times,
+            full_at,
         ))
         conn.commit()
     logger.info(f"[DB] Sessão de lobby salva para guild {session.message.guild.id} (msg {session.message.id}).")
@@ -146,6 +149,7 @@ def get_lobby_sessions() -> list[dict]:
             "created_at":   row["created_at"],
             "auto_close_at": row["auto_close_at"] if "auto_close_at" in row.keys() else None,
             "join_times":   row["join_times"] if "join_times" in row.keys() else None,
+            "full_at":      row["full_at"] if "full_at" in row.keys() else None,
         }
         for row in rows
     ]
