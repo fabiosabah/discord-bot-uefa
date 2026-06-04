@@ -206,7 +206,7 @@ def _is_rate_limit_exception(exc: Exception) -> bool:
 
 def extract_text_from_image_url(image_url: str) -> str:
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    model = _get_model_for_provider(provider)
     instructions = "Extract all visible text from image. Output raw text only, no comments."
 
     if provider == "gemini":
@@ -351,9 +351,9 @@ def extract_text_from_image_url(image_url: str) -> str:
 
 def extract_text_from_image_data(image_data: bytes) -> str:
     logger.info(f"[OCR] Starting text extraction from image data ({len(image_data)} bytes)")
-    
+
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    model = _get_model_for_provider(provider)
     instructions = "Extract all visible text from image. Output raw text only, no comments."
 
     logger.debug(f"[OCR] Using {provider} provider with model {model} for text extraction")
@@ -885,6 +885,14 @@ def _call_gemini_with_image(client, model: str, prompt: str, image_data: bytes, 
     return content
 
 
+def _get_model_for_provider(provider: str) -> str:
+    if provider == "groq":
+        return os.getenv("GROQ_MODEL") or "meta-llama/llama-4-scout-17b-16e-instruct"
+    if provider == "gemini":
+        return os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
+    return os.getenv("OPENAI_MODEL") or "gpt-4o"
+
+
 def _call_openai_compatible_with_image(client, model: str, prompt: str, image_data: bytes) -> str:
     import base64
     import imghdr
@@ -947,12 +955,7 @@ def _parse_image_with_llm(image_data: bytes) -> dict[str, Any] | None:
         return None
 
     provider, client = _build_ai_client()
-    if provider == "groq":
-        model = os.getenv("GROQ_MODEL") or "meta-llama/llama-4-scout-17b-16e-instruct"
-    elif provider == "gemini":
-        model = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
-    else:
-        model = os.getenv("OPENAI_MODEL") or "gpt-4o"
+    model = _get_model_for_provider(provider)
     prompt = _build_image_llm_prompt("")
 
     logger.info(f"[OCR] Using {provider} provider with model {model} for image analysis")
@@ -997,18 +1000,14 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
         return None
 
     provider, client = _build_ai_client()
-    model = os.getenv("GEMINI_MODEL") or os.getenv("OPENAI_MODEL") or "gemini-3-flash-preview"
+    model = _get_model_for_provider(provider)
     prompt = _build_llm_prompt(raw_text, image_url)
 
     if provider == "gemini":
         from google.genai import types
-        # Configuração de Thinking conforme o Google AI Studio
         generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=False,
-            ),
+            thinking_config=types.ThinkingConfig(include_thoughts=False),
         )
-        
         response = client.models.generate_content(
             model=model,
             contents=[
@@ -1021,81 +1020,13 @@ def _parse_text_with_llm(raw_text: str, image_url: str | None = None) -> dict[st
         )
         content = response.text
     else:
-        response = client.responses.create(
+        # Groq e OpenAI — Chat Completions (Responses API não é suportada pelo Groq)
+        response = client.chat.completions.create(
             model=model,
-            input=raw_text,
-            instructions=prompt,
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "dota_match_data",
-                    "description": "Estrutura JSON com match_info e teams para partida ",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "steam_match_id": {"type": ["string", "null"]},
-                            "dota_match_id": {"type": ["string", "null"]},
-                            "match_date": {"type": ["string", "null"]},
-                            "valid_dota_screenshot": {"type": ["boolean", "null"]},
-                            "match_info": {
-                                "type": ["object", "null"],
-                                "properties": {
-                                    "game_mode": {"type": ["string", "null"]},
-                                    "duration": {"type": ["string", "null"]},
-                                    "winner": {"type": ["string", "null"]},
-                                    "score": {
-                                        "type": ["object", "null"],
-                                        "properties": {
-                                            "radiant": {"type": ["integer", "null"]},
-                                            "dire": {"type": ["integer", "null"]}
-                                        },
-                                        "additionalProperties": False
-                                    }
-                                },
-                                "additionalProperties": False
-                            },
-                            "teams": {
-                                "type": ["object", "null"],
-                                "properties": {
-                                    "radiant": {
-                                        "type": ["array", "null"],
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "player": {"type": ["string", "null"]},
-                                                "hero": {"type": ["string", "null"]},
-                                                "net_worth": {"type": ["integer", "null"]}
-                                            },
-                                            "required": ["player", "hero", "net_worth"],
-                                            "additionalProperties": False
-                                        }
-                                    },
-                                    "dire": {
-                                        "type": ["array", "null"],
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "player": {"type": ["string", "null"]},
-                                                "hero": {"type": ["string", "null"]},
-                                                "net_worth": {"type": ["integer", "null"]}
-                                            },
-                                            "required": ["player", "hero", "net_worth"],
-                                            "additionalProperties": False
-                                        }
-                                    }
-                                },
-                                "additionalProperties": False
-                            }
-                        },
-                        "additionalProperties": False
-                    }
-                }
-            },
-            temperature=0.0,
-            max_output_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800,
         )
-
-        content = _extract_text_from_response(response)
+        content = response.choices[0].message.content
 
     parsed = _parse_json_payload(content)
     if parsed is not None:
