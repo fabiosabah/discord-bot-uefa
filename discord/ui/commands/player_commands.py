@@ -878,15 +878,7 @@ def setup_player_commands(bot: commands.Bot):
         lines = []
         for i, p in enumerate(com_mmr):
             prefix = medals.get(i, f"{i+1}.")
-            current = p["mmr"]
-            initial = p.get("initial_mmr")
-            if initial is not None and initial != current:
-                delta = current - initial
-                arrow = f"▲ +{delta}" if delta > 0 else f"▼ {delta}"
-                mmr_text = f"**{current:,}** MMR  _(era {initial:,} · {arrow})_".replace(",", ".")
-            else:
-                mmr_text = f"**{current:,}** MMR".replace(",", ".")
-            lines.append(f"{prefix} <@{p['discord_id']}> — {mmr_text}")
+            lines.append(f"{prefix} <@{p['discord_id']}> — **{p['mmr']:,}** MMR".replace(",", "."))
 
         for p in sem_mmr:
             lines.append(f"• <@{p['discord_id']}> — ⚠️ sem MMR")
