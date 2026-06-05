@@ -810,9 +810,21 @@ _JSON_SCHEMA = (
 
 _BASE_PROMPT = (
     "Dota2 end-screen scoreboard→JSON. Output ONLY raw JSON, no markdown, no extra text.\n"
-    "Not Dota2 scoreboard: {\"valid_dota_screenshot\":false}\n"
-    "Read hero name from text on screen (English). "
-    "Per player: slot(1-10), team(radiant/dire), hero_name, player_name, networth(yellow number), kills/deaths/assists(K/D/A).\n"
+    "Not Dota2 scoreboard: {\"valid_dota_screenshot\":false}\n\n"
+    "STRUCTURE: The scoreboard has two sections.\n"
+    "TOP section = Radiant players (slots 1-5, top to bottom). "
+    "In Portuguese the Radiant team may be labeled 'Radiante'.\n"
+    "BOTTOM section = Dire players (slots 6-10, top to bottom). "
+    "In Portuguese the Dire team may be labeled 'Temidos'.\n"
+    "Each section starts with a TEAM HEADER showing the custom team name and score. "
+    "DO NOT use the team header name as a player_name — it is not a player.\n\n"
+    "SLOTS: Assign slots sequentially 1-5 (Radiant) and 6-10 (Dire) by row order. "
+    "NEVER use any number visible on screen (e.g. hero level, ADT column) as the slot number.\n\n"
+    "WINNER: Look for the badge 'VENCEDORA', 'VENCEDOR' (Portuguese) or 'VICTORY', 'WINNER' (English) "
+    "next to one of the team headers. Set winner='radiant' if it is in the top section, winner='dire' if in the bottom section. "
+    "If no badge is visible, the team with the higher score wins.\n\n"
+    "PLAYER NAME: Use only the in-game name. Strip clan tags (e.g. [-xxx-], [.xxx.], [*xxx*], (xxx)) from the name.\n\n"
+    "Per player: slot(1-10), team(radiant/dire), hero_name(English), player_name, networth(yellow number), kills/deaths/assists.\n"
     f"Schema: {_JSON_SCHEMA}"
 )
 

@@ -356,7 +356,7 @@ def setup_ocr_commands(bot: commands.Bot, ocr_summary_messages: dict = None):
         await ctx.message.delete()
         await ctx.send(
             f"✅ Vencedor do job {job_id} definido como **{normalized.title()}**. "
-            f"Use `!importarimagem {job_id} <mapeamento>` para importar a partida."
+            f"Agora use `!ok {job_id} MM:SS` para registrar a partida."
         )
 
     @bot.command(name="removerimagem", aliases=["deleteimage", "deleteimagem", "removeimage"])
