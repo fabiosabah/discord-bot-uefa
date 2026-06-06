@@ -199,17 +199,17 @@ class LobbySession:
 
         if self.players:
             streaks = get_streak_highlights_from_matches()
-            win_ids  = {int(pl["discord_id"]) for pl in streaks["current_win"]["players"]}  if streaks["current_win"]["count"]  >= 3 else set()
-            loss_ids = {int(pl["discord_id"]) for pl in streaks["current_loss"]["players"]} if streaks["current_loss"]["count"] >= 3 else set()
+            win_counts  = streaks.get("current_win_counts",  {})
+            loss_counts = streaks.get("current_loss_counts", {})
             linhas_jogadores = []
             has_streak = False
             for i, p in enumerate(self.players):
                 tag = ""
-                if p.id in win_ids:
-                    tag = " 🔥"
+                if p.id in win_counts:
+                    tag = " " + "🔥" * (win_counts[p.id] // 3)
                     has_streak = True
-                elif p.id in loss_ids:
-                    tag = " 💩"
+                elif p.id in loss_counts:
+                    tag = " " + "💩" * (loss_counts[p.id] // 3)
                     has_streak = True
                 jt = self.player_join_times.get(p.id)
                 time_str = f" `{jt.strftime('%H:%M')}`" if jt else ""

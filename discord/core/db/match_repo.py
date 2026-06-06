@@ -1221,6 +1221,8 @@ def get_streak_highlights_from_matches() -> dict:
     current_loss = _empty_streak()
     record_win   = _empty_streak()
     record_loss  = _empty_streak()
+    current_win_counts:  dict[int, int] = {}
+    current_loss_counts: dict[int, int] = {}
 
     for discord_id, (display_name, results) in players_history.items():
         if not results:
@@ -1235,8 +1237,12 @@ def get_streak_highlights_from_matches() -> dict:
 
         if cur_type == "win":
             current_win  = _add_player(current_win,  discord_id, display_name, cur_count)
+            if cur_count >= 3:
+                current_win_counts[discord_id] = cur_count
         else:
             current_loss = _add_player(current_loss, discord_id, display_name, cur_count)
+            if cur_count >= 3:
+                current_loss_counts[discord_id] = cur_count
 
         max_win = max_loss = cur_w = cur_l = 0
         for r in reversed(results):
@@ -1251,10 +1257,12 @@ def get_streak_highlights_from_matches() -> dict:
         record_loss = _add_player(record_loss, discord_id, display_name, max_loss)
 
     return {
-        "current_win":  current_win,
-        "current_loss": current_loss,
-        "record_win":   record_win,
-        "record_loss":  record_loss,
+        "current_win":         current_win,
+        "current_loss":        current_loss,
+        "record_win":          record_win,
+        "record_loss":         record_loss,
+        "current_win_counts":  current_win_counts,
+        "current_loss_counts": current_loss_counts,
     }
 
 
