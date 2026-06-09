@@ -819,14 +819,22 @@ def setup_player_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name="free", aliases=["gratis", "gratuito", "trial"])
-    async def cmd_free(ctx: commands.Context):
-        user_id = ctx.author.id
-        display_name = ctx.author.display_name
+    async def cmd_free(ctx: commands.Context, member: discord.Member = None):
+        if not is_admin(ctx.author.id):
+            await ctx.send("❌ Apenas administradores podem usar este comando.", delete_after=10)
+            return
+
+        if member is None:
+            await ctx.send("❌ Uso: `!free @usuario`", delete_after=10)
+            return
+
+        user_id = member.id
+        display_name = member.display_name
         season = get_current_season()
 
         if is_pagante(user_id):
             await ctx.send(
-                f"✅ {ctx.author.mention} você já está registrado como pagante desta temporada — pode entrar nos lobbies normalmente!",
+                f"⚠️ {member.mention} já está registrado como pagante desta temporada.",
                 delete_after=15,
             )
             return
@@ -835,28 +843,18 @@ def setup_player_commands(bot: commands.Bot):
             fp = get_free_player(user_id)
             played = fp["matches_played"]
             remaining = max(0, FREE_MATCH_LIMIT - played)
-            if remaining > 0:
-                await ctx.send(
-                    f"🎮 {ctx.author.mention} você já está no **trial gratuito**!\n"
-                    f"📊 Partidas jogadas: **{played}/{FREE_MATCH_LIMIT}** · Restantes: **{remaining}**\n"
-                    f"Entre em um lobby clicando em ✋ Entrar.",
-                    delete_after=20,
-                )
-            else:
-                await ctx.send(
-                    f"❌ {ctx.author.mention} você já utilizou seus **{FREE_MATCH_LIMIT} jogos gratuitos** desta temporada.\n"
-                    "Para continuar jogando, envie um Pix de **R$ 10,00** para Smith (chave: **(71) 99146-9980**) e avise um administrador.",
-                    delete_after=20,
-                )
+            await ctx.send(
+                f"⚠️ {member.mention} já está no trial gratuito. "
+                f"Partidas: **{played}/{FREE_MATCH_LIMIT}** · Restantes: **{remaining}**",
+                delete_after=15,
+            )
             return
 
         add_free_player(user_id, display_name, season)
-        logger.info(f"[Free] {ctx.author} ({user_id}) registrado no trial gratuito T{season}")
+        logger.info(f"[Free] {ctx.author} ({ctx.author.id}) deu trial gratuito para {member} ({user_id}) T{season}")
         await ctx.send(
-            f"🎉 {ctx.author.mention} você foi registrado no **trial gratuito**!\n"
-            f"Você pode participar de até **{FREE_MATCH_LIMIT} partidas** sem pagar.\n"
-            f"Após isso, será necessário pagar para continuar jogando.\n\n"
-            f"Entre em um lobby clicando em ✋ Entrar. Boa sorte! 🍀",
+            f"✅ {member.mention} recebeu **{FREE_MATCH_LIMIT} jogos gratuitos** nesta temporada!\n"
+            f"Após as {FREE_MATCH_LIMIT} partidas, será necessário pagar para continuar jogando."
         )
 
     @bot.command(name="meusteam", aliases=["friendid", "steamid"])
