@@ -4,6 +4,7 @@ import discord
 import logging
 from core.db.lobby_repo import save_lobby_session
 from core.db.pagantes_repo import is_pagante, get_pagante_mmr
+from core.db.free_players_repo import is_free_player, is_free_player_eligible, FREE_MATCH_LIMIT
 from core.db.admins_repo import is_sub_admin_db
 from core.db.bot_config_repo import is_lobby_integration_enabled
 from core.db.player_repo import get_steam_friend_id
@@ -210,16 +211,29 @@ class LobbyView(discord.ui.View):
             await interaction.response.send_message("⚠️ Você já está na lista ou na espera!", ephemeral=True)
             return
 
-        if not is_pagante(interaction.user.id):
-            await interaction.response.send_message(
-                "❌ Você não está na lista de pagantes desta temporada.\n"
-                "Para participar, envie um Pix de **R$ 10,00** para Smith (chave: **(71) 99146-9980**) e avise um administrador.\n\n"
-                "Caso já tenha pago, peça a um administrador para atualizar a lista de pagantes no bot.",
-                ephemeral=True,
-            )
-            return
+        user_id = interaction.user.id
+        user_is_pagante = is_pagante(user_id)
 
-        if get_pagante_mmr(interaction.user.id) is None:
+        if not user_is_pagante:
+            if is_free_player(user_id):
+                if not is_free_player_eligible(user_id):
+                    await interaction.response.send_message(
+                        f"❌ Você utilizou seus **{FREE_MATCH_LIMIT} jogos gratuitos** desta temporada.\n"
+                        "Para continuar jogando, envie um Pix de **R$ 10,00** para Smith (chave: **(71) 99146-9980**) e avise um administrador.",
+                        ephemeral=True,
+                    )
+                    return
+                # free player com jogos disponíveis → pode entrar (pula check de MMR)
+            else:
+                await interaction.response.send_message(
+                    "❌ Você não está na lista de pagantes desta temporada.\n"
+                    "Para participar, envie um Pix de **R$ 10,00** para Smith (chave: **(71) 99146-9980**) e avise um administrador.\n\n"
+                    "Caso queira experimentar antes de pagar, use `!free` para ganhar **2 jogos gratuitos**.",
+                    ephemeral=True,
+                )
+                return
+
+        if user_is_pagante and get_pagante_mmr(user_id) is None:
             await interaction.response.send_message(
                 "❌ Seu MMR não está registrado para esta temporada.\n"
                 "Peça a um administrador para registrá-lo com `!addpagante @você <mmr>`.",

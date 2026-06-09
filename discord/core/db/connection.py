@@ -249,6 +249,16 @@ def init_db() -> None:
                 applied_at   TEXT    NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS free_players (
+                discord_id     INTEGER NOT NULL,
+                display_name   TEXT    NOT NULL,
+                season         INTEGER NOT NULL DEFAULT 1,
+                matches_played INTEGER NOT NULL DEFAULT 0,
+                registered_at  TEXT    NOT NULL,
+                PRIMARY KEY (discord_id, season)
+            )
+        """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_match_hash ON matches(match_hash)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_matches_created_at ON matches(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_match_players_league_match_id ON match_players(league_match_id)")
@@ -490,6 +500,17 @@ def migrate_db() -> None:
         if "lists_duration" not in susp_column_names:
             conn.execute("ALTER TABLE suspensions ADD COLUMN lists_duration INTEGER")
             logger.info("[DB] Coluna 'lists_duration' adicionada via migration ao suspensions.")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS free_players (
+                discord_id     INTEGER NOT NULL,
+                display_name   TEXT    NOT NULL,
+                season         INTEGER NOT NULL DEFAULT 1,
+                matches_played INTEGER NOT NULL DEFAULT 0,
+                registered_at  TEXT    NOT NULL,
+                PRIMARY KEY (discord_id, season)
+            )
+        """)
 
         logger.info("[DB] Índices e tabela heroes criados ou já existentes.")
         conn.commit()

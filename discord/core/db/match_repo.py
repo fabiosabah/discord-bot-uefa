@@ -201,6 +201,9 @@ def insert_ocr_match(
     external_match_id = parsed.get("steam_match_id") or parsed.get("dota_match_id")
     league_match_id = insert_league_match(parsed, match_hash, external_match_id)
 
+    from core.db.free_players_repo import increment_free_player_matches
+    increment_free_player_matches(winners + losers)
+
     if get_current_season() >= 3:
         _apply_elo_points(league_match_id, winners, losers)
         from core.db.pagantes_repo import adjust_pagante_mmr
