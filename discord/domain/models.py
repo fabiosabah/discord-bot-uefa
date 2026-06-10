@@ -209,7 +209,8 @@ class LobbySession:
                     tag = " " + "🔥" * (win_counts[p.id] // 3)
                     has_streak = True
                 elif p.id in loss_counts:
-                    tag = " " + "💩" * (loss_counts[p.id] // 3)
+                    count = loss_counts[p.id] // 3
+                    tag = " 🩳" if count >= 3 else " " + "💩" * count
                     has_streak = True
                 jt = self.player_join_times.get(p.id)
                 time_str = f" `{jt.strftime('%H:%M')}`" if jt else ""
